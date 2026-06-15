@@ -4,7 +4,7 @@ Qgram Cloud - Developer Dashboard
 Developer: @H_Tahoun | Channel: @Q_g_r_a_m
 """
 
-import os, sys, json, asyncio, time, random, threading, logging
+import os, sys, json, asyncio, time, random, threading, logging, glob as glob_mod
 from datetime import datetime
 from pathlib import Path
 
@@ -25,6 +25,15 @@ SESSIONS_DIR = Path("sessions")
 DOWNLOADS_DIR = Path("downloads")
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+# مسح أي ملفات مقفولة من الجلسات السابقة
+for f in glob_mod.glob("*.json"):
+    try: os.remove(f)
+    except: pass
+for f in glob_mod.glob("sessions/pending_*.json"):
+    try: os.remove(f)
+    except: pass
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 pending_logins = {}
@@ -37,17 +46,25 @@ stats = {
     "start_time": datetime.now().isoformat()
 }
 
+# تحميل الإحصائيات - بدون database locked
 try:
-    with open("stats.json", "r") as f:
-        stats = json.load(f)
-except: pass
+    if os.path.exists("stats.json"):
+        with open("stats.json", "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+            stats.update(loaded)
+except:
+    pass
 
 def save_stats():
+    # حفظ بدون تعقيدات - لو فشل نتجاهل
     try:
         stats["active_now"] = len(active_clients)
-        with open("stats.json", "w") as f:
+        tmp = "stats_tmp.json"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(stats, f, indent=2)
-    except: pass
+        os.replace(tmp, "stats.json")
+    except:
+        pass
 
 app = Flask(__name__)
 
@@ -449,11 +466,6 @@ def api_send_code():
         async def s():
             await client.start(phone=phone)
             r = await client.send_code_request(phone)
-            
-            data = {'phone_code_hash': r.phone_code_hash, 'api_id': api_id, 'api_hash': api_hash}
-            with open(SESSIONS_DIR / f"pending_{phone}.json", "w") as f:
-                json.dump(data, f)
-            
             pending_logins[phone] = {'client': client, 'hash': r.phone_code_hash, 'api_id': api_id, 'api_hash': api_hash}
         
         loop = asyncio.new_event_loop()
@@ -470,22 +482,7 @@ def api_verify():
         phone, code, pw = d['phone'], d['code'], d.get('password', '')
         
         if phone not in pending_logins:
-            file_path = SESSIONS_DIR / f"pending_{phone}.json"
-            if file_path.exists():
-                with open(file_path, "r") as f:
-                    saved = json.load(f)
-                
-                client = TelegramClient(str(SESSIONS_DIR / f"t_{phone}"), saved['api_id'], saved['api_hash'])
-                
-                async def connect_client():
-                    await client.start(phone=phone)
-                    pending_logins[phone] = {'client': client, 'hash': saved['phone_code_hash'], 'api_id': saved['api_id'], 'api_hash': saved['api_hash']}
-                
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(connect_client())
-            else:
-                return jsonify({'success': False, 'message': 'Session expired'})
+            return jsonify({'success': False, 'message': 'Session expired - please restart'})
         
         p = pending_logins[phone]
         client = p['client']
@@ -500,9 +497,6 @@ def api_verify():
             except PhoneCodeExpiredError: return False, "Code expired"
             
             await client.disconnect()
-            
-            file_path = SESSIONS_DIR / f"pending_{phone}.json"
-            if file_path.exists(): file_path.unlink()
             
             bot = create_user_bot(p['api_id'], p['api_hash'], phone)
             await bot.start(phone=phone)
