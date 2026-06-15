@@ -1,4 +1,4 @@
-import os, json, asyncio, time, random, threading, logging
+import os, json, asyncio, time, random, logging
 from datetime import datetime
 from pathlib import Path
 from flask import Flask, request, jsonify, render_template_string
@@ -106,7 +106,7 @@ def api_send_code():
         asyncio.set_event_loop(loop)
         async def s():
             client = TelegramClient(str(SESSIONS_DIR / f"t_{phone}"), api_id, api_hash)
-            await client.connect()
+            await client.start(phone=phone)
             r = await client.send_code_request(phone)
             pending_logins[phone] = {'client': client, 'hash': r.phone_code_hash}
         loop.run_until_complete(s())
@@ -134,7 +134,6 @@ def api_verify():
                 else: return False, "2FA required"
             except PhoneCodeInvalidError: return False, "Invalid code"
             except PhoneCodeExpiredError: return False, "Code expired"
-            await client.disconnect()
             bot = create_user_bot(d['api_id'], d['api_hash'], phone)
             await bot.start(phone=phone)
             active_clients[phone] = bot
