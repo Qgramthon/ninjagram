@@ -5,7 +5,6 @@ from flask import Flask, request, jsonify, render_template_string
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneCodeExpiredError
 
-BOT_TOKEN = "8871068990:AAH9OLFclsTzxgzOXOt36V2VY5iinCDzYoo"
 PORT = int(os.environ.get("PORT", 5000))
 SESSIONS_DIR = Path("sessions")
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
