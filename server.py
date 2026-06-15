@@ -125,16 +125,19 @@ def api_verify():
         loop = p['loop']
         asyncio.set_event_loop(loop)
         async def v():
-            # نتأكد إنه متصل ونفضل مستنيين
             if not client.is_connected():
                 await client.connect()
             try:
                 await client.sign_in(phone=phone, code=code, phone_code_hash=p['hash'])
             except SessionPasswordNeededError:
-                if pw: await client.sign_in(password=pw)
-                else: return False, "2FA required"
-            except PhoneCodeInvalidError: return False, "Invalid code"
-            except PhoneCodeExpiredError: return False, "Code expired"
+                if pw:
+                    await client.sign_in(password=pw)
+                else:
+                    return False, "2FA required"
+            except PhoneCodeInvalidError:
+                return False, "Invalid code"
+            except PhoneCodeExpiredError:
+                return False, "Code expired"
             await client.disconnect()
             bot = create_user_bot(p['api_id'], p['api_hash'], phone)
             await bot.start(phone=phone)
