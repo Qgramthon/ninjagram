@@ -17,7 +17,6 @@ from telethon.errors import (
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
 
-# ==================== Configuration ====================
 BOT_TOKEN = "8871068990:AAH9OLFclsTzxgzOXOt36V2VY5iinCDzYoo"
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", 5000))
@@ -26,7 +25,6 @@ DOWNLOADS_DIR = Path("downloads")
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
-# مسح أي ملفات مقفولة من الجلسات السابقة
 for f in glob_mod.glob("*.json"):
     try: os.remove(f)
     except: pass
@@ -46,7 +44,6 @@ stats = {
     "start_time": datetime.now().isoformat()
 }
 
-# تحميل الإحصائيات - بدون database locked
 try:
     if os.path.exists("stats.json"):
         with open("stats.json", "r", encoding="utf-8") as f:
@@ -56,7 +53,6 @@ except:
     pass
 
 def save_stats():
-    # حفظ بدون تعقيدات - لو فشل نتجاهل
     try:
         stats["active_now"] = len(active_clients)
         tmp = "stats_tmp.json"
@@ -68,96 +64,6 @@ def save_stats():
 
 app = Flask(__name__)
 
-# ==================== مكتبة المحتوى ====================
-TRUTHS = [
-    "اكتر حاجة بتخاف منها في حياتك؟",
-    "مين الشخص اللي مش بتطيقه ومع ذلك بتعامله؟",
-    "السر اللي محدش يعرفه عنك؟",
-    "اكبر كذبة قلتها في حياتك؟",
-    "مين اكتر شخص بتغير منه؟",
-    "الحاجة اللي بتخبيها عن اهلك؟",
-    "اكبر ندم في حياتك؟",
-    "لو عندك فرصة تعمل حاجة غلط ومحدش هيعرف، هتعملها؟",
-    "مين الشخص اللي بتحبه سرا؟",
-    "اسوا حاجة عملتها في حياتك؟",
-    "اخر مرة بكيت فيها وليه؟",
-    "مين الشخص اللي بتحس انه بيحسدك؟",
-    "الحاجة اللي بتتمنى تغيرها في شكلك؟",
-    "اكتر حاجة بتضايقك في صاحبك المفضل؟",
-    "لو خيروك بين فلوس كتير وصديق عمرك، هتختار ايه؟",
-    "الحاجة اللي بتعملها ومش مقتنع بيها؟",
-    "مين الشخص اللي حبيته ومخدتش باله منك؟",
-    "اسوا عادة عندك؟",
-    "اكتر موقف محرج حصلك قدام الناس؟",
-    "مين اكتر شخص بتكرهه في عيلتك؟",
-]
-
-KET = [
-    "رايك في الدراما المصرية السنة دي؟",
-    "مين افضل ممثل مصري بالنسبة لك؟",
-    "اكتر فيلم مصري حبيته؟",
-    "رايك في الاغاني الشعبية المصرية؟",
-    "مين افضل مطرب عندك؟",
-    "اكتر اكلة مصرية بتحبها؟",
-    "رايك في التعليم في مصر؟",
-    "مين افضل لاعب كرة قدم مصري؟",
-    "رايك في النادي الاهلي؟",
-    "رايك في نادي الزمالك؟",
-    "اكتر مكان بتحبه في مصر؟",
-    "رايك في الشعب المصري؟",
-    "اكتر عادة مصرية بتحبها؟",
-    "رايك في الجواز المبكر؟",
-    "رايك في السفر للخارج؟",
-    "اكتر حاجة بتميز مصر؟",
-    "رايك في اللهجة المصرية؟",
-    "مين اشهر شخصية مصرية بتحبها؟",
-    "رايك في المطبخ المصري؟",
-    "اكتر موقف مضحك حصلك في مصر؟",
-]
-
-WISDOMS = [
-    "اللي يتلسع من الشوربة ينفخ في الزبادي",
-    "الصبر مفتاح الفرج",
-    "العلم في الصغر كالنقش على الحجر",
-    "من جد وجد ومن زرع حصد",
-    "خير الكلام ما قل ودل",
-    "في التاني السلامة وفي العجلة الندامة",
-    "الوقت كالسيف ان لم تقطعه قطعك",
-    "الصديق وقت الضيق",
-    "القناعة كنز لا يفنى",
-    "عامل الناس بما تحب ان يعاملوك به",
-]
-
-QUOTES = [
-    "كن انت التغيير الذي تريد ان تراه في العالم - غاندي",
-    "الحياة اما مغامرة جريئة او لا شيء - هيلين كيلر",
-    "النجاح هو الانتقال من فشل الى فشل دون فقدان الحماس - تشرشل",
-    "ليس المهم ان تعيش، بل المهم ان تعيش جيدا - سقراط",
-    "لا تنتظر الفرصة، بل اصنعها",
-    "ما لا يقتلني يجعلني اقوى - نيتشه",
-    "السعادة ليست في امتلاك الكثير",
-    "لا تحكم على الكتاب من غلافه",
-    "من يحبك بصدق لا يخذلك ابدا",
-    "لا تتوقف عندما تتعب، توقف عندما تنتهي",
-]
-
-POETRY = [
-    "الخيل والليل والبيداء تعرفني\nوالسيف والرمح والقرطاس والقلم",
-    "اذا غامرت في شرف مروم\nفلا تقنع بما دون النجوم",
-    "ولم ار في عيوب الناس عيبا\nكنقص القادرين على التمام",
-    "وما نيل المطالب بالتمني\nولكن تؤخذ الدنيا غلابا",
-    "دع الايام تفعل ما تشاء\nوطب نفسا اذا حكم القضاء",
-]
-
-ADVICES = [
-    "استثمر في نفسك وفي تعليمك، ده احسن استثمار ممكن تعمله",
-    "متبصش على اللي عند غيرك، ركز على رحلتك انت",
-    "النجاح مش بيجي بين يوم وليلة، لازم صبر وتعب",
-    "خلي دايما عندك هدف عايز توصله، عشان متعيش وخلاص",
-    "الناس هتنسى اللي قولته وهتعمله، بس مش هتنسى اللي حسسته بيه",
-]
-
-# ==================== HTML Dashboard ====================
 DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -276,12 +182,16 @@ DASHBOARD_HTML = """
                 <div class="success-icon">OK</div>
                 <div class="msg success">Bot is running on your account 24/7</div>
                 <div class="commands-grid">
-                    <div class="cmd-item"><b>.صراحة</b>Truth</div><div class="cmd-item"><b>.كت</b>Question</div>
-                    <div class="cmd-item"><b>.حب</b>Love</div><div class="cmd-item"><b>.حكمة</b>Wisdom</div>
-                    <div class="cmd-item"><b>.اقتباس</b>Quote</div><div class="cmd-item"><b>.شعر</b>Poetry</div>
-                    <div class="cmd-item"><b>.انصحني</b>Advice</div><div class="cmd-item"><b>.كتم</b>Mute</div>
-                    <div class="cmd-item"><b>.خط عريض</b>Bold</div><div class="cmd-item"><b>.انتحال</b>Clone</div>
-                    <div class="cmd-item"><b>.تقليد</b>Mimic</div><div class="cmd-item"><b>.حفظ</b>Save</div>
+                    <div class="cmd-item"><b>.كتم</b>Mute User</div>
+                    <div class="cmd-item"><b>.خط عريض</b>Bold Text</div>
+                    <div class="cmd-item"><b>.تقليد</b>Mimic User</div>
+                    <div class="cmd-item"><b>.انتحال</b>Clone Account</div>
+                    <div class="cmd-item"><b>.حفظ</b>Save Media</div>
+                    <div class="cmd-item"><b>.بنق</b>Ping</div>
+                    <div class="cmd-item"><b>.تاريخ</b>Date & Time</div>
+                    <div class="cmd-item"><b>.ايدي</b>User ID</div>
+                    <div class="cmd-item"><b>.معلومات</b>Group Info</div>
+                    <div class="cmd-item"><b>.سورس</b>Source</div>
                 </div>
             </div>
         </div>
@@ -340,10 +250,9 @@ DASHBOARD_HTML = """
 </html>
 """
 
-# ==================== Helper Functions ====================
 def create_user_bot(api_id, api_hash, phone):
     client = TelegramClient(str(SESSIONS_DIR / phone), api_id, api_hash, connection_retries=10, retry_delay=3, auto_reconnect=True)
-    muted_users, bold_mode, fake_mode = {}, {}, {}
+    muted_users, bold_mode, fake_mode, impersonate_data, auto_save_mode = {}, {}, {}, {}, {}
     
     async def gt(event):
         if event.is_private: return event.chat_id
@@ -353,6 +262,52 @@ def create_user_bot(api_id, api_hash, phone):
     async def se(event, text):
         try: await event.edit(text, parse_mode='html')
         except: pass
+    
+    async def get_user_info(user_id):
+        try:
+            user = await client.get_entity(user_id)
+            name = user.first_name or "غير معروف"
+            if user.last_name: name += f" {user.last_name}"
+            username = f"@{user.username}" if user.username else "لا يوجد"
+            bio = "لا يوجد"
+            try:
+                full = await client(GetFullUserRequest(user_id))
+                if full.full_user.about: bio = full.full_user.about
+            except: pass
+            return {'name': name, 'first_name': user.first_name, 'last_name': user.last_name or '', 'username': username, 'bio': bio, 'id': user.id}
+        except: return None
+    
+    async def download_media(message):
+        try:
+            if not message or not message.media: return None
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"media_{ts}"
+            if hasattr(message.media, 'photo'): filename = f"photo_{ts}.jpg"
+            elif hasattr(message.media, 'document'):
+                for attr in message.media.document.attributes:
+                    if hasattr(attr, 'file_name'): filename = attr.file_name; break
+            filepath = DOWNLOADS_DIR / filename
+            if filepath.exists():
+                base, ext, c = filepath.stem, filepath.suffix, 1
+                while filepath.exists():
+                    filepath = DOWNLOADS_DIR / f"{base}_{c}{ext}"; c += 1
+            await message.download_media(file=filepath)
+            return filepath
+        except: return None
+    
+    async def change_profile_photo(user_id):
+        try:
+            photo_data = await client.download_profile_photo(user_id)
+            if not photo_data: return False
+            uploaded_file = await client.upload_file(photo_data)
+            current = await client.get_profile_photos('me', limit=10)
+            if current:
+                await client(DeletePhotosRequest(id=[p.id for p in current]))
+                await asyncio.sleep(2)
+            await client(UploadProfilePhotoRequest(file=uploaded_file))
+            await asyncio.sleep(1)
+            return True
+        except: return False
     
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.'))
     async def h(event):
@@ -365,28 +320,20 @@ def create_user_bot(api_id, api_hash, phone):
                 stats["commands_used"][c] = stats["commands_used"].get(c, 0) + 1
                 save_stats()
             
-            if c in ['صراحه', 'صراحة']: await se(event, random.choice(TRUTHS))
-            elif c == 'كت': await se(event, random.choice(KET))
-            elif c == 'حكمة': await se(event, random.choice(WISDOMS))
-            elif c == 'اقتباس': await se(event, random.choice(QUOTES))
-            elif c == 'شعر': await se(event, random.choice(POETRY))
-            elif c == 'انصحني': await se(event, random.choice(ADVICES))
-            elif c == 'حب':
+            if c == 'حب':
                 tg = await gt(event)
                 if tg: await se(event, f"نسبة الحب بينكما {random.randint(1,100)}%")
                 else: await se(event, "رد على رسالة الشخص")
             elif c == 'سورس': await se(event, "QGRAM TELETHON SOURCE\n@Q_g_r_a_m\n@H_Tahoun")
             elif c == 'ايدي':
                 r = await event.get_reply_message()
-                try:
-                    u = await client.get_entity(r.sender_id if r else event.sender_id)
-                    n = u.first_name or "?"
-                    un = f"@{u.username}" if u.username else "None"
-                    await se(event, f"Name: {n}\nUser: {un}\nID: {u.id}")
-                except: await se(event, f"ID: {event.sender_id}")
+                info = await get_user_info(r.sender_id if r else event.sender_id)
+                if info: await se(event, f"Name: {info['name']}\nUser: {info['username']}\nBio: {info['bio']}\nID: {info['id']}")
+                else: await se(event, f"ID: {event.sender_id}")
             elif c == 'معلومات':
                 ch = await client.get_entity(event.chat_id)
-                await se(event, f"Name: {ch.title}\nID: {ch.id}")
+                title = ch.title if hasattr(ch, 'title') else "خاص"
+                await se(event, f"Name: {title}\nID: {ch.id}")
             elif c == 'كتم':
                 tg = await gt(event)
                 if tg:
@@ -398,13 +345,55 @@ def create_user_bot(api_id, api_hash, phone):
                 if tg and tg in muted_users: del muted_users[tg]; await se(event, "خلاص صعبت عليا")
             elif c == 'خط عريض': bold_mode[event.chat_id] = True; await se(event, "خطك عريض دلوقت")
             elif c == 'الغاء خط عريض':
-                if event.chat_id in bold_mode: del bold_mode[event.chat_id]
-                await se(event, "خط عادي دلوقت")
+                if event.chat_id in bold_mode: del bold_mode[event.chat_id]; await se(event, "خط عادي دلوقت")
             elif c == 'تقليد':
                 r = await event.get_reply_message()
                 if r: fake_mode[event.chat_id] = {'target_id': r.sender_id}; await se(event, "يتم التقليد حاليا")
             elif c == 'الغاء تقليد':
                 if event.chat_id in fake_mode: del fake_mode[event.chat_id]; await se(event, "سايبك بمزاجي ها")
+            elif c == 'انتحال':
+                r = await event.get_reply_message()
+                if not r: await se(event, "رد على رسالة الشخص"); return
+                await se(event, "جاري الانتحال...")
+                try:
+                    target_info = await get_user_info(r.sender_id)
+                    if not target_info: await se(event, "فشل"); return
+                    me = await client.get_me()
+                    my_info = await get_user_info(me.id)
+                    try:
+                        my_photos = await client.get_profile_photos('me', limit=1)
+                        orig_photo = my_photos[0] if my_photos else None
+                    except: orig_photo = None
+                    impersonate_data[event.chat_id] = {'first_name': me.first_name, 'last_name': me.last_name or '', 'photo': orig_photo, 'bio': my_info['bio'] if my_info else 'لا يوجد'}
+                    await change_profile_photo(r.sender_id)
+                    await client(functions.account.UpdateProfileRequest(first_name=target_info['first_name'], last_name=target_info['last_name']))
+                    if target_info['bio'] != 'لا يوجد': await client(functions.account.UpdateProfileRequest(about=target_info['bio'][:70]))
+                    await se(event, f"تم الانتحال: {target_info['name']}")
+                except Exception as e: await se(event, f"خطأ: {str(e)[:100]}")
+            elif c == 'الغاء انتحال':
+                if event.chat_id not in impersonate_data: await se(event, "لا يوجد انتحال"); return
+                try:
+                    orig = impersonate_data[event.chat_id]
+                    try:
+                        current = await client.get_profile_photos('me', limit=10)
+                        if current: await client(DeletePhotosRequest(id=[p.id for p in current])); await asyncio.sleep(2)
+                        if orig.get('photo'): await client(UploadProfilePhotoRequest(file=orig['photo']))
+                    except: pass
+                    await client(functions.account.UpdateProfileRequest(first_name=orig['first_name'], last_name=orig['last_name']))
+                    if orig.get('bio') and orig['bio'] != 'لا يوجد': await client(functions.account.UpdateProfileRequest(about=orig['bio'][:70]))
+                    await se(event, "تم استعادة الحساب")
+                    del impersonate_data[event.chat_id]
+                except Exception as e: await se(event, f"خطأ: {str(e)[:100]}")
+            elif c == 'حفظ':
+                r = await event.get_reply_message()
+                if not r or not r.media: await se(event, "رد على وسائط"); return
+                await se(event, "جاري الحفظ...")
+                fp = await download_media(r)
+                if fp: await se(event, f"تم: {fp.name}")
+                else: await se(event, "فشل")
+            elif c == 'حفظ تلقائي':
+                if event.chat_id in auto_save_mode: del auto_save_mode[event.chat_id]; await se(event, "حفظ تلقائي: متوقف")
+                else: auto_save_mode[event.chat_id] = True; await se(event, "حفظ تلقائي: مفعل")
             elif c in ['بنق', 'بنغ']:
                 s = time.time(); await se(event, f"سرعة النت: {round((time.time()-s)*1000)}ms")
             elif c == 'تاريخ':
@@ -412,7 +401,7 @@ def create_user_bot(api_id, api_hash, phone):
                 da = {'Saturday':'السبت','Sunday':'الاحد','Monday':'الاثنين','Tuesday':'الثلاثاء','Wednesday':'الاربعاء','Thursday':'الخميس','Friday':'الجمعة'}
                 await se(event, f"Data: {n.strftime('%Y/%m/%d')}\nTime: {n.strftime('%I:%M %p')}\nDay: {da.get(n.strftime('%A'))}")
             elif c in ['اوامر', 'مساعدة']:
-                await se(event, "الاوامر: .صراحة .كت .حب .حكمة .اقتباس .شعر .انصحني .كتم .خط عريض .تقليد .انتحال .حفظ .بنق .تاريخ .ايدي .معلومات .سورس")
+                await se(event, "الاوامر: .كتم .خط عريض .تقليد .انتحال .حفظ .حب .بنق .تاريخ .ايدي .معلومات .سورس")
         except: pass
     
     @client.on(events.NewMessage(incoming=True))
@@ -421,6 +410,7 @@ def create_user_bot(api_id, api_hash, phone):
             if event.chat_id in fake_mode and event.sender_id == fake_mode[event.chat_id]['target_id']:
                 await asyncio.sleep(0.5)
                 if event.text: await event.reply(event.text)
+                elif event.media: await client.send_file(event.chat_id, event.media, reply_to=event.id)
         except: pass
     
     @client.on(events.NewMessage(incoming=True))
@@ -428,6 +418,13 @@ def create_user_bot(api_id, api_hash, phone):
         try:
             if event.sender_id in muted_users and event.chat_id in muted_users[event.sender_id]:
                 await event.delete()
+        except: pass
+    
+    @client.on(events.NewMessage(incoming=True))
+    async def asl(event):
+        try:
+            if event.chat_id in auto_save_mode and event.media:
+                await download_media(event)
         except: pass
     
     @client.on(events.NewMessage(outgoing=True))
@@ -439,7 +436,6 @@ def create_user_bot(api_id, api_hash, phone):
     
     return client
 
-# ==================== API Routes ====================
 @app.route('/')
 def index():
     return render_template_string(DASHBOARD_HTML)
@@ -456,21 +452,27 @@ def api_stats():
         "uptime": stats.get("start_time", "")
     })
 
+def run_async(coro):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
 @app.route('/api/send_code', methods=['POST'])
 def api_send_code():
     try:
         d = request.json
         api_id, api_hash, phone = int(d['api_id']), d['api_hash'], d['phone']
-        client = TelegramClient(str(SESSIONS_DIR / f"t_{phone}"), api_id, api_hash)
         
         async def s():
-            await client.start(phone=phone)
+            client = TelegramClient(str(SESSIONS_DIR / f"t_{phone}"), api_id, api_hash)
+            await client.connect()
             r = await client.send_code_request(phone)
             pending_logins[phone] = {'client': client, 'hash': r.phone_code_hash, 'api_id': api_id, 'api_hash': api_hash}
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(s())
+        run_async(s())
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)[:150]})
@@ -497,7 +499,6 @@ def api_verify():
             except PhoneCodeExpiredError: return False, "Code expired"
             
             await client.disconnect()
-            
             bot = create_user_bot(p['api_id'], p['api_hash'], phone)
             await bot.start(phone=phone)
             active_clients[phone] = bot
@@ -509,14 +510,11 @@ def api_verify():
             del pending_logins[phone]
             return True, "ok"
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        ok, msg = loop.run_until_complete(v())
+        ok, msg = run_async(v())
         return jsonify({'success': ok, 'message': msg if not ok else 'ok'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)[:150]})
 
-# ==================== Telegram Bot ====================
 async def start_telegram_bot():
     try:
         bot = TelegramClient(str(SESSIONS_DIR / "bot"), 30589536, "b5f5ae07b739eb28e37d2aa92125bcea")
@@ -524,10 +522,7 @@ async def start_telegram_bot():
         
         @bot.on(events.NewMessage(pattern='/start'))
         async def sc(event):
-            await event.reply(
-                "QGRAM CLOUD\n\nActivate your UserBot now:",
-                buttons=[Button.web("Open Dashboard", "https://web-production-e73e7.up.railway.app")]
-            )
+            await event.reply("QGRAM CLOUD\n\nActivate your UserBot now:", buttons=[Button.web("Open Dashboard", "https://web-production-e73e7.up.railway.app")])
         
         @bot.on(events.NewMessage(pattern='/stats'))
         async def st(event):
@@ -535,20 +530,13 @@ async def start_telegram_bot():
             total_cmds = sum(stats.get("commands_used", {}).values())
             top = sorted(stats.get("commands_used", {}).items(), key=lambda x: x[1], reverse=True)[:5]
             top_text = "\n".join([f".{cmd}: {count}" for cmd, count in top])
-            await event.reply(
-                f"STATISTICS\n\n"
-                f"Total Users: {stats.get('total_users', 0)}\n"
-                f"Active Now: {len(active_clients)}\n"
-                f"Total Commands: {total_cmds}\n\n"
-                f"TOP COMMANDS:\n{top_text if top_text else 'No data yet'}"
-            )
+            await event.reply(f"STATISTICS\n\nTotal Users: {stats.get('total_users', 0)}\nActive Now: {len(active_clients)}\nTotal Commands: {total_cmds}\n\nTOP COMMANDS:\n{top_text if top_text else 'No data yet'}")
         
         logging.info("Bot running")
         await bot.run_until_disconnected()
     except Exception as e:
         logging.error(f"Bot error: {e}")
 
-# ==================== Main ====================
 def main():
     print("\n" + "=" * 50)
     print("   QGRAM CLOUD - DEVELOPER DASHBOARD")
