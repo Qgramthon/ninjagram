@@ -468,7 +468,7 @@ def api_send_code():
         
         async def s():
             client = TelegramClient(str(SESSIONS_DIR / f"t_{phone}"), api_id, api_hash)
-            await client.connect()
+            await client.start(phone=phone)
             r = await client.send_code_request(phone)
             pending_logins[phone] = {'client': client, 'hash': r.phone_code_hash, 'api_id': api_id, 'api_hash': api_hash}
         
@@ -498,7 +498,6 @@ def api_verify():
             except PhoneCodeInvalidError: return False, "Invalid code"
             except PhoneCodeExpiredError: return False, "Code expired"
             
-            await client.disconnect()
             bot = create_user_bot(p['api_id'], p['api_hash'], phone)
             await bot.start(phone=phone)
             active_clients[phone] = bot
