@@ -1,7 +1,17 @@
-FROM python:3.10-slim
+FROM python:3.11-slim
+
 WORKDIR /app
+
+# تثبيت المتطلبات
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY server.py .
+
+# نسخ الكود
+COPY app.py .
+
+# إنشاء مجلد الجلسات
+RUN mkdir -p /app/sessions
+
 EXPOSE 5000
-CMD gunicorn server:app --bind 0.0.0.0:5000 --workers 1 --threads 1 --timeout 120
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "5000"]
