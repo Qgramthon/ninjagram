@@ -37,7 +37,6 @@ stats = {
     "start_time": datetime.now().isoformat()
 }
 
-# Load stats
 try:
     with open("stats.json", "r") as f:
         stats = json.load(f)
@@ -74,36 +73,6 @@ TRUTHS = [
     "اسوا عادة عندك؟",
     "اكتر موقف محرج حصلك قدام الناس؟",
     "مين اكتر شخص بتكرهه في عيلتك؟",
-    "الحلم اللي استحيت تقوله لحد؟",
-    "رايك الحقيقي في صاحبك اللي جنبك دلوقتي؟",
-    "لو قدرت ترجع بالزمن، هتغير ايه؟",
-    "مين الشخص اللي بتحس انه بيستغلك؟",
-    "الحاجة اللي بتخليك تكره نفسك؟",
-    "اكتر حاجة بتحبها في نفسك؟",
-    "مين قدوتك الحقيقية في الحياة؟",
-    "رايك في الحب من اول نظرة؟",
-    "الحاجة اللي مش هتسامح فيها ابدا؟",
-    "مين الشخص اللي بتحس انك ظلمته؟",
-    "اكتر حاجة ندمان انك معرفتش تعملها؟",
-    "رايك في الصداقة بين الولد والبنت؟",
-    "مين الشخص اللي بتكلمه اكتر من اهلك؟",
-    "الحاجة اللي بتحس انها هتخليك سعيد؟",
-    "اكتر حاجة مكسوف تعترف بيها؟",
-    "مين الشخص اللي بتحس انه بيحبك بجد؟",
-    "الحاجة اللي بتعملها سرا ومحدش يعرفها؟",
-    "اكتر موقف ضحكت فيه من قلبك؟",
-    "مين الشخص اللي بتحس انك خسرته بسبب غبائك؟",
-    "الحاجة اللي بتحس انها مستحيلة في حياتك؟",
-    "رايك في الخيانة؟",
-    "مين الشخص اللي بتتمنى تشوفه كل يوم؟",
-    "الحاجة اللي بتخاف تطلبها من ربنا؟",
-    "اكتر حاجة بتتمنى تنساها؟",
-    "مين الشخص اللي بتحس انه بيغير منك جامد؟",
-    "الحاجة اللي بتخليك تحس انك قوي؟",
-    "رايك في الجواز عن حب؟",
-    "مين الشخص اللي بتحس انك مديونله بحياتك؟",
-    "الحاجة اللي بتتمنى تعملها قبل ما تموت؟",
-    "اكتر حاجة بتخاف تخسرها في حياتك؟",
 ]
 
 KET = [
@@ -127,16 +96,6 @@ KET = [
     "مين اشهر شخصية مصرية بتحبها؟",
     "رايك في المطبخ المصري؟",
     "اكتر موقف مضحك حصلك في مصر؟",
-    "رايك في الزحمة في القاهرة؟",
-    "اكتر حاجة بتخليك فخور انك مصري؟",
-    "رايك في البحر الاحمر؟",
-    "رايك في السياحة في مصر؟",
-    "مين افضل كاتب مصري عندك؟",
-    "رايك في الادب المصري؟",
-    "اكتر مثل شعبي مصري بتحبه؟",
-    "رايك في الافراح المصرية؟",
-    "رايك في العزومات المصرية؟",
-    "اكتر حاجة بتحس انها ناقصة في مصر؟",
 ]
 
 WISDOMS = [
@@ -150,11 +109,6 @@ WISDOMS = [
     "الصديق وقت الضيق",
     "القناعة كنز لا يفنى",
     "عامل الناس بما تحب ان يعاملوك به",
-    "الجار قبل الدار",
-    "من شب على شيء شاب عليه",
-    "اتق شر من احسنت اليه",
-    "اذا كان الكلام من فضة فالسكوت من ذهب",
-    "العين بصيرة والايد قصيرة",
 ]
 
 QUOTES = [
@@ -176,11 +130,6 @@ POETRY = [
     "ولم ار في عيوب الناس عيبا\nكنقص القادرين على التمام",
     "وما نيل المطالب بالتمني\nولكن تؤخذ الدنيا غلابا",
     "دع الايام تفعل ما تشاء\nوطب نفسا اذا حكم القضاء",
-    "العلم يبني بيوتا لا عماد لها\nوالجهل يهدم بيت العز والكرم",
-    "صبرا جميلا ما اقرب الفرجا\nمن راقب الله في الامور نجا",
-    "ليس الجمال باثواب تزيننا\nان الجمال جمال العلم والادب",
-    "تعلم فليس المرء يولد عالما\nوليس اخو علم كمن هو جاهل",
-    "اذا ضاقت بك الدنيا فلا تقل يا رب عندي هم كبير\nولكن قل يا هم عندي رب كبير",
 ]
 
 ADVICES = [
@@ -189,11 +138,6 @@ ADVICES = [
     "النجاح مش بيجي بين يوم وليلة، لازم صبر وتعب",
     "خلي دايما عندك هدف عايز توصله، عشان متعيش وخلاص",
     "الناس هتنسى اللي قولته وهتعمله، بس مش هتنسى اللي حسسته بيه",
-    "متخليش الخوف يمنعك من انك تجرب حاجة جديدة",
-    "الصحة نعمة، حافظ عليها قبل ما تندم",
-    "الفلوس بتيجي وتروح، بس القيم والمبادئ بتفضل",
-    "عامل الناس زي ما تحب يعاملوك",
-    "متزعلش على اللي راح، يمكن ربنا عوضك بالاحسن",
 ]
 
 # ==================== HTML Dashboard ====================
@@ -217,261 +161,54 @@ DASHBOARD_HTML = """
             --text-secondary: #9090B0;
             --success: #4ADE80;
             --danger: #F87171;
-            --warning: #FBBF24;
             --radius: 12px;
             --radius-sm: 8px;
-            --transition: all 0.3s ease;
         }
-        
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
             min-height: 100vh;
             line-height: 1.6;
-            -webkit-font-smoothing: antialiased;
         }
-        
-        .app-container {
-            max-width: 680px;
-            margin: 0 auto;
-            padding: 16px;
-        }
-        
-        .header {
-            text-align: center;
-            padding: 24px 0;
-            position: relative;
-        }
-        
+        .app-container { max-width: 680px; margin: 0 auto; padding: 16px; }
+        .header { text-align: center; padding: 24px 0; }
         .header-logo {
-            font-size: 32px;
-            font-weight: 800;
-            letter-spacing: 2px;
+            font-size: 32px; font-weight: 800; letter-spacing: 2px;
             background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         }
-        
-        .header-sub {
-            color: var(--text-secondary);
-            font-size: 13px;
-            margin-top: 4px;
-            font-weight: 500;
-        }
-        
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            margin-bottom: 16px;
-        }
-        
-        .stat-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 16px 12px;
-            text-align: center;
-            transition: var(--transition);
-        }
-        
-        .stat-card:hover {
-            border-color: var(--accent);
-            transform: translateY(-2px);
-        }
-        
-        .stat-number {
-            font-size: 28px;
-            font-weight: 700;
-            color: var(--accent);
-            letter-spacing: -1px;
-        }
-        
-        .stat-label {
-            font-size: 11px;
-            color: var(--text-secondary);
-            margin-top: 4px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        
-        .card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 20px;
-            margin-bottom: 14px;
-            transition: var(--transition);
-        }
-        
-        .card-header {
-            font-size: 15px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .card-header::before {
-            content: '';
-            width: 4px;
-            height: 20px;
-            background: var(--accent);
-            border-radius: 2px;
-        }
-        
-        .step { display: none; }
-        .step.active { display: block; }
-        
-        label {
-            color: var(--text-secondary);
-            font-size: 12px;
-            display: block;
-            margin: 14px 0 6px;
-            font-weight: 500;
-            letter-spacing: 0.5px;
-        }
-        
-        input {
-            width: 100%;
-            padding: 13px 16px;
-            background: var(--bg-primary);
-            border: 1.5px solid var(--border);
-            border-radius: var(--radius-sm);
-            color: var(--text-primary);
-            font-size: 14px;
-            transition: var(--transition);
-            font-family: inherit;
-        }
-        
-        input:focus {
-            outline: none;
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.1);
-        }
-        
+        .header-sub { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+        .stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 12px; text-align: center; }
+        .stat-number { font-size: 28px; font-weight: 700; color: var(--accent); }
+        .stat-label { font-size: 11px; color: var(--text-secondary); margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+        .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 14px; }
+        .card-header { font-size: 15px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .card-header::before { content: ''; width: 4px; height: 20px; background: var(--accent); border-radius: 2px; }
+        .step { display: none; } .step.active { display: block; }
+        label { color: var(--text-secondary); font-size: 12px; display: block; margin: 14px 0 6px; font-weight: 500; }
+        input { width: 100%; padding: 13px 16px; background: var(--bg-primary); border: 1.5px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: 14px; font-family: inherit; }
+        input:focus { outline: none; border-color: var(--accent); }
         input::placeholder { color: #4A4A6A; }
-        
-        button {
-            width: 100%;
-            padding: 14px;
-            background: var(--accent);
-            color: #fff;
-            border: none;
-            border-radius: var(--radius-sm);
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            margin-top: 16px;
-            transition: var(--transition);
-            letter-spacing: 0.5px;
-            font-family: inherit;
-        }
-        
+        button { width: 100%; padding: 14px; background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 16px; font-family: inherit; }
         button:hover { background: var(--accent-hover); }
-        button:active { transform: scale(0.98); }
-        button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-        
-        .msg {
-            padding: 12px;
-            border-radius: var(--radius-sm);
-            margin-top: 12px;
-            text-align: center;
-            display: none;
-            font-size: 13px;
-            font-weight: 500;
-        }
-        
-        .msg.success { background: rgba(74, 222, 128, 0.1); color: var(--success); display: block; border: 1px solid rgba(74, 222, 128, 0.2); }
-        .msg.error { background: rgba(248, 113, 113, 0.1); color: var(--danger); display: block; border: 1px solid rgba(248, 113, 113, 0.2); }
-        
-        .info-box {
-            background: rgba(108, 99, 255, 0.06);
-            border: 1px solid rgba(108, 99, 255, 0.2);
-            border-radius: var(--radius-sm);
-            padding: 12px;
-            margin: 12px 0;
-            font-size: 12px;
-            color: var(--text-secondary);
-            line-height: 1.8;
-        }
-        
-        .info-box b { color: var(--accent); font-weight: 600; }
-        
-        .top-commands {
-            margin-top: 14px;
-        }
-        
-        .command-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 14px;
-            background: var(--bg-primary);
-            border-radius: var(--radius-sm);
-            margin: 6px 0;
-            font-size: 13px;
-        }
-        
-        .command-name {
-            font-weight: 600;
-            color: var(--accent);
-        }
-        
-        .command-count {
-            color: var(--text-secondary);
-            font-size: 12px;
-            background: var(--bg-card);
-            padding: 4px 10px;
-            border-radius: 20px;
-            border: 1px solid var(--border);
-        }
-        
-        .success-icon {
-            text-align: center;
-            font-size: 48px;
-            margin: 16px 0;
-            filter: grayscale(0%);
-        }
-        
-        .commands-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 7px;
-            margin-top: 12px;
-        }
-        
-        .cmd-item {
-            background: var(--bg-primary);
-            border: 1px solid var(--border);
-            padding: 10px;
-            border-radius: var(--radius-sm);
-            text-align: center;
-            font-size: 11px;
-            color: var(--text-secondary);
-            transition: var(--transition);
-        }
-        
-        .cmd-item:hover { border-color: var(--accent); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .msg { padding: 12px; border-radius: var(--radius-sm); margin-top: 12px; text-align: center; display: none; font-size: 13px; }
+        .msg.success { background: rgba(74,222,128,0.1); color: var(--success); display: block; border: 1px solid rgba(74,222,128,0.2); }
+        .msg.error { background: rgba(248,113,113,0.1); color: var(--danger); display: block; border: 1px solid rgba(248,113,113,0.2); }
+        .info-box { background: rgba(108,99,255,0.06); border: 1px solid rgba(108,99,255,0.2); border-radius: var(--radius-sm); padding: 12px; margin: 12px 0; font-size: 12px; color: var(--text-secondary); }
+        .info-box b { color: var(--accent); }
+        .top-commands { margin-top: 14px; }
+        .command-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: var(--bg-primary); border-radius: var(--radius-sm); margin: 6px 0; font-size: 13px; }
+        .command-name { font-weight: 600; color: var(--accent); }
+        .command-count { color: var(--text-secondary); font-size: 12px; background: var(--bg-card); padding: 4px 10px; border-radius: 20px; border: 1px solid var(--border); }
+        .success-icon { text-align: center; font-size: 48px; margin: 16px 0; }
+        .commands-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 12px; }
+        .cmd-item { background: var(--bg-primary); border: 1px solid var(--border); padding: 10px; border-radius: var(--radius-sm); text-align: center; font-size: 11px; color: var(--text-secondary); }
         .cmd-item b { color: var(--accent); display: block; margin-bottom: 3px; font-size: 13px; }
-        
-        .divider {
-            height: 1px;
-            background: var(--border);
-            margin: 20px 0;
-        }
-        
-        @media (max-width: 400px) {
-            .stats-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; }
-            .stat-number { font-size: 22px; }
-            .card { padding: 14px; }
-        }
+        .divider { height: 1px; background: var(--border); margin: 20px 0; }
     </style>
 </head>
 <body>
@@ -482,28 +219,14 @@ DASHBOARD_HTML = """
         </div>
 
         <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-number" id="totalUsers">0</div>
-                <div class="stat-label">Total Users</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number" id="activeNow">0</div>
-                <div class="stat-label">Active Now</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number" id="totalCommands">0</div>
-                <div class="stat-label">Commands Used</div>
-            </div>
+            <div class="stat-card"><div class="stat-number" id="totalUsers">0</div><div class="stat-label">Total Users</div></div>
+            <div class="stat-card"><div class="stat-number" id="activeNow">0</div><div class="stat-label">Active Now</div></div>
+            <div class="stat-card"><div class="stat-number" id="totalCommands">0</div><div class="stat-label">Commands</div></div>
         </div>
 
-        <div class="card" id="topCommandsCard">
+        <div class="card">
             <div class="card-header">Top Commands</div>
-            <div class="top-commands" id="topCommandsList">
-                <div class="command-item">
-                    <span class="command-name">--</span>
-                    <span class="command-count">0</span>
-                </div>
-            </div>
+            <div class="top-commands" id="topCommandsList"><div class="command-item"><span class="command-name">--</span><span class="command-count">0</span></div></div>
         </div>
 
         <div class="divider"></div>
@@ -511,15 +234,10 @@ DASHBOARD_HTML = """
         <div class="step active" id="s1">
             <div class="card">
                 <div class="card-header">Connect Account</div>
-                <div class="info-box">
-                    Get <b>API_ID</b> and <b>API_HASH</b> from <b>my.telegram.org</b> &gt; API Development Tools
-                </div>
-                <label>API ID</label>
-                <input type="number" id="api_id" placeholder="12345678">
-                <label>API HASH</label>
-                <input type="text" id="api_hash" placeholder="a1b2c3d4e5f6a1b2c3d4e5f6">
-                <label>Phone Number</label>
-                <input type="text" id="phone" placeholder="+201234567890">
+                <div class="info-box">Get <b>API_ID</b> and <b>API_HASH</b> from <b>my.telegram.org</b></div>
+                <label>API ID</label><input type="number" id="api_id" placeholder="12345678">
+                <label>API HASH</label><input type="text" id="api_hash" placeholder="a1b2c3d4e5f6a1b2c3d4e5f6">
+                <label>Phone Number</label><input type="text" id="phone" placeholder="+201234567890">
                 <button onclick="sendCode()">Send Verification Code</button>
                 <div id="msg1" class="msg"></div>
             </div>
@@ -528,10 +246,8 @@ DASHBOARD_HTML = """
         <div class="step" id="s2">
             <div class="card">
                 <div class="card-header">Verify Code</div>
-                <label>Verification Code</label>
-                <input type="text" id="code" placeholder="12345" maxlength="5">
-                <label>2FA Password (if enabled)</label>
-                <input type="password" id="password" placeholder="Leave empty if none">
+                <label>Verification Code</label><input type="text" id="code" placeholder="12345" maxlength="5">
+                <label>2FA Password (if enabled)</label><input type="password" id="password" placeholder="Leave empty if none">
                 <button onclick="verifyCode()">Activate Bot</button>
                 <div id="msg2" class="msg"></div>
             </div>
@@ -542,142 +258,65 @@ DASHBOARD_HTML = """
                 <div class="card-header">Activated</div>
                 <div class="success-icon">OK</div>
                 <div class="msg success">Bot is running on your account 24/7</div>
-                <div class="info-box">Available commands:</div>
                 <div class="commands-grid">
-                    <div class="cmd-item"><b>.صراحة</b>Truth Question</div>
-                    <div class="cmd-item"><b>.كت</b>General Question</div>
-                    <div class="cmd-item"><b>.حب</b>Love Calculator</div>
-                    <div class="cmd-item"><b>.حكمة</b>Wisdom</div>
-                    <div class="cmd-item"><b>.اقتباس</b>Quote</div>
-                    <div class="cmd-item"><b>.شعر</b>Poetry</div>
-                    <div class="cmd-item"><b>.انصحني</b>Advice</div>
-                    <div class="cmd-item"><b>.كتم</b>Mute User</div>
-                    <div class="cmd-item"><b>.خط عريض</b>Bold Text</div>
-                    <div class="cmd-item"><b>.انتحال</b>Impersonate</div>
-                    <div class="cmd-item"><b>.تقليد</b>Mimic User</div>
-                    <div class="cmd-item"><b>.حفظ</b>Save Media</div>
-                    <div class="cmd-item"><b>.بنق</b>Ping</div>
-                    <div class="cmd-item"><b>.تاريخ</b>Date & Time</div>
-                    <div class="cmd-item"><b>.ايدي</b>User Info</div>
-                    <div class="cmd-item"><b>.سورس</b>Source</div>
+                    <div class="cmd-item"><b>.صراحة</b>Truth</div><div class="cmd-item"><b>.كت</b>Question</div>
+                    <div class="cmd-item"><b>.حب</b>Love</div><div class="cmd-item"><b>.حكمة</b>Wisdom</div>
+                    <div class="cmd-item"><b>.اقتباس</b>Quote</div><div class="cmd-item"><b>.شعر</b>Poetry</div>
+                    <div class="cmd-item"><b>.انصحني</b>Advice</div><div class="cmd-item"><b>.كتم</b>Mute</div>
+                    <div class="cmd-item"><b>.خط عريض</b>Bold</div><div class="cmd-item"><b>.انتحال</b>Clone</div>
+                    <div class="cmd-item"><b>.تقليد</b>Mimic</div><div class="cmd-item"><b>.حفظ</b>Save</div>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-        const tg = window.Telegram.WebApp;
-        tg.ready(); tg.expand();
-        
+        const tg = window.Telegram.WebApp; tg.ready(); tg.expand();
         let phoneNumber = '';
+        function sm(n,t,c){let m=document.getElementById('msg'+n);m.textContent=t;m.className='msg '+c}
+        function ss(n){document.querySelectorAll('.step').forEach(s=>s.classList.remove('active'));document.getElementById('s'+n).classList.add('active')}
         
-        function sm(n, t, c) {
-            let m = document.getElementById('msg' + n);
-            m.textContent = t;
-            m.className = 'msg ' + c;
+        function updateStats(){
+            fetch('/api/stats').then(r=>r.json()).then(d=>{
+                document.getElementById('totalUsers').textContent=d.total_users||0;
+                document.getElementById('activeNow').textContent=d.active_now||0;
+                document.getElementById('totalCommands').textContent=d.total_commands||0;
+                let topHtml='';
+                const top=d.top_commands||{};
+                const sorted=Object.entries(top).sort((a,b)=>b[1]-a[1]).slice(0,5);
+                sorted.forEach(([cmd,count])=>{topHtml+=`<div class="command-item"><span class="command-name">.${cmd}</span><span class="command-count">${count}</span></div>`});
+                if(topHtml) document.getElementById('topCommandsList').innerHTML=topHtml;
+            });
+        }
+        updateStats(); setInterval(updateStats,5000);
+        
+        async function sendCode(){
+            let b=event.target; b.disabled=true; b.textContent='Sending...';
+            let ai=document.getElementById('api_id').value;
+            let ah=document.getElementById('api_hash').value;
+            let p=document.getElementById('phone').value; phoneNumber=p;
+            if(!ai||!ah||!p){sm(1,'All fields required','error');b.disabled=false;b.textContent='Send Code';return}
+            try{
+                let r=await fetch('/api/send_code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({api_id:ai,api_hash:ah,phone:p})});
+                let d=await r.json();
+                if(d.success){sm(1,'Code sent','success');setTimeout(()=>ss(2),500)}
+                else{sm(1,d.message,'error')}
+            }catch(e){sm(1,'Connection failed','error')}
+            b.disabled=false;b.textContent='Send Code';
         }
         
-        function ss(n) {
-            document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
-            document.getElementById('s' + n).classList.add('active');
-        }
-        
-        function updateStats() {
-            fetch('/api/stats')
-                .then(r => r.json())
-                .then(d => {
-                    document.getElementById('totalUsers').textContent = d.total_users || 0;
-                    document.getElementById('activeNow').textContent = d.active_now || 0;
-                    document.getElementById('totalCommands').textContent = d.total_commands || 0;
-                    
-                    let topHtml = '';
-                    const top = d.top_commands || {};
-                    const sorted = Object.entries(top).sort((a, b) => b[1] - a[1]).slice(0, 5);
-                    sorted.forEach(([cmd, count]) => {
-                        topHtml += `<div class="command-item"><span class="command-name">.${cmd}</span><span class="command-count">${count}</span></div>`;
-                    });
-                    if (topHtml) {
-                        document.getElementById('topCommandsList').innerHTML = topHtml;
-                    }
-                });
-        }
-        
-        updateStats();
-        setInterval(updateStats, 5000);
-        
-        async function sendCode() {
-            let b = event.target;
-            b.disabled = true;
-            b.textContent = 'Sending...';
-            
-            let ai = document.getElementById('api_id').value;
-            let ah = document.getElementById('api_hash').value;
-            let p = document.getElementById('phone').value;
-            phoneNumber = p;
-            
-            if (!ai || !ah || !p) {
-                sm(1, 'All fields are required', 'error');
-                b.disabled = false;
-                b.textContent = 'Send Verification Code';
-                return;
-            }
-            
-            try {
-                let r = await fetch('/api/send_code', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ api_id: ai, api_hash: ah, phone: p })
-                });
-                let d = await r.json();
-                if (d.success) {
-                    sm(1, 'Code sent successfully', 'success');
-                    setTimeout(() => ss(2), 500);
-                } else {
-                    sm(1, d.message, 'error');
-                }
-            } catch (e) {
-                sm(1, 'Connection failed', 'error');
-            }
-            
-            b.disabled = false;
-            b.textContent = 'Send Verification Code';
-        }
-        
-        async function verifyCode() {
-            let b = event.target;
-            b.disabled = true;
-            b.textContent = 'Activating...';
-            
-            let c = document.getElementById('code').value;
-            let pw = document.getElementById('password').value;
-            
-            if (!c) {
-                sm(2, 'Enter verification code', 'error');
-                b.disabled = false;
-                b.textContent = 'Activate Bot';
-                return;
-            }
-            
-            try {
-                let r = await fetch('/api/verify', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phone: phoneNumber, code: c, password: pw })
-                });
-                let d = await r.json();
-                if (d.success) {
-                    ss(3);
-                    tg.sendData(JSON.stringify({ done: true }));
-                    updateStats();
-                } else {
-                    sm(2, d.message, 'error');
-                }
-            } catch (e) {
-                sm(2, 'Connection failed', 'error');
-            }
-            
-            b.disabled = false;
-            b.textContent = 'Activate Bot';
+        async function verifyCode(){
+            let b=event.target; b.disabled=true; b.textContent='Activating...';
+            let c=document.getElementById('code').value;
+            let pw=document.getElementById('password').value;
+            if(!c){sm(2,'Enter code','error');b.disabled=false;b.textContent='Activate';return}
+            try{
+                let r=await fetch('/api/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:phoneNumber,code:c,password:pw})});
+                let d=await r.json();
+                if(d.success){ss(3);tg.sendData(JSON.stringify({done:true}));updateStats()}
+                else{sm(2,d.message,'error')}
+            }catch(e){sm(2,'Connection failed','error')}
+            b.disabled=false;b.textContent='Activate';
         }
     </script>
 </body>
@@ -687,7 +326,7 @@ DASHBOARD_HTML = """
 # ==================== Helper Functions ====================
 def create_user_bot(api_id, api_hash, phone):
     client = TelegramClient(str(SESSIONS_DIR / phone), api_id, api_hash, connection_retries=10, retry_delay=3, auto_reconnect=True)
-    muted_users, bold_mode, fake_mode, impersonate_data = {}, {}, {}, {}
+    muted_users, bold_mode, fake_mode = {}, {}, {}
     
     async def gt(event):
         if event.is_private: return event.chat_id
@@ -705,7 +344,6 @@ def create_user_bot(api_id, api_hash, phone):
             if not t.startswith('.'): return
             c = t[1:].strip().lower()
             
-            # Track command usage
             if c not in ['اوامر', 'مساعدة', 'بنق', 'بنغ']:
                 stats["commands_used"][c] = stats["commands_used"].get(c, 0) + 1
                 save_stats()
@@ -740,9 +378,7 @@ def create_user_bot(api_id, api_hash, phone):
                     await se(event, "خف كلام شوية")
             elif c == 'الغاء كتم':
                 tg = await gt(event)
-                if tg and tg in muted_users:
-                    muted_users[tg].discard(event.chat_id)
-                    await se(event, "خلاص صعبت عليا")
+                if tg and tg in muted_users: del muted_users[tg]; await se(event, "خلاص صعبت عليا")
             elif c == 'خط عريض': bold_mode[event.chat_id] = True; await se(event, "خطك عريض دلوقت")
             elif c == 'الغاء خط عريض':
                 if event.chat_id in bold_mode: del bold_mode[event.chat_id]
@@ -752,15 +388,6 @@ def create_user_bot(api_id, api_hash, phone):
                 if r: fake_mode[event.chat_id] = {'target_id': r.sender_id}; await se(event, "يتم التقليد حاليا")
             elif c == 'الغاء تقليد':
                 if event.chat_id in fake_mode: del fake_mode[event.chat_id]; await se(event, "سايبك بمزاجي ها")
-            elif c == 'حفظ':
-                r = await event.get_reply_message()
-                if r and r.media:
-                    await se(event, "جاري الحفظ...")
-                    try:
-                        fp = DOWNLOADS_DIR / f"file_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                        await r.download_media(file=fp)
-                        await se(event, f"تم الحفظ: {fp.name}")
-                    except: await se(event, "فشل الحفظ")
             elif c in ['بنق', 'بنغ']:
                 s = time.time(); await se(event, f"سرعة النت: {round((time.time()-s)*1000)}ms")
             elif c == 'تاريخ':
@@ -819,14 +446,18 @@ def api_send_code():
         api_id, api_hash, phone = int(d['api_id']), d['api_hash'], d['phone']
         client = TelegramClient(str(SESSIONS_DIR / f"t_{phone}"), api_id, api_hash)
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
         async def s():
-            await client.connect()
+            await client.start(phone=phone)
             r = await client.send_code_request(phone)
+            
+            data = {'phone_code_hash': r.phone_code_hash, 'api_id': api_id, 'api_hash': api_hash}
+            with open(SESSIONS_DIR / f"pending_{phone}.json", "w") as f:
+                json.dump(data, f)
+            
             pending_logins[phone] = {'client': client, 'hash': r.phone_code_hash, 'api_id': api_id, 'api_hash': api_hash}
         
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         loop.run_until_complete(s())
         return jsonify({'success': True})
     except Exception as e:
@@ -837,14 +468,31 @@ def api_verify():
     try:
         d = request.json
         phone, code, pw = d['phone'], d['code'], d.get('password', '')
-        if phone not in pending_logins: return jsonify({'success': False, 'message': 'Session expired'})
-        p = pending_logins[phone]; client = p['client']
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        if phone not in pending_logins:
+            file_path = SESSIONS_DIR / f"pending_{phone}.json"
+            if file_path.exists():
+                with open(file_path, "r") as f:
+                    saved = json.load(f)
+                
+                client = TelegramClient(str(SESSIONS_DIR / f"t_{phone}"), saved['api_id'], saved['api_hash'])
+                
+                async def connect_client():
+                    await client.start(phone=phone)
+                    pending_logins[phone] = {'client': client, 'hash': saved['phone_code_hash'], 'api_id': saved['api_id'], 'api_hash': saved['api_hash']}
+                
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(connect_client())
+            else:
+                return jsonify({'success': False, 'message': 'Session expired'})
+        
+        p = pending_logins[phone]
+        client = p['client']
         
         async def v():
-            try: await client.sign_in(phone=phone, code=code, phone_code_hash=p['hash'])
+            try:
+                await client.sign_in(phone=phone, code=code, phone_code_hash=p['hash'])
             except SessionPasswordNeededError:
                 if pw: await client.sign_in(password=pw)
                 else: return False, "2FA password required"
@@ -852,6 +500,9 @@ def api_verify():
             except PhoneCodeExpiredError: return False, "Code expired"
             
             await client.disconnect()
+            
+            file_path = SESSIONS_DIR / f"pending_{phone}.json"
+            if file_path.exists(): file_path.unlink()
             
             bot = create_user_bot(p['api_id'], p['api_hash'], phone)
             await bot.start(phone=phone)
@@ -864,6 +515,8 @@ def api_verify():
             del pending_logins[phone]
             return True, "ok"
         
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         ok, msg = loop.run_until_complete(v())
         return jsonify({'success': ok, 'message': msg if not ok else 'ok'})
     except Exception as e:
