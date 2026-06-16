@@ -2,7 +2,7 @@ import asyncio
 import os
 import threading
 from functools import wraps
-from typing import Dict, Optional
+from typing import Dict, Tuple
 
 from flask import Flask, jsonify, request, render_template_string
 from telethon import TelegramClient, events
@@ -11,83 +11,75 @@ from telethon.sessions import StringSession
 
 app = Flask(__name__)
 
-# Load from environment variables (Railway)
-API_ID = os.getenv('API_ID')
-API_HASH = os.getenv('API_HASH')
-
-if not API_ID or not API_HASH:
-    raise ValueError("API_ID and API_HASH must be set as environment variables in Railway")
-
-API_ID = int(API_ID)
-
-# Storage
+# تخزين العملاء
 active_clients: Dict[str, TelegramClient] = {}
-pending_logins: Dict[str, tuple[TelegramClient, str]] = {}
+pending_logins: Dict[str, Tuple[TelegramClient, str, int, str]] = {}  # (client, phone_code_hash, api_id, api_hash)
 
-# Helper to run async code from Flask
 def async_route(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         return asyncio.run(f(*args, **kwargs))
     return wrapper
 
-def run_client_background(client: TelegramClient, phone: str):
-    """Run Telethon client in background thread"""
+def run_client_background(client: TelegramClient, identifier: str):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
     async def runner():
         try:
             await client.start()
-            print(f"✅ UserBot started for {phone}")
+            print(f"✅ UserBot Started: {identifier}")
             await client.run_until_disconnected()
         except Exception as e:
-            print(f"❌ Client error for {phone}: {e}")
+            print(f"❌ Error {identifier}: {e}")
         finally:
-            try:
-                await client.disconnect()
-            except:
-                pass
+            await client.disconnect()
 
     loop.run_until_complete(runner())
 
 async def setup_handlers(client: TelegramClient):
-    """Define your command handlers here"""
     @client.on(events.NewMessage(pattern='/ping'))
     async def ping(event):
-        await event.reply("Pong! UserBot is running.")
+        await event.reply("Pong! البوت شغال يا صاحبي ⚡")
 
-    # Add more handlers as needed
-    # @client.on(events.NewMessage())
-    # async def handler(event):
-    #     ...
+    # أضف handlers الخاصة بك هنا
 
-# ====================== WEB ROUTES ======================
 
 @app.route('/')
 def home():
     html = """
-    <h1>Telegram UserBot</h1>
+    <h1>Telegram UserBot - qgram-bot</h1>
     <form action="/api/send_code" method="post">
-        <label>Phone number:</label><br>
-        <input type="text" name="phone" placeholder="+1234567890" required><br><br>
-        <button type="submit">Send Verification Code</button>
+        <label>API ID:</label><br>
+        <input type="text" name="api_id" placeholder="12345678" required><br><br>
+        
+        <label>API HASH:</label><br>
+        <input type="text" name="api_hash" placeholder="0123456789abcdef..." required><br><br>
+        
+        <label>رقم الهاتف:</label><br>
+        <input type="text" name="phone" placeholder="+201234567890" required><br><br>
+        
+        <button type="submit">إرسال كود التحقق</button>
     </form>
     <hr>
-    <a href="/api/status">Check Status</a>
+    <a href="/api/status">حالة البوتات النشطة</a>
     """
     return html
+
 
 @app.route('/api/send_code', methods=['POST'])
 @async_route
 async def send_code():
-    phone = (request.form.get('phone') or request.json.get('phone') or '').strip()
-    if not phone:
-        return jsonify({"error": "Phone number is required"}), 400
+    api_id = request.form.get('api_id')
+    api_hash = request.form.get('api_hash')
+    phone = request.form.get('phone', '').strip()
+
+    if not api_id or not api_hash or not phone:
+        return jsonify({"error": "يجب إدخال API_ID و API_HASH و رقم الهاتف"}), 400
 
     try:
-        session = StringSession()  # In-memory for now
-        client = TelegramClient(session, API_ID, API_HASH)
+        api_id = int(api_id)
+        client = TelegramClient(StringSession(), api_id, api_hash)
 
         await client.connect()
 
@@ -95,15 +87,12 @@ async def send_code():
             await setup_handlers(client)
             active_clients[phone] = client
             threading.Thread(target=run_client_background, args=(client, phone), daemon=True).start()
-            return jsonify({"status": "already_active", "message": "Bot already logged in"})
+            return jsonify({"status": "already_active"})
 
         sent = await client.send_code_request(phone)
-        pending_logins[phone] = (client, sent.phone_code_hash)
+        pending_logins[phone] = (client, sent.phone_code_hash, api_id, api_hash)
 
-        return jsonify({
-            "status": "code_sent",
-            "message": "Verification code sent to your Telegram app"
-        })
+        return jsonify({"status": "code_sent", "message": "تم إرسال كود التحقق"})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -112,49 +101,40 @@ async def send_code():
 @app.route('/api/verify', methods=['POST'])
 @async_route
 async def verify():
-    phone = (request.form.get('phone') or request.json.get('phone') or '').strip()
-    code = (request.form.get('code') or request.json.get('code') or '').strip()
-    password = request.form.get('password') or request.json.get('password')
+    phone = request.form.get('phone', '').strip()
+    code = request.form.get('code', '').strip()
+    password = request.form.get('password')
 
-    if not phone or not code:
-        return jsonify({"error": "Phone and code are required"}), 400
-    if phone not in pending_logins:
-        return jsonify({"error": "No pending login found for this phone"}), 400
+    if not phone or not code or phone not in pending_logins:
+        return jsonify({"error": "بيانات غير صحيحة"}), 400
 
-    client, phone_code_hash = pending_logins[phone]
+    client, phone_code_hash, _, _ = pending_logins[phone]
 
     try:
         await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
     except SessionPasswordNeededError:
         if not password:
-            return jsonify({"error": "Two-factor authentication password required", "needs_2fa": True}), 401
+            return jsonify({"error": "كلمة مرور التحقق بخطوتين مطلوبة", "needs_2fa": True}), 401
         await client.sign_in(password=password)
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
-    # Success
     await setup_handlers(client)
     active_clients[phone] = client
     del pending_logins[phone]
 
     threading.Thread(target=run_client_background, args=(client, phone), daemon=True).start()
 
-    session_str = client.session.save()
-    print(f"Session string for {phone}:\n{session_str}")
-
-    return jsonify({
-        "status": "success",
-        "message": "UserBot successfully activated and listening"
-    })
+    return jsonify({"status": "success", "message": "تم تفعيل اليوزربوت بنجاح"})
 
 
 @app.route('/api/status')
 def status():
     return jsonify({
-        "active_bots": list(active_clients.keys()),
-        "pending_logins": list(pending_logins.keys())
+        "active": list(active_clients.keys()),
+        "pending": list(pending_logins.keys())
     })
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=5000)
