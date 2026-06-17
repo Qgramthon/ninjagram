@@ -27,7 +27,7 @@ from telethon.tl.types import InputPeerChannel, InputPeerUser, InputPhoneContact
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest, GetUserPhotosRequest
 from telethon.tl.functions.users import GetFullUserRequest
 
-# Gemini AI
+# Gemini AI - استيراد صحيح
 import google.generativeai as genai
 
 try:
@@ -144,14 +144,12 @@ def is_blacklisted(phone: str) -> bool:
 # ======================== Gemini AI (باستخدام المكتبة الرسمية) ========================
 def ask_gemini(question: str) -> str:
     try:
-        # الموديل الأساسي
         model = genai.GenerativeModel('gemini-2.0-flash')
         response = model.generate_content(question)
         return response.text[:2000]
     except Exception as e:
         logger.error(f"Gemini 2.0 error: {e}")
         try:
-            # fallback للموديل الأقدم
             model = genai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content(question)
             return response.text[:2000]
@@ -323,7 +321,6 @@ async def cache_user_info(client, phone):
         pass
 
 async def get_user_info_full(client, user_id):
-    """جلب معلومات المستخدم كاملة"""
     try:
         user = await client.get_entity(user_id)
         name = user.first_name or "غير معروف"
@@ -349,7 +346,6 @@ async def get_user_info_full(client, user_id):
         return None
 
 async def change_profile_photo(client, user_id, phone):
-    """تغيير صورة البروفايل"""
     try:
         current = await client.get_profile_photos('me', limit=10)
         if current:
@@ -964,7 +960,7 @@ async def setup_handlers(client, phone):
                 await client(DeletePhotosRequest(id=[p.id for p in current]))
                 await asyncio.sleep(2)
             if original.get('photo'):
-                pass  # نكتفي بحذف الصورة الحالية
+                pass
         except:
             pass
 
