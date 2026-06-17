@@ -8,40 +8,24 @@ import time
 import random
 import json
 import os
-import io
 import sys
+import requests
 
 from flask import Flask, jsonify, request
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError, FloodWaitError
 from telethon.sessions import StringSession
 from telethon.tl.functions.account import UpdateProfileRequest
-from telethon.tl.functions.contacts import BlockRequest, UnblockRequest, AddContactRequest, ImportContactsRequest
-from telethon.tl.functions.channels import JoinChannelRequest, EditAdminRequest, EditPhotoRequest
-from telethon.tl.functions.messages import ToggleDialogPinRequest, ExportChatInviteRequest, EditChatDefaultBannedRightsRequest
-from telethon.tl.functions.messages import GetDialogsRequest
-from telethon.tl.functions.phone import CreateGroupCallRequest, DiscardGroupCallRequest
-from telethon.tl.functions.channels import CreateChannelRequest, EditAdminRequest, InviteToChannelRequest
-from telethon.tl.functions.messages import AddChatUserRequest, DeleteChatUserRequest, CreateChatRequest
-from telethon.tl.types import InputPeerChannel, InputPeerUser, InputPeerChat, InputPhoneContact
-from telethon.tl.types import ChatBannedRights
-from telethon.tl.functions.messages import GetHistoryRequest
-from telethon.tl.types import PeerChannel, PeerUser, PeerChat
-from telethon.tl.functions.phone import RequestCallRequest, DiscardCallRequest
+from telethon.tl.functions.contacts import BlockRequest, UnblockRequest, ImportContactsRequest
+from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.tl.functions.messages import ToggleDialogPinRequest, GetHistoryRequest, GetDialogsRequest, EditChatDefaultBannedRightsRequest
+from telethon.tl.functions.phone import RequestCallRequest
+from telethon.tl.types import InputPeerChannel, InputPeerUser, InputPhoneContact, ChatBannedRights, PhoneCallProtocol
 
-try:
-    from PIL import Image
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
-
-# ========== تخزين ==========
 DATA_DIR = '/data' if os.path.exists('/data') else '.'
 os.makedirs(DATA_DIR, exist_ok=True)
 SESSION_FILE = os.path.join(DATA_DIR, 'active_sessions.json')
 API_CONFIG_FILE = os.path.join(DATA_DIR, 'api_config.json')
-TEMP_DIR = os.path.join(DATA_DIR, 'temp')
-os.makedirs(TEMP_DIR, exist_ok=True)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger(__name__)
@@ -50,6 +34,7 @@ app = Flask(__name__)
 
 SOURCE_CHANNEL = "https://t.me/Q_g_r_a_m"
 SOURCE_CHANNEL_USERNAME = "Q_g_r_a_m"
+GEMINI_API_KEY = "AQ.Ab8RN6IJ52RfamXKX6nNJOglTwDarnQyUIh9uzITyqK5iqwm7w"
 
 main_loop = asyncio.new_event_loop()
 
@@ -61,7 +46,6 @@ muted_users = {}
 banned_users = {}
 taqleed_users = {}
 bold_mode = {}
-save_deleted = {}
 client_me = {}
 
 def run_async_in_main_loop(coro):
@@ -74,7 +58,6 @@ def async_route(f):
         try:
             return run_async_in_main_loop(f(*args, **kwargs))
         except Exception as e:
-            logger.error(f"Error: {e}")
             return jsonify({"status": "error", "message": str(e)}), 500
     return wrapper
 
@@ -116,7 +99,6 @@ async def load_all_sessions():
                         api_configs_storage[phone] = configs[phone]
                         client_me[phone] = await client.get_me()
                         start_client_in_background(client, phone)
-                        logger.info(f"Restored: {phone}")
             except:
                 pass
     except:
@@ -142,6 +124,19 @@ async def ensure_subscription(client, phone):
         pass
     await pin_channel_to_top(client)
 
+def ask_gemini(question):
+    """سؤال Gemini AI - ترجع النص أو None"""
+    try:
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        headers = {'Content-Type': 'application/json', 'X-goog-api-key': GEMINI_API_KEY}
+        data = {"contents": [{"parts": [{"text": question}]}]}
+        response = requests.post(url, headers=headers, json=data, timeout=30)
+        result = response.json()
+        answer = result['candidates'][0]['content']['parts'][0]['text']
+        return answer[:2000]
+    except:
+        return None
+
 def start_client_in_background(client, phone):
     async def run_client():
         try:
@@ -150,7 +145,6 @@ def start_client_in_background(client, phone):
             if not await client.is_user_authorized():
                 return
             client_me[phone] = await client.get_me()
-            logger.info(f"Bot: {phone}")
             await ensure_subscription(client, phone)
             await setup_handlers(client, phone)
             try:
@@ -168,7 +162,6 @@ async def setup_handlers(client, phone):
         banned_users[phone] = {}
         taqleed_users[phone] = {}
         bold_mode[phone] = False
-        save_deleted[phone] = False
     
     @client.on(events.NewMessage(incoming=True))
     async def mute_h(event):
@@ -180,11 +173,12 @@ async def setup_handlers(client, phone):
     
     @client.on(events.NewMessage(incoming=True))
     async def taqleed_h(event):
-        if event.is_private and event.sender_id in taqleed_users.get(phone, {}) and event.text:
+        sender = event.sender_id
+        if sender and sender in taqleed_users.get(phone, {}) and event.text:
             if not event.text.startswith('.'):
                 await asyncio.sleep(0.5)
                 try:
-                    await client.send_message(event.sender_id, event.text)
+                    await event.reply(event.text)
                 except:
                     pass
     
@@ -204,25 +198,29 @@ async def setup_handlers(client, phone):
     # ============ اوامر ============
     @client.on(events.NewMessage(outgoing=True, pattern='.اوامر'))
     async def cmds(event):
-        await event.edit("""**أوامر السورس 𔓕**
-• تقليد ، غ تقليد
-• خط ، غ خط
-• اسم + الاسم
-• بايو + البايو
-• ث ، غ ث (تثبيت)
-• إضافة + عدد
-• عدد (عرض عدد الرسائل)
-• حذف + عدد
-• نسخ + عدد
-• رن (مكالمة صوتية)
-• قفل ، فتح (للجروب)
-• ايدي ، ا
-• كتم ، غ كتم
-• تقيد ، غ تقييد
-• حظر ، غ حظر
-• تهكير
-• اوامر
-• سورس**""", parse_mode='md')
+        await event.edit("""**اوامر السورس 𔓕**
+
+ايدي ا
+تقليد غ تقليد
+خط غ خط
+اسم + الاسم
+بايو + البايو
+ث غ ث
+اضافة + عدد
+عدد
+حذف + عدد
+رن
+قفل فتح
+كتم غ كتم
+حظر غ حظر
+تقيد غ تقييد
+تهكير
+ذكاء + سؤال
+بوت + سؤال
+صراحة
+كت
+اوامر
+سورس""", parse_mode='md')
     
     # ============ ايدي / ا ============
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.(ايدي|ا)$'))
@@ -237,34 +235,39 @@ async def setup_handlers(client, phone):
             user = await client.get_entity(event.chat_id)
         if not user:
             return
-        lines = [f"•ꪀᥲꪔꫀ↝ {user.first_name or ''} {user.last_name or ''}".strip()]
+        lines = [f"ꪀᥲꪔꫀ {user.first_name or ''} {user.last_name or ''}".strip()]
         if user.username:
-            lines.append(f"•ᥙ᥉ꫀɾ↝ @{user.username}")
+            lines.append(f"ᥙ᥉ꫀɾ @{user.username}")
         try:
             full = await client.get_entity(user.id)
             if hasattr(full, 'about') and full.about:
-                lines.append(f"•ᑲᎥ᥆↝ {full.about[:50]}")
+                lines.append(f"ᑲᎥ᥆ {full.about[:50]}")
         except:
             pass
-        lines.append(f"•Ꭵძ↝ {user.id}")
+        lines.append(f"Ꭵძ {user.id}")
         await client.send_message(event.chat_id, "\n".join(lines))
     
     # ============ تقليد ============
     @client.on(events.NewMessage(outgoing=True, pattern='.تقليد'))
     async def taq(event):
+        target = None
         if event.is_reply:
-            taqleed_users[phone][(await event.get_reply_message()).sender_id] = True
-            await event.edit("**• يتم التقليد**")
+            target = (await event.get_reply_message()).sender_id
         elif event.is_private:
-            taqleed_users[phone][event.chat_id] = True
+            target = event.chat_id
+        if target:
+            taqleed_users[phone][target] = True
             await event.edit("**• يتم التقليد**")
     
     @client.on(events.NewMessage(outgoing=True, pattern='.غ تقليد'))
     async def notaq(event):
+        target = None
         if event.is_reply:
-            taqleed_users[phone].pop((await event.get_reply_message()).sender_id, None)
+            target = (await event.get_reply_message()).sender_id
         elif event.is_private:
-            taqleed_users[phone].pop(event.chat_id, None)
+            target = event.chat_id
+        if target:
+            taqleed_users[phone].pop(target, None)
         await event.edit("**• تم فك التقليد**")
     
     # ============ خط / غ خط ============
@@ -296,16 +299,15 @@ async def setup_handlers(client, phone):
         except:
             await event.edit("**• فشل**")
     
-    # ============ ث / غ ث (تثبيت) ============
+    # ============ ث / غ ث ============
     @client.on(events.NewMessage(outgoing=True, pattern='.ث'))
     async def pin_msg(event):
         if event.is_reply:
             try:
-                msg = await event.get_reply_message()
-                await msg.pin()
+                await (await event.get_reply_message()).pin()
                 await event.edit("**• تم التثبيت**")
             except:
-                await event.edit("**• فشل التثبيت**")
+                await event.edit("**• فشل**")
         else:
             try:
                 await client(ToggleDialogPinRequest(peer=event.input_chat, pinned=True))
@@ -317,8 +319,7 @@ async def setup_handlers(client, phone):
     async def unpin_msg(event):
         if event.is_reply:
             try:
-                msg = await event.get_reply_message()
-                await msg.unpin()
+                await (await event.get_reply_message()).unpin()
                 await event.edit("**• تم الغاء التثبيت**")
             except:
                 await event.edit("**• فشل**")
@@ -329,37 +330,36 @@ async def setup_handlers(client, phone):
             except:
                 await event.edit("**• فشل**")
     
-    # ============ إضافة ============
-    @client.on(events.NewMessage(outgoing=True, pattern=r'\.إضافة (\d+)'))
+    # ============ اضافة ============
+    @client.on(events.NewMessage(outgoing=True, pattern=r'\.اضافة (\d+)'))
     async def add_contacts(event):
         count = int(event.pattern_match.group(1))
-        await event.edit(f"**• جاري إضافة {count} جهة...**")
+        await event.edit(f"**• جاري اضافة {count} جهة**")
         added = 0
         try:
             dialogs = await client(GetDialogsRequest(offset_date=None, offset_id=0, offset_peer=InputPeerUser(0, 0), limit=count, hash=0))
-            for dialog in dialogs.dialogs[:count]:
+            for dialog in dialogs.users[:count]:
                 try:
-                    entity = await client.get_entity(dialog.peer)
-                    if hasattr(entity, 'phone') and entity.phone:
-                        contact = InputPhoneContact(client_id=0, phone=entity.phone, first_name=entity.first_name or "User", last_name=entity.last_name or "")
+                    if hasattr(dialog, 'phone') and dialog.phone and not dialog.bot:
+                        contact = InputPhoneContact(client_id=0, phone=dialog.phone, first_name=dialog.first_name or "User", last_name=dialog.last_name or "")
                         await client(ImportContactsRequest([contact]))
                         added += 1
+                        await asyncio.sleep(0.5)
                 except:
                     pass
-            await event.edit(f"**• تم إضافة {added} جهة اتصال**")
-        except Exception as e:
-            await event.edit(f"**• فشل: {str(e)[:50]}**")
+            await event.edit(f"**• تم اضافة {added} جهة**")
+        except:
+            await event.edit("**• فشل**")
     
     # ============ عدد ============
     @client.on(events.NewMessage(outgoing=True, pattern='.عدد'))
     async def msg_count(event):
-        await event.edit("**• جاري العد...**")
+        await event.edit("**• جاري العد**")
         try:
             history = await client(GetHistoryRequest(peer=event.input_chat, limit=0, offset_date=None, offset_id=0, add_offset=0, max_id=0, min_id=0, hash=0))
-            count = history.count
-            await event.edit(f"**ꪔᥲ᥉᥉ᥲᧁꫀ᥉↝ {count}**")
+            await event.edit(f"**ꪔᥲ᥉᥉ᥲᧁꫀ᥉ {history.count}**")
         except:
-            await event.edit("**• فشل العد**")
+            await event.edit("**• فشل**")
     
     # ============ حذف ============
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.حذف(?: (\d+))?'))
@@ -367,7 +367,7 @@ async def setup_handlers(client, phone):
         count = event.pattern_match.group(1)
         if count:
             count = int(count)
-            await event.edit(f"**• جاري حذف {count} رسالة...**")
+            await event.edit(f"**• جاري حذف {count} رسالة**")
             try:
                 messages = await client.get_messages(event.chat_id, limit=count)
                 await client.delete_messages(event.chat_id, [m.id for m in messages])
@@ -376,58 +376,28 @@ async def setup_handlers(client, phone):
                 await event.edit("**• فشل**")
         elif event.is_reply:
             try:
-                msg = await event.get_reply_message()
-                await msg.delete()
+                await (await event.get_reply_message()).delete()
                 await event.delete()
             except:
                 await event.edit("**• فشل**")
     
-    # ============ نسخ ============
-    @client.on(events.NewMessage(outgoing=True, pattern=r'\.نسخ(?: (\d+))?'))
-    async def copy_msgs(event):
-        count = event.pattern_match.group(1)
-        if count:
-            count = int(count)
-            await event.edit(f"**• جاري نسخ {count} رسالة...**")
-            try:
-                messages = await client.get_messages(event.chat_id, limit=count)
-                copied = 0
-                for msg in reversed(messages):
-                    try:
-                        await client.send_message(event.chat_id, msg.text or ".")
-                        copied += 1
-                    except:
-                        pass
-                await event.edit(f"**• تم نسخ {copied} رسالة**")
-            except:
-                await event.edit("**• فشل**")
-        elif event.is_reply:
-            try:
-                msg = await event.get_reply_message()
-                await client.send_message(event.chat_id, msg.text or ".")
-                await event.delete()
-            except:
-                await event.edit("**• فشل**")
-    
-    # ============ رن (مكالمة صوتية) ============
+    # ============ رن ============
     @client.on(events.NewMessage(outgoing=True, pattern='.رن'))
     async def call(event):
-        await event.edit("**• جاري الاتصال...**")
+        await event.edit("**• جاري الاتصال**")
         try:
+            target = None
             if event.is_private:
                 target = event.chat_id
             elif event.is_reply:
                 target = (await event.get_reply_message()).sender_id
-            elif event.is_group:
-                target = event.chat_id
+            if target:
+                await client(RequestCallRequest(user_id=target, g_a_hash=b'', protocol=PhoneCallProtocol()))
+                await event.edit("**• تم الاتصال**")
             else:
                 await event.edit("**• فشل**")
-                return
-            
-            await client(RequestCallRequest(user_id=target, g_a_hash=b'', protocol=PhoneCallProtocol()))
-            await event.edit("**• تم الاتصال**")
-        except Exception as e:
-            await event.edit(f"**• فشل الاتصال**")
+        except:
+            await event.edit("**• فشل الاتصال**")
     
     # ============ قفل / فتح ============
     @client.on(events.NewMessage(outgoing=True, pattern='.قفل'))
@@ -438,7 +408,7 @@ async def setup_handlers(client, phone):
                 await client(EditChatDefaultBannedRightsRequest(peer=event.input_chat, banned_rights=rights))
                 await event.edit("**• تم قفل الجروب**")
             except:
-                await event.edit("**• فشل - تأكد من الصلاحيات**")
+                await event.edit("**• فشل**")
     
     @client.on(events.NewMessage(outgoing=True, pattern='.فتح'))
     async def unlock(event):
@@ -448,52 +418,58 @@ async def setup_handlers(client, phone):
                 await client(EditChatDefaultBannedRightsRequest(peer=event.input_chat, banned_rights=rights))
                 await event.edit("**• تم فتح الجروب**")
             except:
-                await event.edit("**• فشل - تأكد من الصلاحيات**")
+                await event.edit("**• فشل**")
     
     # ============ كتم / غ كتم ============
     @client.on(events.NewMessage(outgoing=True, pattern='.كتم'))
     async def mute(event):
+        target = None
         if event.is_reply:
-            muted_users[phone][(await event.get_reply_message()).sender_id] = True
+            target = (await event.get_reply_message()).sender_id
         elif event.is_private:
-            muted_users[phone][event.chat_id] = True
+            target = event.chat_id
+        if target:
+            muted_users[phone][target] = True
         await event.edit("**• تم الكتم**")
     
     @client.on(events.NewMessage(outgoing=True, pattern='.غ كتم'))
     async def unmute(event):
+        target = None
         if event.is_reply:
-            muted_users[phone].pop((await event.get_reply_message()).sender_id, None)
+            target = (await event.get_reply_message()).sender_id
         elif event.is_private:
-            muted_users[phone].pop(event.chat_id, None)
+            target = event.chat_id
+        if target:
+            muted_users[phone].pop(target, None)
         await event.edit("**• تم فك الكتم**")
     
     # ============ حظر / غ حظر ============
     @client.on(events.NewMessage(outgoing=True, pattern='.حظر'))
     async def ban(event):
-        tid = None
+        target = None
         if event.is_reply:
-            tid = (await event.get_reply_message()).sender_id
+            target = (await event.get_reply_message()).sender_id
         elif event.is_private:
-            tid = event.chat_id
-        if tid:
+            target = event.chat_id
+        if target:
             try:
-                await client(BlockRequest(tid))
-                banned_users[phone][tid] = True
+                await client(BlockRequest(target))
+                banned_users[phone][target] = True
                 await event.edit("**• تم الحظر**")
             except:
                 await event.edit("**• فشل**")
     
     @client.on(events.NewMessage(outgoing=True, pattern='.غ حظر'))
     async def unban(event):
-        tid = None
+        target = None
         if event.is_reply:
-            tid = (await event.get_reply_message()).sender_id
+            target = (await event.get_reply_message()).sender_id
         elif event.is_private:
-            tid = event.chat_id
-        if tid:
+            target = event.chat_id
+        if target:
             try:
-                await client(UnblockRequest(tid))
-                banned_users[phone].pop(tid, None)
+                await client(UnblockRequest(target))
+                banned_users[phone].pop(target, None)
                 await event.edit("**• تم فك الحظر**")
             except:
                 await event.edit("**• فشل**")
@@ -526,11 +502,56 @@ async def setup_handlers(client, phone):
                 n = (await client.get_entity((await event.get_reply_message()).sender_id)).first_name
             except:
                 pass
-        await event.edit("**جاري التهكير...**")
+        await event.edit("**جاري التهكير**")
         await asyncio.sleep(1)
         await event.edit("**تم اختراق 50%**")
         await asyncio.sleep(1)
         await event.edit(f"**تم تهكير {n} بنجاح**")
+    
+    # ============ ذكاء ============
+    @client.on(events.NewMessage(outgoing=True, pattern=r'\.ذكاء (.+)'))
+    async def ai_cmd(event):
+        question = event.pattern_match.group(1).strip()
+        await event.edit("**• جاري التفكير**")
+        answer = await asyncio.get_event_loop().run_in_executor(None, ask_gemini, question)
+        if answer:
+            await event.edit(f"**{answer}**")
+        else:
+            await event.edit("**• فشل**")
+    
+    # ============ بوت ============
+    @client.on(events.NewMessage(outgoing=True, pattern=r'\.بوت (.+)'))
+    async def bot_cmd(event):
+        question = event.pattern_match.group(1).strip()
+        await event.edit("**• جاري التفكير**")
+        prompt = f"أنت بوت تيليجرام اسمه كيوجرام. أجب بالعربية. {question}"
+        answer = await asyncio.get_event_loop().run_in_executor(None, ask_gemini, prompt)
+        if answer:
+            await event.edit(f"**{answer}**")
+        else:
+            await event.edit("**• فشل**")
+    
+    # ============ صراحة ============
+    @client.on(events.NewMessage(outgoing=True, pattern='.صراحة'))
+    async def sarah(event):
+        await event.edit("**• جاري توليد سؤال صراحة**")
+        prompt = "أنت لعبة صراحة. أعطني سؤال صراحة واحد فقط، سؤال جريء ومحرج ومناسب للعبة الصراحة بين الأصدقاء. أجب بالسؤال فقط بدون أي كلام إضافي."
+        answer = await asyncio.get_event_loop().run_in_executor(None, ask_gemini, prompt)
+        if answer:
+            await event.edit(f"**{answer}**")
+        else:
+            await event.edit("**• فشل**")
+    
+    # ============ كت ============
+    @client.on(events.NewMessage(outgoing=True, pattern='.كت'))
+    async def kat(event):
+        await event.edit("**• جاري توليد سؤال**")
+        prompt = "أنت تلعب لعبة اسمها كت. أعطني سؤال واحد فقط من أسئلة كت، سؤال جريء ومحرج يبدأ بـ 'ما هو' أو 'هل' أو 'من هو'. أجب بالسؤال فقط بدون أي كلام إضافي."
+        answer = await asyncio.get_event_loop().run_in_executor(None, ask_gemini, prompt)
+        if answer:
+            await event.edit(f"**{answer}**")
+        else:
+            await event.edit("**• فشل**")
     
     async def channel_check():
         while True:
@@ -553,7 +574,7 @@ threading.Thread(target=start_main_loop, daemon=True).start()
 
 @app.route('/')
 def home():
-    return """<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>qgram-bot</title><script src="https://cdn.tailwindcss.com"></script><style>body{background:linear-gradient(135deg,#1e3a8a,#3b82f6)}.card{background:rgba(255,255,255,0.95)}</style></head><body class="min-h-screen flex items-center justify-center p-4"><div class="max-w-lg w-full"><div class="card rounded-3xl shadow-2xl p-8"><div class="text-center mb-8"><h1 class="text-4xl font-bold text-blue-700 mb-2">qgram-bot</h1><p class="text-gray-600">Telegram UserBot</p></div><div id="form-section"><div id="step1"><h2 class="text-2xl font-semibold mb-6 text-center">تسجيل الدخول</h2><form id="sendForm" class="space-y-5"><div><label class="block text-sm font-medium text-gray-700 mb-1">API ID</label><input type="text" name="api_id" placeholder="12345678" required class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:border-blue-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">API HASH</label><input type="text" name="api_hash" placeholder="0123456789abcdef..." required class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:border-blue-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">رقم الهاتف</label><input type="text" name="phone" placeholder="+201234567890" required class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:border-blue-500"></div><button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 rounded-2xl transition">إرسال كود التحقق</button></form></div><div id="step2" class="hidden"><h2 class="text-2xl font-semibold mb-6 text-center">أدخل كود التحقق</h2><form id="verifyForm" class="space-y-5"><input type="hidden" name="phone" id="verify_phone"><div><label class="block text-sm font-medium text-gray-700 mb-1">كود التحقق</label><input type="text" name="code" placeholder="12345" required maxlength="5" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:border-blue-500 text-center text-2xl tracking-widest"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">2FA (اختياري)</label><input type="password" name="password" placeholder="••••••••" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:border-blue-500"></div><button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-4 rounded-2xl transition">تفعيل</button></form><button onclick="backToStep1()" class="mt-4 w-full text-gray-500">← العودة</button></div></div><div id="result" class="mt-6 text-center hidden"></div></div><div class="text-center mt-6"><a href="/api/status" class="text-white hover:underline">عرض الحالة</a></div></div><script>async function showResult(m,s){const d=document.getElementById('result');d.className=`mt-6 p-4 rounded-2xl text-center font-medium ${s?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`;d.innerHTML=m;d.classList.remove('hidden')}document.getElementById('sendForm').addEventListener('submit',async(e)=>{e.preventDefault();const f=new FormData(e.target);try{const r=await fetch('/api/send_code',{method:'POST',body:f});const d=await r.json();if(d.status==='code_sent'){document.getElementById('verify_phone').value=f.get('phone');document.getElementById('step1').classList.add('hidden');document.getElementById('step2').classList.remove('hidden');showResult(d.message,true)}else{showResult(d.message||d.error||'حدث خطأ',false)}}catch(err){showResult('حدث خطأ',false)}});document.getElementById('verifyForm').addEventListener('submit',async(e)=>{e.preventDefault();const f=new FormData(e.target);try{const r=await fetch('/api/verify',{method:'POST',body:f});const d=await r.json();if(d.status==='success'){showResult(d.message,true);setTimeout(()=>location.reload(),3000)}else{showResult(d.message||'فشل التفعيل',false)}}catch(err){showResult('حدث خطأ',false)}});function backToStep1(){document.getElementById('step1').classList.remove('hidden');document.getElementById('step2').classList.add('hidden');document.getElementById('result').classList.add('hidden')}</script></body></html>"""
+    return """<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>qgram-bot</title><script src="https://cdn.tailwindcss.com"></script><style>body{background:linear-gradient(135deg,#1e3a8a,#3b82f6)}.card{background:rgba(255,255,255,0.95)}</style></head><body class="min-h-screen flex items-center justify-center p-4"><div class="max-w-lg w-full"><div class="card rounded-3xl shadow-2xl p-8"><div class="text-center mb-8"><h1 class="text-4xl font-bold text-blue-700 mb-2">qgram-bot</h1><p class="text-gray-600">Telegram UserBot</p></div><div id="form-section"><div id="step1"><h2 class="text-2xl font-semibold mb-6 text-center">تسجيل الدخول</h2><form id="sendForm" class="space-y-5"><div><label class="block text-sm font-medium text-gray-700 mb-1">API ID</label><input type="text" name="api_id" placeholder="12345678" required class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:border-blue-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">API HASH</label><input type="text" name="api_hash" placeholder="0123456789abcdef..." required class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:border-blue-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">رقم الهاتف</label><input type="text" name="phone" placeholder="+201234567890" required class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:border-blue-500"></div><button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 rounded-2xl transition">ارسال كود التحقق</button></form></div><div id="step2" class="hidden"><h2 class="text-2xl font-semibold mb-6 text-center">ادخل كود التحقق</h2><form id="verifyForm" class="space-y-5"><input type="hidden" name="phone" id="verify_phone"><div><label class="block text-sm font-medium text-gray-700 mb-1">كود التحقق</label><input type="text" name="code" placeholder="12345" required maxlength="5" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:border-blue-500 text-center text-2xl tracking-widest"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">2FA (اختياري)</label><input type="password" name="password" placeholder="••••••••" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:border-blue-500"></div><button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-4 rounded-2xl transition">تفعيل</button></form><button onclick="backToStep1()" class="mt-4 w-full text-gray-500">العودة</button></div></div><div id="result" class="mt-6 text-center hidden"></div></div><div class="text-center mt-6"><a href="/api/status" class="text-white hover:underline">عرض الحالة</a></div></div><script>async function showResult(m,s){const d=document.getElementById('result');d.className=`mt-6 p-4 rounded-2xl text-center font-medium ${s?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`;d.innerHTML=m;d.classList.remove('hidden')}document.getElementById('sendForm').addEventListener('submit',async(e)=>{e.preventDefault();const f=new FormData(e.target);try{const r=await fetch('/api/send_code',{method:'POST',body:f});const d=await r.json();if(d.status==='code_sent'){document.getElementById('verify_phone').value=f.get('phone');document.getElementById('step1').classList.add('hidden');document.getElementById('step2').classList.remove('hidden');showResult(d.message,true)}else{showResult(d.message||d.error||'حدث خطأ',false)}}catch(err){showResult('حدث خطأ',false)}});document.getElementById('verifyForm').addEventListener('submit',async(e)=>{e.preventDefault();const f=new FormData(e.target);try{const r=await fetch('/api/verify',{method:'POST',body:f});const d=await r.json();if(d.status==='success'){showResult(d.message,true);setTimeout(()=>location.reload(),3000)}else{showResult(d.message||'فشل التفعيل',false)}}catch(err){showResult('حدث خطأ',false)}});function backToStep1(){document.getElementById('step1').classList.remove('hidden');document.getElementById('step2').classList.add('hidden');document.getElementById('result').classList.add('hidden')}</script></body></html>"""
 
 @app.route('/health')
 def health():
@@ -579,7 +600,7 @@ async def send_code():
             return jsonify({"status": "already_active", "message": "البوت مفعل بالفعل"})
         sent = await client.send_code_request(phone)
         pending_logins[phone] = (client, sent.phone_code_hash, api_id, api_hash)
-        return jsonify({"status": "code_sent", "message": "تم إرسال كود التحقق"})
+        return jsonify({"status": "code_sent", "message": "تم ارسال كود التحقق"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -623,5 +644,4 @@ async def disconnect(phone):
     return jsonify({"status": "error"}), 404
 
 if __name__ == '__main__':
-    logger.info("qgram UserBot v2")
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
