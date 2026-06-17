@@ -48,6 +48,13 @@ banned_users: Dict[str, Dict[int, bool]] = {}
 bold_mode: Dict[str, bool] = {}
 client_me: Dict[str, any] = {}
 
+LAUGH_EMOJIS = [
+    "😂🤣😭😹", "🤣😹😂😭", "😭😂😹🤣", "😹🤣😭😂",
+    "😂😹🤣😭", "🤣😭😹😂", "😭😹😂🤣", "😹😂🤣😭",
+    "😂🤣😹😭", "🤣😂😭😹", "😭🤣😂😹", "😹😭🤣😂",
+    "😂😭😹🤣", "🤣😹😭😂", "😭😹🤣😂", "😹🤣😂😭"
+]
+
 def run_async_in_main_loop(coro):
     future = asyncio.run_coroutine_threadsafe(coro, main_loop)
     return future.result(timeout=300)
@@ -79,8 +86,6 @@ def ask_gemini(question: str) -> str:
         return None
     except:
         return None
-
-# ======================== إدارة الجلسات ========================
 
 async def save_all_sessions():
     try:
@@ -164,41 +169,12 @@ def start_client_in_background(client, phone):
             logger.error(f"Error {phone}: {e}")
     asyncio.run_coroutine_threadsafe(run_client(), main_loop)
 
-# ======================== أوامر ترفيهية ========================
-
-LAUGH_EMOJIS = [
-    "😂🤣😭😹", "🤣😹😂😭", "😭😂😹🤣", "😹🤣😭😂",
-    "😂😹🤣😭", "🤣😭😹😂", "😭😹😂🤣", "😹😂🤣😭",
-    "😂🤣😹😭", "🤣😂😭😹", "😭🤣😂😹", "😹😭🤣😂",
-    "😂😭😹🤣", "🤣😹😭😂", "😭😹🤣😂", "😹🤣😂😭"
-]
-
-RAF3_TYPES = {
-    "شحات": "شحات",
-    "حمار": "حمار", 
-    "غبي": "غبي",
-    "سباك": "سباك",
-    "مالك": "مالك",
-    "ادمن": "أدمن"
-}
-
-def get_target_name(event):
-    """استخراج اسم الهدف من الرد أو المحادثة"""
-    if event.is_reply:
-        return (await event.get_reply_message()).sender_id
-    elif event.is_private:
-        return event.chat_id
-    return None
-
 async def get_user_name(client, user_id):
-    """جلب اسم المستخدم"""
     try:
         user = await client.get_entity(user_id)
         return user.first_name or "المستخدم"
     except:
         return "المستخدم"
-
-# ======================== إعداد handlers ========================
 
 async def setup_handlers(client, phone):
     if phone not in muted_users:
@@ -614,7 +590,6 @@ async def setup_handlers(client, phone):
                 target_name = await get_user_name(client, event.chat_id)
             except:
                 pass
-        
         percentage = random.randint(60, 100)
         await event.edit(f"**نسبة غباء {target_name} {percentage}%**")
     
@@ -634,8 +609,7 @@ async def setup_handlers(client, phone):
                 target_name = await get_user_name(client, event.chat_id)
             except:
                 pass
-        
-        await event.edit(f"**تم إرسال {amount} دولار للشحات {target_name}** 💸")
+        await event.edit(f"**تم إرسال {amount} دولار للشحات {target_name}**")
     
     # ==================== رفع شحات ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.رفع شحات$'))
@@ -652,7 +626,7 @@ async def setup_handlers(client, phone):
                 target_name = await get_user_name(client, event.chat_id)
             except:
                 pass
-        await event.edit(f"**تم رفع {target_name} شحات** 🥙")
+        await event.edit(f"**تم رفع {target_name} شحات**")
     
     # ==================== رفع حمار ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.رفع حمار$'))
@@ -669,7 +643,7 @@ async def setup_handlers(client, phone):
                 target_name = await get_user_name(client, event.chat_id)
             except:
                 pass
-        await event.edit(f"**تم رفع {target_name} حمار** 🐴")
+        await event.edit(f"**تم رفع {target_name} حمار**")
     
     # ==================== رفع غبي ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.رفع غبي$'))
@@ -686,7 +660,7 @@ async def setup_handlers(client, phone):
                 target_name = await get_user_name(client, event.chat_id)
             except:
                 pass
-        await event.edit(f"**تم رفع {target_name} غبي** 🤪")
+        await event.edit(f"**تم رفع {target_name} غبي**")
     
     # ==================== رفع سباك ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.رفع سباك$'))
@@ -703,7 +677,7 @@ async def setup_handlers(client, phone):
                 target_name = await get_user_name(client, event.chat_id)
             except:
                 pass
-        await event.edit(f"**تم رفع {target_name} سباك** 🔧")
+        await event.edit(f"**تم رفع {target_name} سباك**")
     
     # ==================== رفع مالك ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.رفع مالك$'))
@@ -720,7 +694,7 @@ async def setup_handlers(client, phone):
                 target_name = await get_user_name(client, event.chat_id)
             except:
                 pass
-        await event.edit(f"**تم رفع {target_name} مالك** 👑")
+        await event.edit(f"**تم رفع {target_name} مالك**")
     
     # ==================== رفع ادمن ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.رفع ادمن$'))
@@ -737,9 +711,8 @@ async def setup_handlers(client, phone):
                 target_name = await get_user_name(client, event.chat_id)
             except:
                 pass
-        await event.edit(f"**تم رفع {target_name} أدمن** ⭐")
+        await event.edit(f"**تم رفع {target_name} أدمن**")
     
-    # ==================== فحص القناة ====================
     async def channel_check():
         while True:
             await asyncio.sleep(600)
@@ -758,8 +731,6 @@ def start_main_loop():
     main_loop.run_forever()
 
 threading.Thread(target=start_main_loop, daemon=True).start()
-
-# ======================== Flask ========================
 
 @app.route('/')
 def home():
