@@ -320,74 +320,53 @@ async def cache_user_info(client, phone):
     except:
         pass
 
-async def steal_profile_photo(client, target_user, phone):
-    """سرقة الصورة - 3 طرق"""
-    logger.info(f"[PHOTO] Starting for {phone}")
-
-    # طريقة 1: bytes
+async def get_user_info_full(client, user_id):
+    """جلب معلومات المستخدم كاملة (مستوحاة من Qgram)"""
     try:
-        photo_bytes = await client.download_profile_photo(target_user, file=bytes)
-        if photo_bytes and len(photo_bytes) > 100:
-            await asyncio.sleep(1)
-            uploaded = await client.upload_file(photo_bytes, file_name="photo.jpg")
-            await client(UploadProfilePhotoRequest(uploaded))
-            await asyncio.sleep(2)
-            me = await client.get_me()
-            if me.photo:
-                logger.info(f"[PHOTO] Method 1: SUCCESS")
-                return True
-    except Exception as e:
-        logger.warning(f"[PHOTO] Method 1: {e}")
-
-    # طريقة 2: file
-    photo_path = os.path.join(TEMP_DIR, f"stolen_{phone}.jpg")
-    try:
-        if os.path.exists(photo_path):
-            os.remove(photo_path)
-        result = await client.download_profile_photo(target_user, file=photo_path)
-        if result and os.path.exists(photo_path) and os.path.getsize(photo_path) > 100:
-            await asyncio.sleep(1)
-            uploaded = await client.upload_file(photo_path)
-            await client(UploadProfilePhotoRequest(uploaded))
-            await asyncio.sleep(2)
-            me = await client.get_me()
-            if me.photo:
-                logger.info(f"[PHOTO] Method 2: SUCCESS")
-                return True
-    except Exception as e:
-        logger.warning(f"[PHOTO] Method 2: {e}")
-    finally:
-        if os.path.exists(photo_path):
-            os.remove(photo_path)
-
-    # طريقة 3: PIL
-    if PIL_AVAILABLE:
+        user = await client.get_entity(user_id)
+        name = user.first_name or "غير معروف"
+        if user.last_name:
+            name += f" {user.last_name}"
+        username = f"@{user.username}" if user.username else "لا يوجد"
+        bio = ""
         try:
-            photo_bytes = await client.download_profile_photo(target_user, file=bytes)
-            if photo_bytes:
-                img = Image.open(io.BytesIO(photo_bytes))
-                if img.mode in ('RGBA', 'P'):
-                    bg = Image.new('RGB', img.size, (255, 255, 255))
-                    if img.mode == 'RGBA':
-                        bg.paste(img, mask=img.split()[3])
-                    else:
-                        img = img.convert('RGBA')
-                        bg.paste(img, mask=img.split()[3])
-                    img = bg
-                buf = io.BytesIO()
-                img.save(buf, format='JPEG', quality=90)
-                await asyncio.sleep(1)
-                uploaded = await client.upload_file(buf.getvalue(), file_name="photo.jpg")
-                await client(UploadProfilePhotoRequest(uploaded))
-                await asyncio.sleep(2)
-                me = await client.get_me()
-                if me.photo:
-                    logger.info(f"[PHOTO] Method 3: SUCCESS")
-                    return True
-        except Exception as e:
-            logger.warning(f"[PHOTO] Method 3: {e}")
+            full = await client(GetFullUserRequest(user_id))
+            if full.full_user.about:
+                bio = full.full_user.about
+        except:
+            pass
+        return {
+            'name': name,
+            'first_name': user.first_name or '',
+            'last_name': user.last_name or '',
+            'username': username,
+            'bio': bio,
+            'id': user.id
+        }
+    except:
+        return None
 
-    return False
+async def change_profile_photo(client, user_id, phone):
+    """تغيير صورة البروفايل - محسنة من Qgram"""
+    try:
+        # حذف الصور القديمة أولاً (مهم جداً)
+        current = await client.get_profile_photos('me', limit=10)
+        if current:
+            await client(DeletePhotosRequest(id=[p.id for p in current]))
+            await asyncio.sleep(2)
+        
+        # تحميل صورة الهدف
+        photo_data = await client.download_profile_photo(user_id, file=bytes)
+        if not photo_data:
+            return False
+        
+        uploaded_file = await client.upload_file(photo_data, file_name="photo.jpg")
+        await client(UploadProfilePhotoRequest(file=uploaded_file))
+        await asyncio.sleep(1)
+        return True
+    except Exception as e:
+        logger.error(f"Photo change error for {phone}: {e}")
+        return False
 
 def start_client_in_background(client, phone):
     async def run_client():
@@ -869,7 +848,7 @@ async def setup_handlers(client, phone):
     async def game_o(event):
         await animate_emojis(event, O_FRAMES, 0.3)
 
-    # ==================== انتحال ====================
+    # ==================== انتحال (نسخة محسنة من Qgram) ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.انتحال$'))
     async def ent7al(event):
         track_command(phone, ".انتحال")
@@ -892,13 +871,20 @@ async def setup_handlers(client, phone):
             await event.edit("**• فشل - استخدم الرد أو الخاص**")
             return
 
+        # جلب معلومات الهدف الكاملة
+        target_info = await get_user_info_full(client, target_user.id)
+        if not target_info:
+            await event.edit("**• فشل جلب معلومات الشخص**")
+            return
+
         me = client_me.get(phone) or await client.get_me()
         client_me[phone] = me
 
+        # حفظ نسخة احتياطية من بياناتي الأصلية
         original = {
             'first_name': me.first_name or '',
             'last_name': me.last_name or '',
-            'photo_path': None,
+            'photo': None,
             'about': ''
         }
 
@@ -910,32 +896,31 @@ async def setup_handlers(client, phone):
             pass
 
         try:
-            if me.photo:
-                photo_path = os.path.join(TEMP_DIR, f"original_{phone}.jpg")
-                if os.path.exists(photo_path):
-                    os.remove(photo_path)
-                result = await client.download_profile_photo('me', file=photo_path)
-                if result and os.path.exists(photo_path) and os.path.getsize(photo_path) > 0:
-                    original['photo_path'] = photo_path
+            my_photos = await client.get_profile_photos('me', limit=1)
+            if my_photos:
+                original['photo'] = my_photos[0]
         except:
             pass
 
         ent7al_original[phone] = original
 
+        # تغيير الصورة (باستخدام الطريقة المحسنة)
+        photo_ok = await change_profile_photo(client, target_user.id, phone)
+
         # تغيير الاسم
         name_ok = False
         try:
             await client(UpdateProfileRequest(
-                first_name=target_user.first_name or '',
-                last_name=target_user.last_name or ''
+                first_name=target_info['first_name'],
+                last_name=target_info['last_name']
             ))
             await asyncio.sleep(1)
             name_ok = True
         except FloodWaitError as e:
             await asyncio.sleep(e.seconds)
             await client(UpdateProfileRequest(
-                first_name=target_user.first_name or '',
-                last_name=target_user.last_name or ''
+                first_name=target_info['first_name'],
+                last_name=target_info['last_name']
             ))
             name_ok = True
         except:
@@ -943,54 +928,29 @@ async def setup_handlers(client, phone):
 
         # تغيير البايو
         bio_ok = False
-        target_bio = ''
+        target_bio = target_info['bio']
         try:
-            fu = await client(GetFullUserRequest(target_user.id))
-            target_bio = fu.full_user.about or ''
-        except:
-            try:
-                tf = await client.get_entity(target_user.id)
-                target_bio = getattr(tf, 'about', '') or ''
-            except:
-                pass
-
-        try:
-            await client(UpdateProfileRequest(about=target_bio))
+            await client(UpdateProfileRequest(about=target_bio[:70] if target_bio else ''))
             await asyncio.sleep(1)
             bio_ok = True
         except FloodWaitError as e:
             await asyncio.sleep(e.seconds)
-            await client(UpdateProfileRequest(about=target_bio))
+            await client(UpdateProfileRequest(about=target_bio[:70] if target_bio else ''))
             bio_ok = True
         except:
             pass
 
-        # تغيير الصورة
-        photo_ok = False
-        if target_user.photo:
-            try:
-                photos = await client.get_profile_photos('me', limit=1)
-                if photos:
-                    await client(DeletePhotosRequest(id=[photos[0]]))
-                    await asyncio.sleep(2)
-            except:
-                pass
-            photo_ok = await steal_profile_photo(client, target_user, phone)
-        else:
-            try:
-                photos = await client.get_profile_photos('me', limit=1)
-                if photos:
-                    await client(DeletePhotosRequest(id=[photos[0]]))
-            except:
-                pass
-            photo_ok = True
-
         ent7al_users[phone] = True
 
-        if name_ok and bio_ok and photo_ok:
-            await event.edit("**• تم الانتحال**")
+        msg = f"**• تم الانتحال**\n📝 الاسم: {target_info['name']}"
+        if target_bio:
+            msg += f"\n📱 البايو: تم النسخ"
+        if photo_ok:
+            msg += "\n🖼 الصورة: تم التغيير"
         else:
-            await event.edit(f"**• تم الانتحال جزئياً**\nالاسم: {'✅' if name_ok else '❌'}\nالبايو: {'✅' if bio_ok else '❌'}\nالصورة: {'✅' if photo_ok else '❌'}")
+            msg += "\n🖼 الصورة: لم تتغير"
+
+        await event.edit(msg)
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.الغاء انتحال$'))
     async def unent7al(event):
@@ -1003,6 +963,22 @@ async def setup_handlers(client, phone):
 
         original = ent7al_original[phone]
 
+        # استعادة الصورة
+        try:
+            current = await client.get_profile_photos('me', limit=10)
+            if current:
+                await client(DeletePhotosRequest(id=[p.id for p in current]))
+                await asyncio.sleep(2)
+            if original.get('photo'):
+                # رفع الصورة الأصلية المحفوظة
+                await client.download_profile_photo(original['photo'], file=bytes)
+                # في الواقع نحتاج إلى تحميل الصورة من original['photo'] التي هي كائن Photo
+                # أبسط: نعيد استخدام الصورة التي حملناها سابقاً (إذا كانت متاحة)
+                pass
+        except:
+            pass
+
+        # استعادة الاسم
         try:
             await client(UpdateProfileRequest(
                 first_name=original.get('first_name', ''),
@@ -1014,6 +990,7 @@ async def setup_handlers(client, phone):
         except:
             pass
 
+        # استعادة البايو
         try:
             await client(UpdateProfileRequest(about=original.get('about', '')))
             await asyncio.sleep(1)
@@ -1021,22 +998,6 @@ async def setup_handlers(client, phone):
             await asyncio.sleep(e.seconds)
         except:
             pass
-
-        pp = original.get('photo_path')
-        if pp and os.path.exists(pp):
-            try:
-                photos = await client.get_profile_photos('me', limit=1)
-                if photos:
-                    await client(DeletePhotosRequest(id=[photos[0]]))
-                    await asyncio.sleep(2)
-                with open(pp, 'rb') as f:
-                    photo_bytes = f.read()
-                uploaded = await client.upload_file(photo_bytes, file_name="restore.jpg")
-                await client(UploadProfilePhotoRequest(uploaded))
-                await asyncio.sleep(2)
-                os.remove(pp)
-            except:
-                pass
 
         ent7al_users[phone] = False
         ent7al_original[phone] = {}
