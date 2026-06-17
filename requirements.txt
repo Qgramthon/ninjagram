@@ -3,3 +3,4 @@ telethon
 cryptg
 gunicorn
 Pillow
+requests
