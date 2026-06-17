@@ -2,3 +2,4 @@ flask
 telethon
 cryptg
 gunicorn
+Pillow
