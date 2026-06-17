@@ -9,16 +9,16 @@ import random
 import json
 import os
 import io
+import sys
 
 from flask import Flask, jsonify, request
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
-from telethon.tl.functions.account import UpdateProfileRequest, UpdateUsernameRequest
-from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
+from telethon.tl.functions.account import UpdateProfileRequest
+from telethon.tl.functions.photos import UploadProfilePhotoRequest
 from telethon.tl.functions.contacts import BlockRequest, UnblockRequest
 from telethon.tl.functions.channels import JoinChannelRequest
-from telethon.tl.types import InputPeerEmpty, InputPhoto, InputFile
 
 # ========== تخزين الجلسات في Railway Volume ==========
 DATA_DIR = '/data' if os.path.exists('/data') else '.'
@@ -27,7 +27,11 @@ SESSION_FILE = os.path.join(DATA_DIR, 'active_sessions.json')
 API_CONFIG_FILE = os.path.join(DATA_DIR, 'api_config.json')
 # ======================================================
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -42,13 +46,18 @@ active_clients: Dict[str, TelegramClient] = {}
 pending_logins: Dict[str, Tuple[TelegramClient, str, int, str]] = {}
 api_configs_storage: Dict[str, Dict] = {}
 
+# كل قواميس البوتات - مفتاحها phone
 muted_users = {}
 banned_users = {}
 taqleed_users = {}
 ent7al_users = {}
+ent7al_original = {}
 bold_mode = {}
 save_deleted = {}
 deleted_messages = {}
+
+# لتخزين الرسائل الأصلية قبل التحرير للخط العريض
+original_messages = {}
 
 def run_async_in_main_loop(coro):
     future = asyncio.run_coroutine_threadsafe(coro, main_loop)
@@ -172,7 +181,8 @@ async def setup_handlers(client: TelegramClient, phone: str):
         muted_users[phone] = {}
         banned_users[phone] = {}
         taqleed_users[phone] = {}
-        ent7al_users[phone] = {}
+        ent7al_users[phone] = False
+        ent7al_original[phone] = {}
         bold_mode[phone] = False
         save_deleted[phone] = False
         deleted_messages[phone] = []
@@ -202,24 +212,12 @@ async def setup_handlers(client: TelegramClient, phone: str):
                             sender = await client.get_entity(msg.sender_id)
                             sender_name = sender.first_name or "User"
                         
-                        deleted_messages[phone].append({
-                            'chat_id': event.chat_id,
-                            'msg_id': msg_id,
-                            'text': msg.text or "[Media/Sticker]",
-                            'sender': sender_name,
-                            'time': time.time()
-                        })
-                        
                         await client.send_message('me', f"""
 **رسالة محذوفة:**
 من: {sender_name}
-الدردشة: {event.chat_id}
 النص: {msg.text or '[غير نصية]'}
 الوقت: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}
 """)
-                        
-                        if len(deleted_messages[phone]) > 100:
-                            deleted_messages[phone] = deleted_messages[phone][-100:]
                 except:
                     pass
     
@@ -233,7 +231,6 @@ async def setup_handlers(client: TelegramClient, phone: str):
 **رسالة معدلة:**
 قبل: {original.text or '[غير نصية]'}
 بعد: {event.text or '[غير نصية]'}
-الدردشة: {event.chat_id}
 الوقت: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}
 """)
             except:
@@ -340,35 +337,38 @@ async def setup_handlers(client: TelegramClient, phone: str):
             return
         
         me = await client.get_me()
-        original_data = {
+        
+        # حفظ البيانات الأصلية
+        ent7al_original[phone] = {
             'first_name': me.first_name,
             'last_name': me.last_name or '',
-            'photo': None
+            'photo': None,
+            'about': ''
         }
         
         try:
-            if me.photo:
-                original_photo = await client.download_profile_photo('me')
-                if original_photo:
-                    original_data['photo'] = original_photo
+            full_me = await client.get_entity('me')
+            if hasattr(full_me, 'about'):
+                ent7al_original[phone]['about'] = full_me.about or ''
         except:
             pass
         
+        # حفظ الصورة الأصلية
+        try:
+            if me.photo:
+                original_photo = await client.download_profile_photo('me', file=bytes)
+                if original_photo:
+                    ent7al_original[phone]['photo'] = original_photo
+        except Exception as e:
+            logger.error(f"Save original photo error: {e}")
+        
+        # تغيير الاسم
         await client(UpdateProfileRequest(
             first_name=user.first_name or '',
             last_name=user.last_name or ''
         ))
         
-        try:
-            if user.photo:
-                photo_data = await client.download_profile_photo(user.id)
-                if photo_data:
-                    uploaded = await client.upload_file(photo_data)
-                    await client(UploadProfilePhotoRequest(uploaded))
-                    await asyncio.sleep(2)
-        except Exception as e:
-            logger.error(f"Photo steal error: {e}")
-        
+        # تغيير البايو
         try:
             user_full = await client.get_entity(user.id)
             if hasattr(user_full, 'about') and user_full.about:
@@ -376,30 +376,52 @@ async def setup_handlers(client: TelegramClient, phone: str):
         except:
             pass
         
-        ent7al_users[phone][user.id] = original_data
+        # تغيير الصورة
+        try:
+            if user.photo:
+                photo_data = await client.download_profile_photo(user.id, file=bytes)
+                if photo_data:
+                    uploaded_file = await client.upload_file(photo_data)
+                    await client(UploadProfilePhotoRequest(uploaded_file))
+                    await asyncio.sleep(1)
+                    logger.info(f"Profile photo stolen successfully for {phone}")
+        except Exception as e:
+            logger.error(f"Photo steal error for {phone}: {e}")
+        
+        ent7al_users[phone] = True
         await event.edit("**• تم الانتحال**")
     
     @client.on(events.NewMessage(pattern='.الغاء انتحال'))
     async def stop_ent7al_cmd(event):
         await event.edit("**• جاري استعادة الحساب...**")
         
-        if ent7al_users.get(phone):
-            last_original = list(ent7al_users[phone].values())[-1] if ent7al_users[phone] else None
-            if last_original:
-                await client(UpdateProfileRequest(
-                    first_name=last_original['first_name'],
-                    last_name=last_original['last_name']
-                ))
-                
-                if last_original.get('photo'):
-                    try:
-                        uploaded = await client.upload_file(last_original['photo'])
-                        await client(UploadProfilePhotoRequest(uploaded))
-                        await asyncio.sleep(2)
-                    except:
-                        pass
+        if ent7al_users.get(phone) and ent7al_original.get(phone):
+            original = ent7al_original[phone]
             
-            ent7al_users[phone] = {}
+            # استعادة الاسم
+            await client(UpdateProfileRequest(
+                first_name=original['first_name'],
+                last_name=original['last_name']
+            ))
+            
+            # استعادة البايو
+            try:
+                await client(UpdateProfileRequest(about=original.get('about', '')))
+            except:
+                pass
+            
+            # استعادة الصورة
+            if original.get('photo'):
+                try:
+                    uploaded_file = await client.upload_file(original['photo'])
+                    await client(UploadProfilePhotoRequest(uploaded_file))
+                    await asyncio.sleep(1)
+                    logger.info(f"Original photo restored for {phone}")
+                except Exception as e:
+                    logger.error(f"Photo restore error: {e}")
+            
+            ent7al_users[phone] = False
+            ent7al_original[phone] = {}
         
         await event.edit("**• تم فك الانتحال**")
     
@@ -691,6 +713,10 @@ def home():
     """
     return html
 
+@app.route('/health')
+def health():
+    return "OK", 200
+
 @app.route('/api/send_code', methods=['POST'])
 @async_route
 async def send_code():
@@ -768,6 +794,7 @@ async def verify():
 
 @app.route('/api/status')
 def status():
+    logger.info(f"Status: {len(active_clients)} active bots")
     return jsonify({
         "active_bots": list(active_clients.keys()),
         "pending": list(pending_logins.keys()),
@@ -792,7 +819,9 @@ async def force_save():
     return jsonify({"status": "success", "message": f"تم حفظ {len(active_clients)} جلسة"})
 
 if __name__ == '__main__':
-    print("qgram UserBot Server")
-    print(f"Volume: {DATA_DIR}")
-    print(f"Channel: {SOURCE_CHANNEL}")
+    logger.info("=" * 50)
+    logger.info("Application starting...")
+    logger.info(f"Volume directory: {DATA_DIR}")
+    logger.info(f"Volume exists: {os.path.exists(DATA_DIR)}")
+    logger.info("=" * 50)
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
