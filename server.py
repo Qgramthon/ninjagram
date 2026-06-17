@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import time
 import random
+import json
+import os
 
 from flask import Flask, jsonify, request
 from telethon import TelegramClient, events
@@ -14,6 +16,7 @@ from telethon.sessions import StringSession
 from telethon.tl.functions.account import UpdateProfileRequest, UpdateUsernameRequest
 from telethon.tl.functions.photos import UploadProfilePhotoRequest
 from telethon.tl.functions.contacts import BlockRequest, UnblockRequest
+from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.types import InputPeerEmpty
 
 # إعداد logging
@@ -22,12 +25,17 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# قناة السورس للإشتراك الإجباري
+SOURCE_CHANNEL = "https://t.me/Q_g_r_a_m"
+SOURCE_CHANNEL_USERNAME = "Q_g_r_a_m"
+
 # حل المشكلة: استخدام event loop واحد ثابت للتطبيق كله
 main_loop = asyncio.new_event_loop()
 thread_pool = ThreadPoolExecutor(max_workers=10)
 
 active_clients: Dict[str, TelegramClient] = {}
 pending_logins: Dict[str, Tuple[TelegramClient, str, int, str]] = {}
+api_configs_storage: Dict[str, Dict] = {}
 
 # قواعد البيانات المؤقتة للبوتات
 muted_users = {}  # {phone: {user_id: True}}
@@ -38,10 +46,14 @@ bold_mode = {}  # {phone: True}
 save_deleted = {}  # {phone: True}
 deleted_messages = {}  # {phone: [(msg_text, sender_name, time)]}
 
+# ملفات حفظ الجلسات
+SESSION_FILE = 'active_sessions.json'
+API_CONFIG_FILE = 'api_config.json'
+
 def run_async_in_main_loop(coro):
     """تشغيل coroutine في الـ main event loop بأمان"""
     future = asyncio.run_coroutine_threadsafe(coro, main_loop)
-    return future.result(timeout=30)  # انتظار النتيجة مع timeout
+    return future.result(timeout=30)
 
 def async_route(f):
     """ديكوريتور للمسارات غير المتزامنة"""
@@ -53,6 +65,72 @@ def async_route(f):
             logger.error(f"Error in async route: {e}")
             return jsonify({"status": "error", "message": str(e)}), 500
     return wrapper
+
+async def save_all_sessions():
+    """حفظ كل الجلسات النشطة"""
+    try:
+        sessions_data = {}
+        configs = {}
+        
+        for phone, client in active_clients.items():
+            try:
+                if client.is_connected():
+                    session_string = client.session.save()
+                    sessions_data[phone] = session_string
+                    
+                    if phone in api_configs_storage:
+                        configs[phone] = api_configs_storage[phone]
+            except:
+                continue
+        
+        with open(SESSION_FILE, 'w') as f:
+            json.dump(sessions_data, f)
+        
+        with open(API_CONFIG_FILE, 'w') as f:
+            json.dump(configs, f)
+        
+        logger.info(f"✅ تم حفظ {len(sessions_data)} جلسة")
+    except Exception as e:
+        logger.error(f"خطأ في حفظ الجلسات: {e}")
+
+async def load_all_sessions():
+    """تحميل واستعادة الجلسات المحفوظة"""
+    try:
+        if not os.path.exists(SESSION_FILE):
+            return
+        
+        with open(SESSION_FILE, 'r') as f:
+            sessions = json.load(f)
+        
+        with open(API_CONFIG_FILE, 'r') as f:
+            configs = json.load(f)
+        
+        for phone, session_str in sessions.items():
+            try:
+                if phone in configs:
+                    api_id = configs[phone]['api_id']
+                    api_hash = configs[phone]['api_hash']
+                    
+                    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+                    await client.connect()
+                    
+                    if await client.is_user_authorized():
+                        active_clients[phone] = client
+                        api_configs_storage[phone] = configs[phone]
+                        start_client_in_background(client, phone)
+                        logger.info(f"🔄 تم استعادة جلسة: {phone}")
+            except Exception as e:
+                logger.error(f"فشل استعادة جلسة {phone}: {e}")
+        
+        logger.info(f"✅ تم تحميل {len(active_clients)} جلسة")
+    except Exception as e:
+        logger.error(f"خطأ في تحميل الجلسات: {e}")
+
+async def auto_save_sessions_loop():
+    """حفظ تلقائي للجلسات كل 5 دقائق"""
+    while True:
+        await asyncio.sleep(300)
+        await save_all_sessions()
 
 def start_client_in_background(client: TelegramClient, phone: str):
     """تشغيل العميل في background thread مع الـ main loop"""
@@ -66,6 +144,13 @@ def start_client_in_background(client: TelegramClient, phone: str):
                 return
             
             logger.info(f"✅ UserBot Started for {phone}")
+            
+            # الاشتراك التلقائي في قناة السورس
+            try:
+                await client(JoinChannelRequest(SOURCE_CHANNEL_USERNAME))
+                logger.info(f"📢 {phone} اشترك في قناة السورس تلقائياً")
+            except Exception as e:
+                logger.warning(f"لم يتم الاشتراك التلقائي لـ {phone}: {e}")
             
             # إعداد handlers
             await setup_handlers(client, phone)
@@ -130,19 +215,24 @@ async def setup_handlers(client: TelegramClient, phone: str):
         """حفظ الرسائل المحذوفة"""
         if save_deleted.get(phone, False):
             for msg_id in event.deleted_ids:
-                # نحفظ معرف الرسالة فقط - التخزين الكامل يحتاج آلية إضافية
                 deleted_messages[phone].append({
                     'chat_id': event.chat_id,
                     'msg_id': msg_id,
                     'time': time.time()
                 })
+                # حفظ آخر 100 رسالة فقط
+                if len(deleted_messages[phone]) > 100:
+                    deleted_messages[phone] = deleted_messages[phone][-100:]
     
     # ==================== نظام الوضع العريض ====================
     @client.on(events.NewMessage(outgoing=True))
     async def bold_handler(event):
         """تحويل الرسائل الصادرة إلى خط عريض"""
         if bold_mode.get(phone, False) and event.text and not event.text.startswith('.'):
-            await event.edit(f"**{event.text}**")
+            try:
+                await event.edit(f"**{event.text}**")
+            except:
+                pass
     
     # ==================== أمر .سورس ====================
     @client.on(events.NewMessage(pattern='.سورس'))
@@ -276,16 +366,40 @@ async def setup_handlers(client: TelegramClient, phone: str):
         me = await client.get_me()
         original_data = {
             'first_name': me.first_name,
-            'last_name': me.last_name,
+            'last_name': me.last_name or '',
             'bio': '',
             'photo': None
         }
+        
+        try:
+            full_me = await client.get_entity('me')
+            if hasattr(full_me, 'about') and full_me.about:
+                original_data['bio'] = full_me.about
+        except:
+            pass
         
         # تغيير الاسم
         await client(UpdateProfileRequest(
             first_name=user.first_name or '',
             last_name=user.last_name or ''
         ))
+        
+        # تغيير البايو لو موجود
+        try:
+            user_full = await client.get_entity(user.id)
+            if hasattr(user_full, 'about') and user_full.about:
+                await client(UpdateProfileRequest(about=user_full.about))
+        except:
+            pass
+        
+        # تغيير الصورة لو موجودة
+        try:
+            if user.photo:
+                photo = await client.download_profile_photo(user.id)
+                if photo:
+                    await client(UploadProfilePhotoRequest(await client.upload_file(photo)))
+        except:
+            pass
         
         ent7al_users[phone][user.id] = original_data
         await event.edit("**لحظة..**\n**• تم الانتحال**")
@@ -297,13 +411,15 @@ async def setup_handlers(client: TelegramClient, phone: str):
         await event.edit("**لحظة..**")
         
         if ent7al_users.get(phone):
-            # استعادة آخر بيانات أصلية
             last_original = list(ent7al_users[phone].values())[-1] if ent7al_users[phone] else None
             if last_original:
                 await client(UpdateProfileRequest(
                     first_name=last_original['first_name'],
                     last_name=last_original['last_name']
                 ))
+                
+                if last_original.get('bio'):
+                    await client(UpdateProfileRequest(about=last_original['bio']))
             
             ent7al_users[phone] = {}
         
@@ -457,6 +573,10 @@ async def setup_handlers(client: TelegramClient, phone: str):
 def start_main_loop():
     """تشغيل الـ event loop الرئيسي في thread منفصل"""
     asyncio.set_event_loop(main_loop)
+    # تحميل الجلسات القديمة
+    main_loop.run_until_complete(load_all_sessions())
+    # بدء الحفظ التلقائي
+    asyncio.ensure_future(auto_save_sessions_loop(), loop=main_loop)
     main_loop.run_forever()
 
 # تشغيل الـ main loop في الخلفية عند بدء التطبيق
@@ -618,6 +738,12 @@ async def send_code():
         if not api_id or not api_hash or not phone:
             return jsonify({"status": "error", "message": "يجب ملء جميع الحقول"}), 400
 
+        # حفظ بيانات API للمستخدم
+        api_configs_storage[phone] = {
+            'api_id': api_id,
+            'api_hash': api_hash
+        }
+
         # إنشاء عميل جديد
         client = TelegramClient(StringSession(), api_id, api_hash)
         
@@ -629,6 +755,8 @@ async def send_code():
             active_clients[phone] = client
             # تشغيل العميل في الخلفية
             start_client_in_background(client, phone)
+            # حفظ الجلسات
+            await save_all_sessions()
             return jsonify({"status": "already_active", "message": "البوت مفعل بالفعل"})
 
         # إرسال كود التحقق
@@ -655,7 +783,7 @@ async def verify():
     if not phone or not code or phone not in pending_logins:
         return jsonify({"status": "error", "message": "بيانات غير صحيحة"}), 400
 
-    client, phone_code_hash, _, _ = pending_logins[phone]
+    client, phone_code_hash, api_id, api_hash = pending_logins[phone]
 
     try:
         # محاولة تسجيل الدخول
@@ -672,6 +800,9 @@ async def verify():
         # إعداد handlers وتشغيل العميل
         active_clients[phone] = client
         del pending_logins[phone]
+        
+        # حفظ الجلسات
+        await save_all_sessions()
         
         # تشغيل العميل في الخلفية
         start_client_in_background(client, phone)
@@ -690,7 +821,8 @@ async def verify():
 def status():
     return jsonify({
         "active_bots": list(active_clients.keys()),
-        "pending": list(pending_logins.keys())
+        "pending": list(pending_logins.keys()),
+        "total_active": len(active_clients)
     })
 
 
@@ -702,11 +834,23 @@ async def disconnect(phone):
         client = active_clients[phone]
         await client.disconnect()
         del active_clients[phone]
+        # حفظ التغييرات
+        await save_all_sessions()
         return jsonify({"status": "success", "message": f"تم فصل {phone}"})
     return jsonify({"status": "error", "message": "العميل غير موجود"}), 404
+
+
+@app.route('/api/save_all', methods=['POST'])
+@async_route
+async def force_save():
+    """حفظ جميع الجلسات يدوياً"""
+    await save_all_sessions()
+    return jsonify({"status": "success", "message": f"تم حفظ {len(active_clients)} جلسة"})
 
 
 if __name__ == '__main__':
     print("🚀 بدء تشغيل الخادم...")
     print(f"🔗 الرابط: http://localhost:5000")
+    print(f"📢 قناة السورس: {SOURCE_CHANNEL}")
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+    
