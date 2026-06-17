@@ -8,28 +8,33 @@ import time
 import random
 import json
 import os
+import io
 
 from flask import Flask, jsonify, request
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 from telethon.tl.functions.account import UpdateProfileRequest, UpdateUsernameRequest
-from telethon.tl.functions.photos import UploadProfilePhotoRequest
+from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
 from telethon.tl.functions.contacts import BlockRequest, UnblockRequest
 from telethon.tl.functions.channels import JoinChannelRequest
-from telethon.tl.types import InputPeerEmpty
+from telethon.tl.types import InputPeerEmpty, InputPhoto, InputFile
 
-# إعداد logging
+# ========== تخزين الجلسات في Railway Volume ==========
+DATA_DIR = '/data' if os.path.exists('/data') else '.'
+os.makedirs(DATA_DIR, exist_ok=True)
+SESSION_FILE = os.path.join(DATA_DIR, 'active_sessions.json')
+API_CONFIG_FILE = os.path.join(DATA_DIR, 'api_config.json')
+# ======================================================
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# قناة السورس للإشتراك الإجباري
 SOURCE_CHANNEL = "https://t.me/Q_g_r_a_m"
 SOURCE_CHANNEL_USERNAME = "Q_g_r_a_m"
 
-# حل المشكلة: استخدام event loop واحد ثابت للتطبيق كله
 main_loop = asyncio.new_event_loop()
 thread_pool = ThreadPoolExecutor(max_workers=10)
 
@@ -37,26 +42,19 @@ active_clients: Dict[str, TelegramClient] = {}
 pending_logins: Dict[str, Tuple[TelegramClient, str, int, str]] = {}
 api_configs_storage: Dict[str, Dict] = {}
 
-# قواعد البيانات المؤقتة للبوتات
-muted_users = {}  # {phone: {user_id: True}}
-banned_users = {}  # {phone: {user_id: True}}
-taqleed_users = {}  # {phone: {user_id: True}}
-ent7al_users = {}  # {phone: {user_id: original_data}}
-bold_mode = {}  # {phone: True}
-save_deleted = {}  # {phone: True}
-deleted_messages = {}  # {phone: [(msg_text, sender_name, time)]}
-
-# ملفات حفظ الجلسات
-SESSION_FILE = 'active_sessions.json'
-API_CONFIG_FILE = 'api_config.json'
+muted_users = {}
+banned_users = {}
+taqleed_users = {}
+ent7al_users = {}
+bold_mode = {}
+save_deleted = {}
+deleted_messages = {}
 
 def run_async_in_main_loop(coro):
-    """تشغيل coroutine في الـ main event loop بأمان"""
     future = asyncio.run_coroutine_threadsafe(coro, main_loop)
     return future.result(timeout=30)
 
 def async_route(f):
-    """ديكوريتور للمسارات غير المتزامنة"""
     @wraps(f)
     def wrapper(*args, **kwargs):
         try:
@@ -67,7 +65,6 @@ def async_route(f):
     return wrapper
 
 async def save_all_sessions():
-    """حفظ كل الجلسات النشطة"""
     try:
         sessions_data = {}
         configs = {}
@@ -89,12 +86,11 @@ async def save_all_sessions():
         with open(API_CONFIG_FILE, 'w') as f:
             json.dump(configs, f)
         
-        logger.info(f"✅ تم حفظ {len(sessions_data)} جلسة")
+        logger.info(f"Saved {len(sessions_data)} sessions to Volume")
     except Exception as e:
-        logger.error(f"خطأ في حفظ الجلسات: {e}")
+        logger.error(f"Save error: {e}")
 
 async def load_all_sessions():
-    """تحميل واستعادة الجلسات المحفوظة"""
     try:
         if not os.path.exists(SESSION_FILE):
             return
@@ -118,22 +114,20 @@ async def load_all_sessions():
                         active_clients[phone] = client
                         api_configs_storage[phone] = configs[phone]
                         start_client_in_background(client, phone)
-                        logger.info(f"🔄 تم استعادة جلسة: {phone}")
+                        logger.info(f"Restored: {phone}")
             except Exception as e:
-                logger.error(f"فشل استعادة جلسة {phone}: {e}")
+                logger.error(f"Restore error {phone}: {e}")
         
-        logger.info(f"✅ تم تحميل {len(active_clients)} جلسة")
+        logger.info(f"Loaded {len(active_clients)} sessions from Volume")
     except Exception as e:
-        logger.error(f"خطأ في تحميل الجلسات: {e}")
+        logger.error(f"Load error: {e}")
 
 async def auto_save_sessions_loop():
-    """حفظ تلقائي للجلسات كل 5 دقائق"""
     while True:
         await asyncio.sleep(300)
         await save_all_sessions()
 
 def start_client_in_background(client: TelegramClient, phone: str):
-    """تشغيل العميل في background thread مع الـ main loop"""
     async def run_client():
         try:
             if not client.is_connected():
@@ -143,47 +137,37 @@ def start_client_in_background(client: TelegramClient, phone: str):
                 logger.error(f"Client not authorized for {phone}")
                 return
             
-            logger.info(f"✅ UserBot Started for {phone}")
+            logger.info(f"UserBot Started for {phone}")
             
-            # الاشتراك التلقائي في قناة السورس
             try:
                 await client(JoinChannelRequest(SOURCE_CHANNEL_USERNAME))
-                logger.info(f"📢 {phone} اشترك في قناة السورس تلقائياً")
-            except Exception as e:
-                logger.warning(f"لم يتم الاشتراك التلقائي لـ {phone}: {e}")
+            except:
+                pass
             
-            # إعداد handlers
             await setup_handlers(client, phone)
             
-            # إرسال رسالة التفعيل في الرسائل المحفوظة
             try:
-                await client.send_message('me', f"""
+                await client.send_message('me', """
 **تيليثون ڪيوجـࢪام 𔓕**
 
 • لأوامر ارسل **.اوامر**
 • لتنصيب السورس [إضغط هنا](https://t.me/Q_g_r_a_m)
 • لمتابعة التحديثات [إضغط هنا](https://t.me/Q_g_r_a_m)
-
-> **Quote: [إضغط هنا](https://t.me/Q_g_r_a_m)**
 """, parse_mode='md')
             except:
                 pass
             
-            # تشغيل العميل
             await client.run_until_disconnected()
             
         except Exception as e:
-            logger.error(f"❌ Error {phone}: {e}")
+            logger.error(f"Error {phone}: {e}")
             if phone in active_clients:
                 del active_clients[phone]
     
-    # تشغيل في الـ main loop
     asyncio.run_coroutine_threadsafe(run_client(), main_loop)
 
 async def setup_handlers(client: TelegramClient, phone: str):
-    """إعداد handlers للعميل"""
     
-    # تهيئة القواميس للبوت الحالي
     if phone not in muted_users:
         muted_users[phone] = {}
         banned_users[phone] = {}
@@ -193,142 +177,139 @@ async def setup_handlers(client: TelegramClient, phone: str):
         save_deleted[phone] = False
         deleted_messages[phone] = []
     
-    # ==================== نظام الكتم التلقائي ====================
     @client.on(events.NewMessage(incoming=True))
     async def auto_mute_handler(event):
-        """حذف رسائل المستخدمين المكتومين تلقائياً"""
         if event.is_private and event.sender_id in muted_users.get(phone, {}):
             await event.delete()
     
-    # ==================== نظام التقليد الدائم ====================
     @client.on(events.NewMessage(incoming=True))
     async def auto_taqleed_handler(event):
-        """تقليد رسائل المستخدمين المفعّل لهم التقليد"""
         if event.is_private and event.sender_id in taqleed_users.get(phone, {}) and event.text:
             if not event.text.startswith('.'):
                 await asyncio.sleep(0.5)
                 await client.send_message(event.sender_id, event.text)
     
-    # ==================== نظام حفظ الرسائل المحذوفة ====================
     @client.on(events.MessageDeleted())
     async def save_deleted_handler(event):
-        """حفظ الرسائل المحذوفة"""
         if save_deleted.get(phone, False):
             for msg_id in event.deleted_ids:
-                deleted_messages[phone].append({
-                    'chat_id': event.chat_id,
-                    'msg_id': msg_id,
-                    'time': time.time()
-                })
-                # حفظ آخر 100 رسالة فقط
-                if len(deleted_messages[phone]) > 100:
-                    deleted_messages[phone] = deleted_messages[phone][-100:]
+                try:
+                    messages = await client.get_messages(event.chat_id, ids=msg_id)
+                    if messages:
+                        msg = messages
+                        sender_name = "Unknown"
+                        if msg.sender:
+                            sender = await client.get_entity(msg.sender_id)
+                            sender_name = sender.first_name or "User"
+                        
+                        deleted_messages[phone].append({
+                            'chat_id': event.chat_id,
+                            'msg_id': msg_id,
+                            'text': msg.text or "[Media/Sticker]",
+                            'sender': sender_name,
+                            'time': time.time()
+                        })
+                        
+                        await client.send_message('me', f"""
+**رسالة محذوفة:**
+من: {sender_name}
+الدردشة: {event.chat_id}
+النص: {msg.text or '[غير نصية]'}
+الوقت: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}
+""")
+                        
+                        if len(deleted_messages[phone]) > 100:
+                            deleted_messages[phone] = deleted_messages[phone][-100:]
+                except:
+                    pass
     
-    # ==================== نظام الوضع العريض ====================
+    @client.on(events.MessageEdited())
+    async def save_edited_handler(event):
+        if save_deleted.get(phone, False):
+            try:
+                original = await client.get_messages(event.chat_id, ids=event.id)
+                if original and original.text != event.text:
+                    await client.send_message('me', f"""
+**رسالة معدلة:**
+قبل: {original.text or '[غير نصية]'}
+بعد: {event.text or '[غير نصية]'}
+الدردشة: {event.chat_id}
+الوقت: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}
+""")
+            except:
+                pass
+    
     @client.on(events.NewMessage(outgoing=True))
     async def bold_handler(event):
-        """تحويل الرسائل الصادرة إلى خط عريض"""
         if bold_mode.get(phone, False) and event.text and not event.text.startswith('.'):
             try:
                 await event.edit(f"**{event.text}**")
             except:
                 pass
     
-    # ==================== أمر .سورس ====================
     @client.on(events.NewMessage(pattern='.سورس'))
     async def source_cmd(event):
-        """عرض معلومات السورس"""
-        await event.edit("""
-**تيليثون ڪيوجـࢪام 𔓕**
-
-• لأوامر ارسل **.اوامر**
-• لتنصيب السورس [إضغط هنا](https://t.me/Q_g_r_a_m)
-• لمتابعة التحديثات [إضغط هنا](https://t.me/Q_g_r_a_m)
-
-> **Quote: [إضغط هنا](https://t.me/Q_g_r_a_m)**
-""", parse_mode='md')
+        await event.edit("**تيليثون ڪيوجـࢪام 𔓕**\n\n**• لأوامر ارسل .اوامر**\n**• لتنصيب السورس [إضغط هنا](https://t.me/Q_g_r_a_m)**\n**• لمتابعة التحديثات [إضغط هنا](https://t.me/Q_g_r_a_m)**", parse_mode='md')
     
-    # ==================== أمر .اوامر ====================
     @client.on(events.NewMessage(pattern='.اوامر'))
     async def commands_list(event):
-        """عرض قائمة الأوامر"""
-        await event.edit("""
-**تيليثون ڪيوجـࢪام 𔓕**
+        await event.edit("""**أوامر السورس 𔓕**
 
-**أوامر الحسابات:**
-• `.تقليد` ، `.الغاء تقليد`
-• `.انتحال` ، `.الغاء انتحال`
-• `.خط عريض` ، `.الغاء خط`
-• `.اسم` + الاسم
-• `.بايو` + البايو
-
-**أوامر المجموعات والخاص:**
-• `.ايدي` ، `.كشف`
-• `.كتم` ، `.الغاء كتم`
-• `.تقيد` ، `.الغاء تقييد`
-• `.حظر` ، `.الغاء حظر`
-• `.تهكير`
-• `.سجل` ، `.الغاء سجل`
-
-**أوامر الفحص:**
-• `.بنغ`
-• `.سورس`
-""", parse_mode='md')
+• ايدي ، كشف
+• كتم ، الغاء كتم
+• تقيد ، الغاء تقييد
+• حظر ، الغاء حظر
+• تقليد ، الغاء تقليد
+• تهكير ، وهمي للهزار
+• انتحال ، الغاء انتحال
+• اوامر ، لعرض الاوامر
+• بنغ ، يقيس سرعة النت
+• خط عريض ، الغاء خط
+• اسم + الاسم المراد تعيينة
+• بايو + البايو المراد تعيينة
+• سجل ، حفظ الرسائل المحذوفة
+• سورس ، عرض معلومات السورس**""", parse_mode='md')
     
-    # ==================== أمر .بنغ ====================
     @client.on(events.NewMessage(pattern='.بنغ'))
     async def ping_cmd(event):
-        """قياس سرعة النت"""
-        start = time.time()
-        await event.edit("**جاري قياس السرعة...**")
-        end = time.time()
-        ping_time = round((end - start) * 1000)
-        await asyncio.sleep(1)
         await event.edit(f"**سࢪعة النت {random.randint(180, 220)}ꪔ**")
     
-    # ==================== أمر .ايدي / .كشف ====================
     @client.on(events.NewMessage(pattern=r'\.(ايدي|كشف)'))
     async def id_cmd(event):
-        """عرض معلومات المستخدم"""
         await event.delete()
         
-        # لو في رد على شخص
         if event.is_reply:
             reply = await event.get_reply_message()
             user = await client.get_entity(reply.sender_id)
-        # لو في جروب
         elif event.is_group:
             user = await client.get_entity(event.sender_id)
-        # لو في خاص
         else:
             user = await client.get_entity(event.chat_id)
         
         user_id = user.id
-        username = f"@{user.username}" if user.username else "@oooo"
-        first_name = user.first_name or "oooo"
+        first_name = user.first_name or ""
         last_name = user.last_name or ""
-        bio = "ooooooo"
+        
+        lines = []
+        lines.append(f"•ꪀᥲꪔꫀ↝ {first_name} {last_name}".strip())
+        
+        if user.username:
+            lines.append(f"•ᥙ᥉ꫀɾ↝ @{user.username}")
         
         try:
             full = await client.get_entity(user_id)
             if hasattr(full, 'about') and full.about:
-                bio = full.about[:50]
+                lines.append(f"•ᑲᎥ᥆↝ {full.about[:50]}")
         except:
             pass
         
-        msg = f"""
-•ꪀᥲꪔꫀ↝ {first_name} {last_name}
-•ᥙ᥉ꫀɾ↝ {username}
-•ᑲᎥ᥆↝ {bio}
-•Ꭵძ↝ {user_id}
-"""
+        lines.append(f"•Ꭵძ↝ {user_id}")
         
+        msg = "\n".join(lines)
         await client.send_message(event.chat_id, msg.strip())
     
-    # ==================== أمر .تقليد ====================
     @client.on(events.NewMessage(pattern='.تقليد'))
     async def taqleed_cmd(event):
-        """تفعيل تقليد المستخدم"""
         if event.is_reply:
             reply = await event.get_reply_message()
             taqleed_users[phone][reply.sender_id] = True
@@ -337,10 +318,8 @@ async def setup_handlers(client: TelegramClient, phone: str):
             taqleed_users[phone][event.chat_id] = True
             await event.edit("**• يتم التقليد**")
     
-    # ==================== أمر .الغاء تقليد ====================
     @client.on(events.NewMessage(pattern='.الغاء تقليد'))
     async def stop_taqleed_cmd(event):
-        """إلغاء تقليد المستخدم"""
         if event.is_reply:
             reply = await event.get_reply_message()
             taqleed_users[phone].pop(reply.sender_id, None)
@@ -348,11 +327,9 @@ async def setup_handlers(client: TelegramClient, phone: str):
             taqleed_users[phone].pop(event.chat_id, None)
         await event.edit("**• تم فك التقليد**")
     
-    # ==================== أمر .انتحال ====================
     @client.on(events.NewMessage(pattern='.انتحال'))
     async def ent7al_cmd(event):
-        """انتحال شخصية المستخدم"""
-        await event.edit("**لحظة..**")
+        await event.edit("**• جاري الانتحال...**")
         
         if event.is_reply:
             reply = await event.get_reply_message()
@@ -362,29 +339,36 @@ async def setup_handlers(client: TelegramClient, phone: str):
         else:
             return
         
-        # حفظ البيانات الأصلية
         me = await client.get_me()
         original_data = {
             'first_name': me.first_name,
             'last_name': me.last_name or '',
-            'bio': '',
             'photo': None
         }
         
         try:
-            full_me = await client.get_entity('me')
-            if hasattr(full_me, 'about') and full_me.about:
-                original_data['bio'] = full_me.about
+            if me.photo:
+                original_photo = await client.download_profile_photo('me')
+                if original_photo:
+                    original_data['photo'] = original_photo
         except:
             pass
         
-        # تغيير الاسم
         await client(UpdateProfileRequest(
             first_name=user.first_name or '',
             last_name=user.last_name or ''
         ))
         
-        # تغيير البايو لو موجود
+        try:
+            if user.photo:
+                photo_data = await client.download_profile_photo(user.id)
+                if photo_data:
+                    uploaded = await client.upload_file(photo_data)
+                    await client(UploadProfilePhotoRequest(uploaded))
+                    await asyncio.sleep(2)
+        except Exception as e:
+            logger.error(f"Photo steal error: {e}")
+        
         try:
             user_full = await client.get_entity(user.id)
             if hasattr(user_full, 'about') and user_full.about:
@@ -392,23 +376,12 @@ async def setup_handlers(client: TelegramClient, phone: str):
         except:
             pass
         
-        # تغيير الصورة لو موجودة
-        try:
-            if user.photo:
-                photo = await client.download_profile_photo(user.id)
-                if photo:
-                    await client(UploadProfilePhotoRequest(await client.upload_file(photo)))
-        except:
-            pass
-        
         ent7al_users[phone][user.id] = original_data
-        await event.edit("**لحظة..**\n**• تم الانتحال**")
+        await event.edit("**• تم الانتحال**")
     
-    # ==================== أمر .الغاء انتحال ====================
     @client.on(events.NewMessage(pattern='.الغاء انتحال'))
     async def stop_ent7al_cmd(event):
-        """إلغاء الانتحال واستعادة البيانات الأصلية"""
-        await event.edit("**لحظة..**")
+        await event.edit("**• جاري استعادة الحساب...**")
         
         if ent7al_users.get(phone):
             last_original = list(ent7al_users[phone].values())[-1] if ent7al_users[phone] else None
@@ -418,17 +391,20 @@ async def setup_handlers(client: TelegramClient, phone: str):
                     last_name=last_original['last_name']
                 ))
                 
-                if last_original.get('bio'):
-                    await client(UpdateProfileRequest(about=last_original['bio']))
+                if last_original.get('photo'):
+                    try:
+                        uploaded = await client.upload_file(last_original['photo'])
+                        await client(UploadProfilePhotoRequest(uploaded))
+                        await asyncio.sleep(2)
+                    except:
+                        pass
             
             ent7al_users[phone] = {}
         
-        await event.edit("**لحظة..**\n**• تم فك الانتحال**")
+        await event.edit("**• تم فك الانتحال**")
     
-    # ==================== أمر .كتم ====================
     @client.on(events.NewMessage(pattern='.كتم'))
     async def mute_cmd(event):
-        """كتم مستخدم"""
         if event.is_reply:
             reply = await event.get_reply_message()
             muted_users[phone][reply.sender_id] = True
@@ -437,10 +413,8 @@ async def setup_handlers(client: TelegramClient, phone: str):
             muted_users[phone][event.chat_id] = True
             await event.edit("**• تم الكتم**")
     
-    # ==================== أمر .الغاء كتم ====================
     @client.on(events.NewMessage(pattern='.الغاء كتم'))
     async def unmute_cmd(event):
-        """إلغاء كتم مستخدم"""
         if event.is_reply:
             reply = await event.get_reply_message()
             muted_users[phone].pop(reply.sender_id, None)
@@ -448,10 +422,8 @@ async def setup_handlers(client: TelegramClient, phone: str):
             muted_users[phone].pop(event.chat_id, None)
         await event.edit("**• تم فك الكتم**")
     
-    # ==================== أمر .حظر ====================
     @client.on(events.NewMessage(pattern='.حظر'))
     async def ban_cmd(event):
-        """حظر مستخدم"""
         if event.is_reply:
             reply = await event.get_reply_message()
             await client(BlockRequest(reply.sender_id))
@@ -462,10 +434,8 @@ async def setup_handlers(client: TelegramClient, phone: str):
             banned_users[phone][event.chat_id] = True
             await event.edit("**• تم الحظر**")
     
-    # ==================== أمر .الغاء حظر ====================
     @client.on(events.NewMessage(pattern='.الغاء حظر'))
     async def unban_cmd(event):
-        """إلغاء حظر مستخدم"""
         if event.is_reply:
             reply = await event.get_reply_message()
             await client(UnblockRequest(reply.sender_id))
@@ -475,115 +445,112 @@ async def setup_handlers(client: TelegramClient, phone: str):
             banned_users[phone].pop(event.chat_id, None)
         await event.edit("**• تم فك الحظر**")
     
-    # ==================== أمر .تقيد ====================
     @client.on(events.NewMessage(pattern='.تقيد'))
     async def restrict_cmd(event):
-        """تقييد مستخدم في المجموعة"""
         if event.is_group and event.is_reply:
             reply = await event.get_reply_message()
             try:
                 await client.edit_permissions(event.chat_id, reply.sender_id, send_messages=False)
                 await event.edit("**• تم التقييد**")
             except:
-                await event.edit("**• فشل التقييد - تأكد من الصلاحيات**")
+                await event.edit("**• فشل التقييد**")
     
-    # ==================== أمر .الغاء تقييد ====================
     @client.on(events.NewMessage(pattern='.الغاء تقييد'))
     async def unrestrict_cmd(event):
-        """إلغاء تقييد مستخدم في المجموعة"""
         if event.is_group and event.is_reply:
             reply = await event.get_reply_message()
             try:
                 await client.edit_permissions(event.chat_id, reply.sender_id, send_messages=True)
                 await event.edit("**• تم فك التقييد**")
             except:
-                await event.edit("**• فشل فك التقييد - تأكد من الصلاحيات**")
+                await event.edit("**• فشل فك التقييد**")
     
-    # ==================== أمر .تهكير ====================
     @client.on(events.NewMessage(pattern='.تهكير'))
     async def hack_cmd(event):
-        """أمر وهمي للهزار"""
         if event.is_reply:
             reply = await event.get_reply_message()
             user = await client.get_entity(reply.sender_id)
             target_name = user.first_name
         else:
-            target_name = "المستخدم"
+            target_name = "الضحية"
         
-        await event.edit(f"**🟢 جاري تهكير {target_name}...**")
+        await event.edit("**جاري الاتصال بسيرفرات التهكير...**")
+        await asyncio.sleep(1.5)
+        await event.edit("**تم الاتصال بالسيرفر successfully**")
         await asyncio.sleep(1)
-        await event.edit(f"**🟡 تم اختراق 25% من حساب {target_name}**")
+        await event.edit(f"**جاري تحديد عنوان IP الخاص بـ {target_name}...**")
+        await asyncio.sleep(2)
+        await event.edit(f"**تم تحديد العنوان: 192.168.{random.randint(1,255)}.{random.randint(1,255)}**")
+        await asyncio.sleep(1.5)
+        await event.edit("**جاري فتح المنافذ والتسلل إلى جهاز الضحية...**")
+        await asyncio.sleep(2)
+        await event.edit("**تم تجاوز جدار الحماية بنجاح**")
+        await asyncio.sleep(1.5)
+        await event.edit("**جاري استخراج بيانات الحساب...**")
+        await asyncio.sleep(2)
+        await event.edit("**تم استخراج البيانات بنجاح**")
         await asyncio.sleep(1)
-        await event.edit(f"**🟠 تم اختراق 50% من حساب {target_name}**")
+        await event.edit("**جاري تحميل الصور والملفات...**")
+        await asyncio.sleep(2)
+        await event.edit(f"**تم تحميل {random.randint(50,500)} صورة و {random.randint(10,100)} ملف**")
+        await asyncio.sleep(1.5)
+        await event.edit("**جاري استخراج جهات الاتصال...**")
+        await asyncio.sleep(2)
+        await event.edit(f"**تم استخراج {random.randint(100,1000)} جهة اتصال**")
         await asyncio.sleep(1)
-        await event.edit(f"**🔴 تم اختراق 75% من حساب {target_name}**")
-        await asyncio.sleep(1)
-        await event.edit(f"**✅ تمت السيطرة على حساب {target_name} بالكامل!**\n**🤡 أمزح معاك يا وحش**")
+        await event.edit("**جاري تثبيت برنامج تجسس على جهاز الضحية...**")
+        await asyncio.sleep(2.5)
+        await event.edit("**تم تثبيت برنامج التجسس بنجاح**")
+        await asyncio.sleep(1.5)
+        await event.edit(f"**تمت السيطرة الكاملة على حساب {target_name}**\n**تم التهكير بنجاح**")
     
-    # ==================== أمر .سجل ====================
     @client.on(events.NewMessage(pattern='.سجل'))
     async def save_cmd(event):
-        """تفعيل حفظ الرسائل المحذوفة"""
         save_deleted[phone] = True
         await event.edit("**• يتم تسجيل حذف الرسائل**")
     
-    # ==================== أمر .الغاء سجل ====================
     @client.on(events.NewMessage(pattern='.الغاء سجل'))
     async def stop_save_cmd(event):
-        """تعطيل حفظ الرسائل المحذوفة"""
         save_deleted[phone] = False
         await event.edit("**• تم تعطيل تسجيل الرسائل**")
     
-    # ==================== أمر .اسم ====================
     @client.on(events.NewMessage(pattern=r'\.اسم (.+)'))
     async def name_cmd(event):
-        """تغيير الاسم"""
         new_name = event.pattern_match.group(1).strip()
         try:
             await client(UpdateProfileRequest(first_name=new_name, last_name=''))
             await event.edit("**• تم تغيير الاسم**")
         except Exception as e:
-            await event.edit(f"**• فشل تغيير الاسم: {str(e)}**")
+            await event.edit(f"**• فشل تغيير الاسم**")
     
-    # ==================== أمر .بايو ====================
     @client.on(events.NewMessage(pattern=r'\.بايو (.+)'))
     async def bio_cmd(event):
-        """تغيير البايو"""
         new_bio = event.pattern_match.group(1).strip()
         try:
             await client(UpdateProfileRequest(about=new_bio))
             await event.edit("**• تم تغيير البايو**")
         except Exception as e:
-            await event.edit(f"**• فشل تغيير البايو: {str(e)}**")
+            await event.edit(f"**• فشل تغيير البايو**")
     
-    # ==================== أمر .خط عريض ====================
     @client.on(events.NewMessage(pattern='.خط عريض'))
     async def bold_cmd(event):
-        """تفعيل الخط العريض"""
         bold_mode[phone] = True
         await event.edit("**• تم تفعيل الخط العريض**")
     
-    # ==================== أمر .الغاء خط ====================
     @client.on(events.NewMessage(pattern='.الغاء خط'))
     async def stop_bold_cmd(event):
-        """إلغاء الخط العريض"""
         bold_mode[phone] = False
         await event.edit("**• تم الغاء الخط العريض**")
 
 def start_main_loop():
-    """تشغيل الـ event loop الرئيسي في thread منفصل"""
     asyncio.set_event_loop(main_loop)
-    # تحميل الجلسات القديمة
     main_loop.run_until_complete(load_all_sessions())
-    # بدء الحفظ التلقائي
     asyncio.ensure_future(auto_save_sessions_loop(), loop=main_loop)
     main_loop.run_forever()
 
-# تشغيل الـ main loop في الخلفية عند بدء التطبيق
 loop_thread = threading.Thread(target=start_main_loop, daemon=True)
 loop_thread.start()
 
-# ====================== الصفحة الرئيسية الجميلة ======================
 @app.route('/')
 def home():
     html = """
@@ -608,7 +575,6 @@ def home():
                 </div>
 
                 <div id="form-section">
-                    <!-- Step 1: Send Code -->
                     <div id="step1">
                         <h2 class="text-2xl font-semibold mb-6 text-center">تسجيل الدخول</h2>
                         <form id="sendForm" class="space-y-5">
@@ -634,7 +600,6 @@ def home():
                         </form>
                     </div>
 
-                    <!-- Step 2: Verify Code -->
                     <div id="step2" class="hidden">
                         <h2 class="text-2xl font-semibold mb-6 text-center">أدخل كود التحقق</h2>
                         <form id="verifyForm" class="space-y-5">
@@ -726,7 +691,6 @@ def home():
     """
     return html
 
-# ====================== API Routes ======================
 @app.route('/api/send_code', methods=['POST'])
 @async_route
 async def send_code():
@@ -738,28 +702,20 @@ async def send_code():
         if not api_id or not api_hash or not phone:
             return jsonify({"status": "error", "message": "يجب ملء جميع الحقول"}), 400
 
-        # حفظ بيانات API للمستخدم
         api_configs_storage[phone] = {
             'api_id': api_id,
             'api_hash': api_hash
         }
 
-        # إنشاء عميل جديد
         client = TelegramClient(StringSession(), api_id, api_hash)
-        
-        # الاتصال بالعميل
         await client.connect()
 
-        # التحقق إذا كان مفعل مسبقاً
         if await client.is_user_authorized():
             active_clients[phone] = client
-            # تشغيل العميل في الخلفية
             start_client_in_background(client, phone)
-            # حفظ الجلسات
             await save_all_sessions()
             return jsonify({"status": "already_active", "message": "البوت مفعل بالفعل"})
 
-        # إرسال كود التحقق
         sent = await client.send_code_request(phone)
         pending_logins[phone] = (client, sent.phone_code_hash, api_id, api_hash)
 
@@ -771,7 +727,6 @@ async def send_code():
     except Exception as e:
         logger.error(f"Error in send_code: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
 
 @app.route('/api/verify', methods=['POST'])
 @async_route
@@ -786,7 +741,6 @@ async def verify():
     client, phone_code_hash, api_id, api_hash = pending_logins[phone]
 
     try:
-        # محاولة تسجيل الدخول
         try:
             await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
         except SessionPasswordNeededError:
@@ -797,25 +751,20 @@ async def verify():
                 }), 401
             await client.sign_in(password=password)
         
-        # إعداد handlers وتشغيل العميل
         active_clients[phone] = client
         del pending_logins[phone]
         
-        # حفظ الجلسات
         await save_all_sessions()
-        
-        # تشغيل العميل في الخلفية
         start_client_in_background(client, phone)
         
         return jsonify({
             "status": "success",
-            "message": "تم تفعيل اليوزربوت بنجاح! 🎉"
+            "message": "تم تفعيل اليوزربوت بنجاح"
         })
         
     except Exception as e:
         logger.error(f"Error in verify: {e}")
         return jsonify({"status": "error", "message": str(e)}), 400
-
 
 @app.route('/api/status')
 def status():
@@ -825,32 +774,25 @@ def status():
         "total_active": len(active_clients)
     })
 
-
 @app.route('/api/disconnect/<phone>', methods=['POST'])
 @async_route
 async def disconnect(phone):
-    """فصل عميل معين"""
     if phone in active_clients:
         client = active_clients[phone]
         await client.disconnect()
         del active_clients[phone]
-        # حفظ التغييرات
         await save_all_sessions()
         return jsonify({"status": "success", "message": f"تم فصل {phone}"})
     return jsonify({"status": "error", "message": "العميل غير موجود"}), 404
 
-
 @app.route('/api/save_all', methods=['POST'])
 @async_route
 async def force_save():
-    """حفظ جميع الجلسات يدوياً"""
     await save_all_sessions()
     return jsonify({"status": "success", "message": f"تم حفظ {len(active_clients)} جلسة"})
 
-
 if __name__ == '__main__':
-    print("🚀 بدء تشغيل الخادم...")
-    print(f"🔗 الرابط: http://localhost:5000")
-    print(f"📢 قناة السورس: {SOURCE_CHANNEL}")
+    print("qgram UserBot Server")
+    print(f"Volume: {DATA_DIR}")
+    print(f"Channel: {SOURCE_CHANNEL}")
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
-    
