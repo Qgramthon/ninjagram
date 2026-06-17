@@ -42,15 +42,15 @@ active_clients: Dict[str, TelegramClient] = {}
 pending_logins: Dict[str, Tuple[TelegramClient, str, int, str]] = {}
 api_configs_storage: Dict[str, Dict] = {}
 
-muted_users = {}
-banned_users = {}
-taqleed_users = {}
-bold_mode = {}
-client_me = {}
+muted_users: Dict[str, Dict[int, bool]] = {}
+taqleed_users: Dict[str, Dict[int, bool]] = {}
+banned_users: Dict[str, Dict[int, bool]] = {}
+bold_mode: Dict[str, bool] = {}
+client_me: Dict[str, any] = {}
 
 def run_async_in_main_loop(coro):
     future = asyncio.run_coroutine_threadsafe(coro, main_loop)
-    return future.result(timeout=180)
+    return future.result(timeout=300)
 
 def async_route(f):
     @wraps(f)
@@ -60,6 +60,61 @@ def async_route(f):
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
     return wrapper
+
+# ======================== Gemini API ========================
+
+def ask_gemini(question: str) -> str:
+    """
+    سؤال Gemini AI بالطريقة الصحيحة
+    تستخدم requests.post مع headers و json
+    """
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        
+        data = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": question}
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 1000
+            }
+        }
+        
+        response = requests.post(url, headers=headers, json=data, timeout=30)
+        
+        if response.status_code != 200:
+            logger.error(f"Gemini HTTP {response.status_code}: {response.text[:200]}")
+            return None
+        
+        result = response.json()
+        
+        # استخراج النص من الاستجابة
+        if 'candidates' in result and len(result['candidates']) > 0:
+            candidate = result['candidates'][0]
+            if 'content' in candidate and 'parts' in candidate['content']:
+                for part in candidate['content']['parts']:
+                    if 'text' in part:
+                        text = part['text'].strip()
+                        if text:
+                            return text[:2000]
+        
+        logger.error(f"Gemini unexpected response: {json.dumps(result)[:300]}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Gemini error: {type(e).__name__}: {e}")
+        return None
+
+# ======================== إدارة الجلسات ========================
 
 async def save_all_sessions():
     try:
@@ -124,19 +179,6 @@ async def ensure_subscription(client, phone):
         pass
     await pin_channel_to_top(client)
 
-def ask_gemini(question):
-    """سؤال Gemini AI - ترجع النص أو None"""
-    try:
-        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-        headers = {'Content-Type': 'application/json', 'X-goog-api-key': GEMINI_API_KEY}
-        data = {"contents": [{"parts": [{"text": question}]}]}
-        response = requests.post(url, headers=headers, json=data, timeout=30)
-        result = response.json()
-        answer = result['candidates'][0]['content']['parts'][0]['text']
-        return answer[:2000]
-    except:
-        return None
-
 def start_client_in_background(client, phone):
     async def run_client():
         try:
@@ -159,44 +201,50 @@ def start_client_in_background(client, phone):
 async def setup_handlers(client, phone):
     if phone not in muted_users:
         muted_users[phone] = {}
-        banned_users[phone] = {}
+    if phone not in taqleed_users:
         taqleed_users[phone] = {}
+    if phone not in banned_users:
+        banned_users[phone] = {}
+    if phone not in bold_mode:
         bold_mode[phone] = False
     
+    # ==================== كتم تلقائي ====================
     @client.on(events.NewMessage(incoming=True))
-    async def mute_h(event):
+    async def auto_mute(event):
         if event.is_private and event.sender_id in muted_users.get(phone, {}):
             try:
                 await event.delete()
             except:
                 pass
     
+    # ==================== تقليد تلقائي (خاص + جروبات) ====================
     @client.on(events.NewMessage(incoming=True))
-    async def taqleed_h(event):
-        sender = event.sender_id
-        if sender and sender in taqleed_users.get(phone, {}) and event.text:
-            if not event.text.startswith('.'):
-                await asyncio.sleep(0.5)
+    async def auto_taqleed(event):
+        sender_id = event.sender_id
+        if sender_id and sender_id in taqleed_users.get(phone, {}):
+            if event.text and not event.text.startswith('.'):
+                await asyncio.sleep(0.3)
                 try:
                     await event.reply(event.text)
                 except:
                     pass
     
+    # ==================== خط عريض ====================
     @client.on(events.NewMessage(outgoing=True))
-    async def bold_h(event):
+    async def auto_bold(event):
         if bold_mode.get(phone, False) and event.text and not event.text.startswith('.'):
             try:
                 await event.edit(f"**{event.text}**")
             except:
                 pass
     
-    # ============ سورس ============
-    @client.on(events.NewMessage(outgoing=True, pattern='.سورس'))
+    # ==================== سورس ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.سورس$'))
     async def src(event):
         await event.edit("**تيليثون ڪيوجـࢪام 𔓕**\n\n• لتنصيب السورس [إضغط هنا](https://t.me/Q_g_r_a_m)\n• لمتابعة التحديثات [إضغط هنا](https://t.me/Q_g_r_a_m)", parse_mode='md')
     
-    # ============ اوامر ============
-    @client.on(events.NewMessage(outgoing=True, pattern='.اوامر'))
+    # ==================== اوامر ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اوامر$'))
     async def cmds(event):
         await event.edit("""**اوامر السورس 𔓕**
 
@@ -222,8 +270,8 @@ async def setup_handlers(client, phone):
 اوامر
 سورس""", parse_mode='md')
     
-    # ============ ايدي / ا ============
-    @client.on(events.NewMessage(outgoing=True, pattern=r'\.(ايدي|ا)$'))
+    # ==================== ايدي / ا ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.(ايدي|ا)$'))
     async def id_cmd(event):
         await event.delete()
         user = None
@@ -247,8 +295,8 @@ async def setup_handlers(client, phone):
         lines.append(f"Ꭵძ {user.id}")
         await client.send_message(event.chat_id, "\n".join(lines))
     
-    # ============ تقليد ============
-    @client.on(events.NewMessage(outgoing=True, pattern='.تقليد'))
+    # ==================== تقليد ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تقليد$'))
     async def taq(event):
         target = None
         if event.is_reply:
@@ -259,30 +307,30 @@ async def setup_handlers(client, phone):
             taqleed_users[phone][target] = True
             await event.edit("**• يتم التقليد**")
     
-    @client.on(events.NewMessage(outgoing=True, pattern='.غ تقليد'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ تقليد$'))
     async def notaq(event):
         target = None
         if event.is_reply:
             target = (await event.get_reply_message()).sender_id
         elif event.is_private:
             target = event.chat_id
-        if target:
-            taqleed_users[phone].pop(target, None)
+        if target and target in taqleed_users.get(phone, {}):
+            del taqleed_users[phone][target]
         await event.edit("**• تم فك التقليد**")
     
-    # ============ خط / غ خط ============
-    @client.on(events.NewMessage(outgoing=True, pattern='.خط'))
+    # ==================== خط / غ خط ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.خط$'))
     async def bold(event):
         bold_mode[phone] = True
         await event.edit("**• تم تفعيل الخط العريض**")
     
-    @client.on(events.NewMessage(outgoing=True, pattern='.غ خط'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ خط$'))
     async def nobold(event):
         bold_mode[phone] = False
         await event.edit("**• تم الغاء الخط العريض**")
     
-    # ============ اسم ============
-    @client.on(events.NewMessage(outgoing=True, pattern=r'\.اسم (.+)'))
+    # ==================== اسم ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اسم (.+)'))
     async def name(event):
         try:
             await client(UpdateProfileRequest(first_name=event.pattern_match.group(1).strip(), last_name=''))
@@ -290,8 +338,8 @@ async def setup_handlers(client, phone):
         except:
             await event.edit("**• فشل**")
     
-    # ============ بايو ============
-    @client.on(events.NewMessage(outgoing=True, pattern=r'\.بايو (.+)'))
+    # ==================== بايو ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بايو (.+)'))
     async def bio(event):
         try:
             await client(UpdateProfileRequest(about=event.pattern_match.group(1).strip()))
@@ -299,49 +347,43 @@ async def setup_handlers(client, phone):
         except:
             await event.edit("**• فشل**")
     
-    # ============ ث / غ ث ============
-    @client.on(events.NewMessage(outgoing=True, pattern='.ث'))
+    # ==================== ث / غ ث ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ث$'))
     async def pin_msg(event):
-        if event.is_reply:
-            try:
+        try:
+            if event.is_reply:
                 await (await event.get_reply_message()).pin()
                 await event.edit("**• تم التثبيت**")
-            except:
-                await event.edit("**• فشل**")
-        else:
-            try:
+            else:
                 await client(ToggleDialogPinRequest(peer=event.input_chat, pinned=True))
                 await event.edit("**• تم تثبيت المحادثة**")
-            except:
-                await event.edit("**• فشل**")
+        except:
+            await event.edit("**• فشل**")
     
-    @client.on(events.NewMessage(outgoing=True, pattern='.غ ث'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ ث$'))
     async def unpin_msg(event):
-        if event.is_reply:
-            try:
+        try:
+            if event.is_reply:
                 await (await event.get_reply_message()).unpin()
                 await event.edit("**• تم الغاء التثبيت**")
-            except:
-                await event.edit("**• فشل**")
-        else:
-            try:
+            else:
                 await client(ToggleDialogPinRequest(peer=event.input_chat, pinned=False))
                 await event.edit("**• تم الغاء تثبيت المحادثة**")
-            except:
-                await event.edit("**• فشل**")
+        except:
+            await event.edit("**• فشل**")
     
-    # ============ اضافة ============
-    @client.on(events.NewMessage(outgoing=True, pattern=r'\.اضافة (\d+)'))
+    # ==================== اضافة ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اضافة (\d+)'))
     async def add_contacts(event):
         count = int(event.pattern_match.group(1))
         await event.edit(f"**• جاري اضافة {count} جهة**")
         added = 0
         try:
             dialogs = await client(GetDialogsRequest(offset_date=None, offset_id=0, offset_peer=InputPeerUser(0, 0), limit=count, hash=0))
-            for dialog in dialogs.users[:count]:
+            for user in dialogs.users[:count]:
                 try:
-                    if hasattr(dialog, 'phone') and dialog.phone and not dialog.bot:
-                        contact = InputPhoneContact(client_id=0, phone=dialog.phone, first_name=dialog.first_name or "User", last_name=dialog.last_name or "")
+                    if hasattr(user, 'phone') and user.phone and not user.bot:
+                        contact = InputPhoneContact(client_id=0, phone=user.phone, first_name=user.first_name or "User", last_name=user.last_name or "")
                         await client(ImportContactsRequest([contact]))
                         added += 1
                         await asyncio.sleep(0.5)
@@ -351,8 +393,8 @@ async def setup_handlers(client, phone):
         except:
             await event.edit("**• فشل**")
     
-    # ============ عدد ============
-    @client.on(events.NewMessage(outgoing=True, pattern='.عدد'))
+    # ==================== عدد ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.عدد$'))
     async def msg_count(event):
         await event.edit("**• جاري العد**")
         try:
@@ -361,28 +403,29 @@ async def setup_handlers(client, phone):
         except:
             await event.edit("**• فشل**")
     
-    # ============ حذف ============
-    @client.on(events.NewMessage(outgoing=True, pattern=r'\.حذف(?: (\d+))?'))
-    async def delete_msgs(event):
-        count = event.pattern_match.group(1)
-        if count:
-            count = int(count)
-            await event.edit(f"**• جاري حذف {count} رسالة**")
-            try:
-                messages = await client.get_messages(event.chat_id, limit=count)
-                await client.delete_messages(event.chat_id, [m.id for m in messages])
-                await event.edit(f"**• تم حذف {len(messages)} رسالة**")
-            except:
-                await event.edit("**• فشل**")
-        elif event.is_reply:
+    # ==================== حذف ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.حذف (\d+)$'))
+    async def delete_count(event):
+        count = int(event.pattern_match.group(1))
+        await event.edit(f"**• جاري حذف {count} رسالة**")
+        try:
+            messages = await client.get_messages(event.chat_id, limit=count)
+            await client.delete_messages(event.chat_id, [m.id for m in messages])
+            await event.edit(f"**• تم حذف {len(messages)} رسالة**")
+        except:
+            await event.edit("**• فشل**")
+    
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.حذف$'))
+    async def delete_reply(event):
+        if event.is_reply:
             try:
                 await (await event.get_reply_message()).delete()
                 await event.delete()
             except:
                 await event.edit("**• فشل**")
     
-    # ============ رن ============
-    @client.on(events.NewMessage(outgoing=True, pattern='.رن'))
+    # ==================== رن ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.رن$'))
     async def call(event):
         await event.edit("**• جاري الاتصال**")
         try:
@@ -399,8 +442,8 @@ async def setup_handlers(client, phone):
         except:
             await event.edit("**• فشل الاتصال**")
     
-    # ============ قفل / فتح ============
-    @client.on(events.NewMessage(outgoing=True, pattern='.قفل'))
+    # ==================== قفل / فتح ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.قفل$'))
     async def lock(event):
         if event.is_group:
             try:
@@ -410,7 +453,7 @@ async def setup_handlers(client, phone):
             except:
                 await event.edit("**• فشل**")
     
-    @client.on(events.NewMessage(outgoing=True, pattern='.فتح'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فتح$'))
     async def unlock(event):
         if event.is_group:
             try:
@@ -420,8 +463,8 @@ async def setup_handlers(client, phone):
             except:
                 await event.edit("**• فشل**")
     
-    # ============ كتم / غ كتم ============
-    @client.on(events.NewMessage(outgoing=True, pattern='.كتم'))
+    # ==================== كتم / غ كتم ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.كتم$'))
     async def mute(event):
         target = None
         if event.is_reply:
@@ -432,19 +475,19 @@ async def setup_handlers(client, phone):
             muted_users[phone][target] = True
         await event.edit("**• تم الكتم**")
     
-    @client.on(events.NewMessage(outgoing=True, pattern='.غ كتم'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ كتم$'))
     async def unmute(event):
         target = None
         if event.is_reply:
             target = (await event.get_reply_message()).sender_id
         elif event.is_private:
             target = event.chat_id
-        if target:
-            muted_users[phone].pop(target, None)
+        if target and target in muted_users.get(phone, {}):
+            del muted_users[phone][target]
         await event.edit("**• تم فك الكتم**")
     
-    # ============ حظر / غ حظر ============
-    @client.on(events.NewMessage(outgoing=True, pattern='.حظر'))
+    # ==================== حظر / غ حظر ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.حظر$'))
     async def ban(event):
         target = None
         if event.is_reply:
@@ -459,7 +502,7 @@ async def setup_handlers(client, phone):
             except:
                 await event.edit("**• فشل**")
     
-    @client.on(events.NewMessage(outgoing=True, pattern='.غ حظر'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ حظر$'))
     async def unban(event):
         target = None
         if event.is_reply:
@@ -469,13 +512,14 @@ async def setup_handlers(client, phone):
         if target:
             try:
                 await client(UnblockRequest(target))
-                banned_users[phone].pop(target, None)
+                if target in banned_users.get(phone, {}):
+                    del banned_users[phone][target]
                 await event.edit("**• تم فك الحظر**")
             except:
                 await event.edit("**• فشل**")
     
-    # ============ تقيد / غ تقييد ============
-    @client.on(events.NewMessage(outgoing=True, pattern='.تقيد'))
+    # ==================== تقيد / غ تقييد ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تقيد$'))
     async def restrict(event):
         if event.is_group and event.is_reply:
             try:
@@ -484,7 +528,7 @@ async def setup_handlers(client, phone):
             except:
                 await event.edit("**• فشل**")
     
-    @client.on(events.NewMessage(outgoing=True, pattern='.غ تقييد'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ تقييد$'))
     async def unrestrict(event):
         if event.is_group and event.is_reply:
             try:
@@ -493,8 +537,8 @@ async def setup_handlers(client, phone):
             except:
                 await event.edit("**• فشل**")
     
-    # ============ تهكير ============
-    @client.on(events.NewMessage(outgoing=True, pattern='.تهكير'))
+    # ==================== تهكير ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تهكير$'))
     async def hack(event):
         n = "الضحية"
         if event.is_reply:
@@ -508,51 +552,40 @@ async def setup_handlers(client, phone):
         await asyncio.sleep(1)
         await event.edit(f"**تم تهكير {n} بنجاح**")
     
-    # ============ ذكاء ============
-    @client.on(events.NewMessage(outgoing=True, pattern=r'\.ذكاء (.+)'))
+    # ==================== ذكاء ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ذكاء (.+)'))
     async def ai_cmd(event):
         question = event.pattern_match.group(1).strip()
         await event.edit("**• جاري التفكير**")
         answer = await asyncio.get_event_loop().run_in_executor(None, ask_gemini, question)
-        if answer:
-            await event.edit(f"**{answer}**")
-        else:
-            await event.edit("**• فشل**")
+        await event.edit(f"**{answer}**" if answer else "**• فشل**")
     
-    # ============ بوت ============
-    @client.on(events.NewMessage(outgoing=True, pattern=r'\.بوت (.+)'))
+    # ==================== بوت ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بوت (.+)'))
     async def bot_cmd(event):
         question = event.pattern_match.group(1).strip()
         await event.edit("**• جاري التفكير**")
         prompt = f"أنت بوت تيليجرام اسمه كيوجرام. أجب بالعربية. {question}"
         answer = await asyncio.get_event_loop().run_in_executor(None, ask_gemini, prompt)
-        if answer:
-            await event.edit(f"**{answer}**")
-        else:
-            await event.edit("**• فشل**")
+        await event.edit(f"**{answer}**" if answer else "**• فشل**")
     
-    # ============ صراحة ============
-    @client.on(events.NewMessage(outgoing=True, pattern='.صراحة'))
+    # ==================== صراحة ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.صراحة$'))
     async def sarah(event):
         await event.edit("**• جاري توليد سؤال صراحة**")
-        prompt = "أنت لعبة صراحة. أعطني سؤال صراحة واحد فقط، سؤال جريء ومحرج ومناسب للعبة الصراحة بين الأصدقاء. أجب بالسؤال فقط بدون أي كلام إضافي."
+        prompt = "أعطني سؤال صراحة واحد فقط، سؤال جريء ومحرج للعبة الصراحة بين الأصدقاء. أجب بالسؤال فقط."
         answer = await asyncio.get_event_loop().run_in_executor(None, ask_gemini, prompt)
-        if answer:
-            await event.edit(f"**{answer}**")
-        else:
-            await event.edit("**• فشل**")
+        await event.edit(f"**{answer}**" if answer else "**• فشل**")
     
-    # ============ كت ============
-    @client.on(events.NewMessage(outgoing=True, pattern='.كت'))
+    # ==================== كت ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.كت$'))
     async def kat(event):
         await event.edit("**• جاري توليد سؤال**")
-        prompt = "أنت تلعب لعبة اسمها كت. أعطني سؤال واحد فقط من أسئلة كت، سؤال جريء ومحرج يبدأ بـ 'ما هو' أو 'هل' أو 'من هو'. أجب بالسؤال فقط بدون أي كلام إضافي."
+        prompt = "أعطني سؤال واحد من أسئلة لعبة كت، سؤال جريء ومحرخ. أجب بالسؤال فقط."
         answer = await asyncio.get_event_loop().run_in_executor(None, ask_gemini, prompt)
-        if answer:
-            await event.edit(f"**{answer}**")
-        else:
-            await event.edit("**• فشل**")
+        await event.edit(f"**{answer}**" if answer else "**• فشل**")
     
+    # ==================== فحص القناة ====================
     async def channel_check():
         while True:
             await asyncio.sleep(600)
@@ -562,7 +595,7 @@ async def setup_handlers(client, phone):
                 pass
     
     asyncio.ensure_future(channel_check(), loop=main_loop)
-    logger.info(f"Handlers ready: {phone}")
+    logger.info(f"✅ Handlers: {phone}")
 
 def start_main_loop():
     asyncio.set_event_loop(main_loop)
@@ -571,6 +604,8 @@ def start_main_loop():
     main_loop.run_forever()
 
 threading.Thread(target=start_main_loop, daemon=True).start()
+
+# ======================== Flask ========================
 
 @app.route('/')
 def home():
@@ -588,7 +623,7 @@ async def send_code():
         api_hash = request.form.get('api_hash')
         phone = request.form.get('phone', '').strip()
         if not api_id or not api_hash or not phone:
-            return jsonify({"status": "error", "message": "يجب ملء جميع الحقول"}), 400
+            return jsonify({"status": "error"}), 400
         api_configs_storage[phone] = {'api_id': api_id, 'api_hash': api_hash}
         client = TelegramClient(StringSession(), api_id, api_hash)
         await client.connect()
@@ -597,10 +632,10 @@ async def send_code():
             client_me[phone] = await client.get_me()
             start_client_in_background(client, phone)
             await save_all_sessions()
-            return jsonify({"status": "already_active", "message": "البوت مفعل بالفعل"})
+            return jsonify({"status": "already_active"})
         sent = await client.send_code_request(phone)
         pending_logins[phone] = (client, sent.phone_code_hash, api_id, api_hash)
-        return jsonify({"status": "code_sent", "message": "تم ارسال كود التحقق"})
+        return jsonify({"status": "code_sent"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -611,27 +646,27 @@ async def verify():
     code = request.form.get('code', '').strip()
     password = request.form.get('password')
     if not phone or not code or phone not in pending_logins:
-        return jsonify({"status": "error", "message": "بيانات غير صحيحة"}), 400
-    client, phone_code_hash, api_id, api_hash = pending_logins[phone]
+        return jsonify({"status": "error"}), 400
+    client, phone_code_hash, _, _ = pending_logins[phone]
     try:
         try:
             await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
         except SessionPasswordNeededError:
             if not password:
-                return jsonify({"status": "error", "message": "مطلوب كلمة مرور"}), 401
+                return jsonify({"status": "2fa_required"}), 401
             await client.sign_in(password=password)
         active_clients[phone] = client
         client_me[phone] = await client.get_me()
         del pending_logins[phone]
         await save_all_sessions()
         start_client_in_background(client, phone)
-        return jsonify({"status": "success", "message": "تم تفعيل اليوزربوت بنجاح"})
+        return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
 
 @app.route('/api/status')
 def status():
-    return jsonify({"active_bots": list(active_clients.keys()), "total_active": len(active_clients)})
+    return jsonify({"active": list(active_clients.keys()), "total": len(active_clients)})
 
 @app.route('/api/disconnect/<phone>', methods=['POST'])
 @async_route
@@ -644,4 +679,5 @@ async def disconnect(phone):
     return jsonify({"status": "error"}), 404
 
 if __name__ == '__main__':
+    logger.info("🚀 qgram UserBot - Gemini Edition")
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
