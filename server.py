@@ -43,6 +43,13 @@ def health():
 def run_flask():
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
+# ======================== Main Loop (زي الموقع القديم) ========================
+main_loop = asyncio.new_event_loop()
+
+def run_in_main_loop(coro):
+    """تشغيل coroutine في main_loop (نفس طريقة الموقع بالضبط)"""
+    return asyncio.run_coroutine_threadsafe(coro, main_loop).result(timeout=180)
+
 # ======================== المتغيرات العامة ========================
 bot = TelegramClient(f'bot_session_{uuid.uuid4().hex[:6]}', BOT_API_ID, BOT_API_HASH)
 
@@ -57,11 +64,12 @@ async def bot_ping(event):
 @bot.on(events.NewMessage(pattern='/start'))
 async def bot_start(event):
     buttons = [
-        [Button.inline("᥉ƚᥲɾƚ ⚡", b"start_setup")]
+        [Button.inline("START", b"start_setup")],
+        [Button.inline("RESTART", b"restart_setup")]
     ]
     await event.respond(
-        "🜲 **بوت تنصيب تيليثون ڪيوجـࢪام**\n\n"
-        "اضغط على الزر للبدء",
+        "**Rolex Telethon Setup**\n\n"
+        "Press START to begin",
         buttons=buttons,
         parse_mode='md'
     )
@@ -69,9 +77,19 @@ async def bot_start(event):
 @bot.on(events.CallbackQuery(data=b"start_setup"))
 async def start_setup(event):
     pending_logins[event.sender_id] = {'state': 'api_id'}
-    await event.respond(
-        "📝 **᥉ꫀꪀძ ყ᥆ᥙɾ ᥲρɪ ɪძ**\n\n"
-        "أرسل API ID الخاص بك:",
+    await event.edit(
+        "**Send Your API ID**\n\n"
+        "Please enter your API ID:",
+        parse_mode='md'
+    )
+    await event.answer()
+
+@bot.on(events.CallbackQuery(data=b"restart_setup"))
+async def restart_setup(event):
+    pending_logins[event.sender_id] = {'state': 'api_id'}
+    await event.edit(
+        "**Send Your API ID**\n\n"
+        "Please enter your API ID:",
         parse_mode='md'
     )
     await event.answer()
@@ -91,30 +109,28 @@ async def handle_setup(event):
             data['api_id'] = api_id
             data['state'] = 'api_hash'
             await event.respond(
-                "🔑 **᥉ꫀꪀძ ყ᥆ᥙɾ ᥲρɪ һᥲ᥉һ**\n\n"
-                "أرسل API Hash الخاص بك:",
+                "**Send Your API Hash**\n\n"
+                "Please enter your API Hash:",
                 parse_mode='md'
             )
         except:
-            await event.respond("❌ يرجى إدخال رقم صحيح.")
+            await event.respond("**Invalid API ID**\nPlease enter a valid number.")
 
     elif state == 'api_hash':
         data['api_hash'] = event.text.strip()
         data['state'] = 'phone'
-        # زر مشاركة رقم الهاتف
         buttons = [
-            [Button.request_phone("📱 مشاركة رقم الهاتف", resize=True)]
+            [Button.request_phone("Share Phone Number", resize=True)]
         ]
         await event.respond(
-            "📱 **᥉ꫀꪀძ ყ᥆ᥙɾ ρһ᥆ꪀꫀ ꪀᥙꪔᑲꫀɾ**\n\n"
-            "اضغط على الزر لمشاركة رقم هاتفك\n"
-            "أو أرسل الرقم يدوياً: `+201234567890`",
+            "**Send Your Phone Number**\n\n"
+            "Press the button to share your phone number\n"
+            "Or type it manually: +201234567890",
             buttons=buttons,
             parse_mode='md'
         )
 
     elif state == 'phone':
-        # استقبال الرقم (من الزر أو يدوي)
         if event.message.contact:
             phone = f"+{event.message.contact.phone_number}"
         else:
@@ -122,84 +138,122 @@ async def handle_setup(event):
         
         data['phone'] = phone
         
-        # رسالة "جاري المعالجة"
-        processing_msg = await event.respond("⚙️ **جاري المعالجة...**")
+        processing_msg = await event.respond("**Processing...**")
+        
+        # استخدام main_loop (نفس طريقة الموقع القديم)
+        def send_code_sync():
+            async def _send():
+                client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
+                await client.connect()
+                
+                if await client.is_user_authorized():
+                    return client, None, True
+                
+                result = await client.send_code_request(phone)
+                return client, result.phone_code_hash, False
+            
+            return run_in_main_loop(_send())
         
         try:
-            # تأخير بسيط
-            await asyncio.sleep(2)
+            client, phone_code_hash, already_active = send_code_sync()
             
-            # إنشاء عميل جديد
-            client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
-            await client.connect()
-            
-            # لو الحساب مفعل بالفعل
-            if await client.is_user_authorized():
+            if already_active:
                 session_str = client.session.save()
                 if await start_userbot(phone, session_str, data['api_id'], data['api_hash']):
-                    await processing_msg.edit("✅ **الحساب مفعل بالفعل!**")
+                    buttons = [[Button.inline("START", b"start_setup")]]
+                    await processing_msg.edit(
+                        "**Account Already Active!**",
+                        buttons=buttons,
+                        parse_mode='md'
+                    )
                 else:
-                    await processing_msg.edit("❌ فشل تشغيل الحساب")
+                    await processing_msg.edit("**Failed to start account**")
                 del pending_logins[uid]
                 return
             
-            # إرسال الكود
-            result = await client.send_code_request(phone)
-            
             data['client'] = client
-            data['hash'] = result.phone_code_hash
+            data['hash'] = phone_code_hash
             data['state'] = 'code'
             
             await processing_msg.edit(
-                "📲 **᥉ꫀꪀძ ƚһꫀ ᥴ᥆ძꫀ**\n\n"
-                "تم إرسال كود التحقق\n"
-                "أرسل الكود الذي استلمته:",
+                "**Send The Code**\n\n"
+                "Verification code sent\n"
+                "Please enter the code:",
                 parse_mode='md'
             )
             
         except FloodWaitError as e:
             minutes = e.seconds // 60
-            await processing_msg.edit(f"⏳ **تم حظر الطلب مؤقتاً**\nاستنى {minutes} دقيقة")
-            del pending_logins[uid]
-        except PhoneNumberInvalidError:
-            await processing_msg.edit("❌ **رقم الهاتف غير صحيح**")
+            buttons = [[Button.inline("RETRY", b"restart_setup")]]
+            await processing_msg.edit(
+                f"**Rate Limited**\nWait {minutes} minutes",
+                buttons=buttons,
+                parse_mode='md'
+            )
             del pending_logins[uid]
         except Exception as e:
             logger.error(f"Send code error: {type(e).__name__}: {e}")
-            await processing_msg.edit(f"❌ خطأ: {type(e).__name__}")
+            buttons = [[Button.inline("RETRY", b"restart_setup")]]
+            await processing_msg.edit(
+                f"**Error: {type(e).__name__}**",
+                buttons=buttons,
+                parse_mode='md'
+            )
             del pending_logins[uid]
 
     elif state == 'code':
         code = event.text.strip()
         data = pending_logins[uid]
         
-        processing_msg = await event.respond("⚙️ **جاري التحقق...**")
+        processing_msg = await event.respond("**Verifying...**")
+        
+        def verify_sync():
+            async def _verify():
+                if not data['client'].is_connected():
+                    await data['client'].connect()
+                await data['client'].sign_in(
+                    phone=data['phone'],
+                    code=code,
+                    phone_code_hash=data['hash']
+                )
+            return run_in_main_loop(_verify())
         
         try:
-            if not data['client'].is_connected():
-                await data['client'].connect()
+            verify_sync()
             
-            await data['client'].sign_in(
-                phone=data['phone'],
-                code=code,
-                phone_code_hash=data['hash']
+            buttons = [[Button.inline("START", b"start_setup")]]
+            await processing_msg.edit(
+                "**Verification Successful!**\n**Rolex Telethon**",
+                buttons=buttons,
+                parse_mode='md'
             )
-            
-            await processing_msg.edit("✅ **تم التحقق بنجاح!**\n⚜️ **Rolex Telethon**")
             
         except SessionPasswordNeededError:
             data['state'] = 'password'
-            await processing_msg.edit("🔐 **الحساب محمي بكلمة مرور.**\nأرسل كلمة المرور:")
+            await processing_msg.edit(
+                "**2FA Password Required**\n\nPlease enter your password:",
+                parse_mode='md'
+            )
             return
         except PhoneCodeExpiredError:
-            await processing_msg.edit("⏰ **انتهت صلاحية الكود.**\nاستخدم `/resend` لطلب كود جديد")
+            buttons = [[Button.inline("RESEND", b"resend_code")]]
+            await processing_msg.edit(
+                "**Code Expired**\nRequest a new code",
+                buttons=buttons,
+                parse_mode='md'
+            )
             return
         except PhoneCodeInvalidError:
-            await processing_msg.edit("❌ **الكود غير صحيح**")
+            await processing_msg.edit("**Invalid Code**\nPlease try again.")
             return
         except Exception as e:
             logger.error(f"Verify error: {type(e).__name__}: {e}")
-            await processing_msg.edit(f"❌ فشل: {type(e).__name__}")
+            buttons = [[Button.inline("RETRY", b"restart_setup")]]
+            await processing_msg.edit(
+                f"**Error: {type(e).__name__}**",
+                buttons=buttons,
+                parse_mode='md'
+            )
             del pending_logins[uid]
             return
         
@@ -209,48 +263,65 @@ async def handle_setup(event):
         password = event.text.strip()
         data = pending_logins[uid]
         
-        processing_msg = await event.respond("⚙️ **جاري التحقق...**")
+        processing_msg = await event.respond("**Verifying...**")
+        
+        def verify_pass_sync():
+            async def _verify_pass():
+                await data['client'].sign_in(password=password)
+            return run_in_main_loop(_verify_pass())
         
         try:
-            await data['client'].sign_in(password=password)
-            await processing_msg.edit("✅ **تم التحقق بنجاح!**")
+            verify_pass_sync()
+            buttons = [[Button.inline("START", b"start_setup")]]
+            await processing_msg.edit(
+                "**Verification Successful!**",
+                buttons=buttons,
+                parse_mode='md'
+            )
         except Exception as e:
             logger.error(f"Password error: {type(e).__name__}: {e}")
-            await processing_msg.edit(f"❌ فشل: {type(e).__name__}")
+            await processing_msg.edit(f"**Error: {type(e).__name__}**")
             del pending_logins[uid]
             return
         
         await finish_setup(event, uid)
 
-@bot.on(events.NewMessage(pattern='/resend'))
-async def resend_code(event):
+@bot.on(events.CallbackQuery(data=b"resend_code"))
+async def resend_code_callback(event):
     uid = event.sender_id
     if uid not in pending_logins or 'phone' not in pending_logins[uid]:
-        await event.respond("⚠️ لم يتم بدء عملية التسجيل. أرسل /setup أولاً.")
+        await event.answer("No active setup process")
         return
     
     data = pending_logins[uid]
-    processing_msg = await event.respond("⚙️ **جاري إرسال كود جديد...**")
+    await event.edit("**Sending New Code...**", parse_mode='md')
+    
+    def resend_sync():
+        async def _resend():
+            if 'client' not in data or not data['client'].is_connected():
+                client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
+                await client.connect()
+                data['client'] = client
+            result = await data['client'].send_code_request(data['phone'])
+            return result.phone_code_hash
+        return run_in_main_loop(_resend())
     
     try:
-        if 'client' not in data or not data['client'].is_connected():
-            client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
-            await client.connect()
-            data['client'] = client
-        
-        result = await data['client'].send_code_request(data['phone'])
-        data['hash'] = result.phone_code_hash
-        
-        await processing_msg.edit(
-            "📲 **᥉ꫀꪀძ ƚһꫀ ᥴ᥆ძꫀ**\n\n"
-            "تم إرسال كود جديد\n"
-            "أرسل الكود الذي استلمته:",
+        data['hash'] = resend_sync()
+        await event.edit(
+            "**Send The Code**\n\nNew code sent\nPlease enter the code:",
             parse_mode='md'
         )
-        
     except Exception as e:
         logger.error(f"Resend error: {type(e).__name__}: {e}")
-        await processing_msg.edit(f"❌ خطأ: {type(e).__name__}")
+        buttons = [[Button.inline("RETRY", b"restart_setup")]]
+        await event.edit(
+            f"**Error: {type(e).__name__}**",
+            buttons=buttons,
+            parse_mode='md'
+        )
+    
+    await event.answer()
 
 async def finish_setup(event, uid):
     data = pending_logins[uid]
@@ -262,9 +333,15 @@ async def finish_setup(event, uid):
     del pending_logins[uid]
 
     if await start_userbot(phone, session_str, api_id, api_hash):
-        await event.respond("✅ **تم تنصيب حسابك بنجاح!**\n\n⚜️ **Rolex Telethon**")
+        if hasattr(event, 'edit'):
+            await event.edit("**Setup Complete!**\n**Rolex Telethon**", parse_mode='md')
+        else:
+            await event.respond("**Setup Complete!**\n**Rolex Telethon**", parse_mode='md')
     else:
-        await event.respond("❌ فشل تشغيل الحساب بعد التفعيل.")
+        if hasattr(event, 'edit'):
+            await event.edit("**Failed to start account**", parse_mode='md')
+        else:
+            await event.respond("**Failed to start account**", parse_mode='md')
 
 async def start_userbot(phone, session_str, api_id, api_hash):
     client = TelegramClient(StringSession(session_str), api_id, api_hash)
@@ -298,20 +375,29 @@ async def load_all_sessions():
             await client.connect()
             if await client.is_user_authorized():
                 active_clients[phone] = client
-                logger.info(f"✅ تم تحميل حساب: {phone}")
+                logger.info(f"Account loaded: {phone}")
         except Exception as e:
-            logger.error(f"❌ فشل تحميل حساب {phone}: {e}")
+            logger.error(f"Failed to load account {phone}: {e}")
 
 # ======================== بدء التشغيل ========================
+def start_main_loop():
+    asyncio.set_event_loop(main_loop)
+    main_loop.run_forever()
+
 async def main():
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    logger.info("✅ Flask health check started")
+    logger.info("Flask health check started")
 
     await bot.start(bot_token=BOT_TOKEN)
-    logger.info("✅ البوت متصل وجاهز")
+    logger.info("Bot connected and ready")
     await load_all_sessions()
     await bot.run_until_disconnected()
 
+# تشغيل main_loop في خيط منفصل (نفس الموقع القديم)
+loop_thread = threading.Thread(target=start_main_loop, daemon=True)
+loop_thread.start()
+
 if __name__ == '__main__':
-    asyncio.run(main())
+    asyncio.run_coroutine_threadsafe(main(), main_loop)
+    loop_thread.join()
