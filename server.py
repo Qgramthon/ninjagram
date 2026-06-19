@@ -11,18 +11,26 @@ import io
 import uuid
 from collections import Counter
 from datetime import datetime, timedelta
-from functools import wraps
 
 from flask import Flask
 from telethon import TelegramClient, events
-from telethon.errors import SessionPasswordNeededError, FloodWaitError
+from telethon.errors import (
+    SessionPasswordNeededError, FloodWaitError, PhoneCodeInvalidError,
+    PhoneCodeExpiredError, PhoneNumberInvalidError
+)
 from telethon.sessions import StringSession
 from telethon.tl.functions.account import UpdateProfileRequest
 from telethon.tl.functions.contacts import BlockRequest, UnblockRequest, ImportContactsRequest
 from telethon.tl.functions.channels import JoinChannelRequest
-from telethon.tl.functions.messages import ToggleDialogPinRequest, GetHistoryRequest, GetDialogsRequest, EditChatDefaultBannedRightsRequest
+from telethon.tl.functions.messages import (
+    ToggleDialogPinRequest, GetHistoryRequest, GetDialogsRequest,
+    EditChatDefaultBannedRightsRequest
+)
 from telethon.tl.functions.phone import RequestCallRequest
-from telethon.tl.types import InputPeerChannel, InputPeerUser, InputPhoneContact, ChatBannedRights, PhoneCallProtocol
+from telethon.tl.types import (
+    InputPeerChannel, InputPeerUser, InputPhoneContact,
+    ChatBannedRights, PhoneCallProtocol
+)
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
 from telethon.tl.functions.users import GetFullUserRequest
 
@@ -44,7 +52,11 @@ BANK_FILE = os.path.join(DATA_DIR, 'bank.json')
 TEMP_DIR = os.path.join(DATA_DIR, 'temp')
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[logging.StreamHandler(sys.stdout)])
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 logger = logging.getLogger(__name__)
 
 # ======================== Flask للـ health check ========================
@@ -63,14 +75,14 @@ main_loop = asyncio.new_event_loop()
 def run_coro(coro):
     """تشغيل coroutine في الـ main_loop (نفس الموقع بالضبط)"""
     future = asyncio.run_coroutine_threadsafe(coro, main_loop)
-    return future.result(timeout=30)
+    return future.result(timeout=60)
 
 # ======================== المتغيرات العامة ========================
 bot = TelegramClient(f'bot_session_{uuid.uuid4().hex[:6]}', BOT_API_ID, BOT_API_HASH)
 
 active_clients = {}
 client_me = {}
-pending_logins = {}  # {user_id: {'state': ..., 'client': ..., 'api_id': ..., 'api_hash': ..., 'phone': ..., 'hash': ...}}
+pending_logins = {}
 
 muted_users = {}
 taqleed_users = {}
@@ -90,6 +102,21 @@ LAUGH_FRAMES = [
     "😂🤣😭😹", "🤣😂😭😹", "🤣😭😂😹", "😭🤣😂😹",
     "😭🤣😹😂", "😭😹🤣😂", "😹😭🤣😂", "😹😂🤣😭"
 ]
+
+CLOUD_FRAMES = [
+    "☁️⛅🌤️☁️", "⛅☁️🌤️☁️", "⛅🌤️☁️☁️", "🌤️⛅☁️☁️"
+]
+
+HEART_FRAMES = [
+    "❤️🧡💛💚", "🧡❤️💛💚", "🧡💛❤️💚", "💛🧡❤️💚"
+]
+
+ROSE_FRAMES = [
+    "🌹🥀🌷🌸", "🥀🌹🌷🌸", "🥀🌷🌹🌸", "🌷🥀🌹🌸"
+]
+
+X_FRAMES = ["❌", "❎", "✖️", "❌❌", "❎❎", "✖️✖️"]
+O_FRAMES = ["⭕", "⚪", "🔴", "🟢", "🔵", "⭕⭕"]
 
 # ======================== دوال عامة ========================
 def track_command(phone: str, command: str):
@@ -196,6 +223,53 @@ async def load_all_sessions():
         except Exception as e:
             logger.error(f"❌ فشل تحميل حساب {phone}: {e}")
 
+# ======================== وظائف الانتحال ========================
+async def get_user_info_full(client, user_id):
+    try:
+        user = await client.get_entity(user_id)
+        name = user.first_name or "غير معروف"
+        if user.last_name: name += f" {user.last_name}"
+        username = f"@{user.username}" if user.username else "لا يوجد"
+        bio = ""
+        try:
+            full = await client(GetFullUserRequest(user_id))
+            if full.full_user.about: bio = full.full_user.about
+        except: pass
+        return {'name': name, 'first_name': user.first_name or '', 'last_name': user.last_name or '', 'username': username, 'bio': bio, 'id': user.id}
+    except:
+        return None
+
+async def change_profile_photo(client, user_id, phone):
+    try:
+        old_photos = await client.get_profile_photos('me', limit=10)
+        for p in old_photos:
+            try: await client(DeletePhotosRequest(id=[p])); await asyncio.sleep(0.5)
+            except: pass
+        if old_photos: await asyncio.sleep(2)
+        photo_bytes = await client.download_profile_photo(user_id, file=bytes)
+        if not photo_bytes: return False
+        for attempt in range(2):
+            try:
+                uploaded = await client.upload_file(photo_bytes, file_name="photo.jpg")
+                await client(UploadProfilePhotoRequest(file=uploaded))
+                await asyncio.sleep(2)
+                me = await client.get_me()
+                if me.photo: return True
+                if PIL_AVAILABLE and attempt == 0:
+                    img = Image.open(io.BytesIO(photo_bytes))
+                    if img.mode != 'RGB': img = img.convert('RGB')
+                    buf = io.BytesIO(); img.save(buf, format='JPEG', quality=85)
+                    photo_bytes = buf.getvalue()
+                else: break
+            except FloodWaitError as e: await asyncio.sleep(e.seconds)
+            except Exception as e:
+                logger.error(f"Upload error: {e}")
+                break
+        return False
+    except Exception as e:
+        logger.error(f"Photo change fatal error: {e}")
+        return False
+
 # ======================== تشغيل userbot ========================
 async def run_userbot(client, phone):
     try:
@@ -241,11 +315,12 @@ async def setup_handlers(client, phone):
             try: await event.edit(f"**{event.text}**")
             except: pass
 
-    # ==================== الأوامر الأساسية ====================
+    # ==================== سورس ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.سورس$'))
     async def src(event):
         await event.edit("**⚜️ Rolex Telethon**\n\n• المطور: ƚᥲɦ᥆ᥙꪀ\n• قناة السورس: @Q_g_r_a_m\n• للأوامر: .اوامر", parse_mode='md')
 
+    # ==================== اوامر ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اوامر$'))
     async def cmds(event):
         await event.edit("""**اوامر السورس 𔓕**
@@ -262,6 +337,7 @@ async def setup_handlers(client, phone):
 توب شهرة شهرتي | شراء لقب | اكس او
 اوامر سورس""", parse_mode='md')
 
+    # ==================== ايدي ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.(ايدي|ا)$'))
     async def id_cmd(event):
         await event.delete()
@@ -279,6 +355,7 @@ async def setup_handlers(client, phone):
         lines.append(f"Ꭵძ {user.id}")
         await client.send_message(event.chat_id, "\n".join(lines))
 
+    # ==================== تقليد ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تقليد$'))
     async def taq(event):
         target = None
@@ -294,25 +371,117 @@ async def setup_handlers(client, phone):
         if target and target in taqleed_users.get(phone, {}): del taqleed_users[phone][target]
         await event.edit("**• تم فك التقليد**")
 
+    # ==================== خط ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.خط$'))
     async def bold(event): bold_mode[phone] = True; await event.edit("**• تم تفعيل الخط العريض**")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ خط$'))
     async def nobold(event): bold_mode[phone] = False; await event.edit("**• تم الغاء الخط العريض**")
 
+    # ==================== اسم ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اسم (.+)'))
     async def name(event):
         try: await client(UpdateProfileRequest(first_name=event.pattern_match.group(1).strip(), last_name='')); await event.edit("**• تم تغيير الاسم**")
         except: await event.edit("**• فشل**")
 
+    # ==================== بايو ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بايو (.+)'))
     async def bio(event):
         try: await client(UpdateProfileRequest(about=event.pattern_match.group(1).strip())); await event.edit("**• تم تغيير البايو**")
         except: await event.edit("**• فشل**")
 
+    # ==================== ث / غ ث ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ث$'))
+    async def pin_msg(event):
+        try:
+            if event.is_reply: await (await event.get_reply_message()).pin(); await event.edit("**• تم التثبيت**")
+            else: await client(ToggleDialogPinRequest(peer=event.input_chat, pinned=True)); await event.edit("**• تم تثبيت المحادثة**")
+        except: await event.edit("**• فشل**")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ ث$'))
+    async def unpin_msg(event):
+        try:
+            if event.is_reply: await (await event.get_reply_message()).unpin(); await event.edit("**• تم الغاء التثبيت**")
+            else: await client(ToggleDialogPinRequest(peer=event.input_chat, pinned=False)); await event.edit("**• تم الغاء تثبيت المحادثة**")
+        except: await event.edit("**• فشل**")
+
+    # ==================== ضحك ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ضحك$'))
     async def laugh(event): await animate_emojis(event, LAUGH_FRAMES, 0.4)
 
+    # ==================== غيوم ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غيوم$'))
+    async def clouds(event): await animate_emojis(event, CLOUD_FRAMES, 0.4)
+
+    # ==================== قلوب ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.قلوب$'))
+    async def hearts(event): await animate_emojis(event, HEART_FRAMES, 0.4)
+
+    # ==================== ورود ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ورود$'))
+    async def roses(event): await animate_emojis(event, ROSE_FRAMES, 0.4)
+
+    # ==================== غباء ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غباء$'))
+    async def stupidity(event):
+        target_name = "User"
+        if event.is_reply: target_name = await get_user_name(client, (await event.get_reply_message()).sender_id)
+        elif event.is_private: target_name = await get_user_name(client, event.chat_id)
+        await event.edit(f"**{target_name}'s stupidity: {random.randint(60, 100)}%**")
+
+    # ==================== تحويل ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تحويل (\d+)'))
+    async def transfer(event):
+        amount = event.pattern_match.group(1)
+        target_name = "User"
+        if event.is_reply: target_name = await get_user_name(client, (await event.get_reply_message()).sender_id)
+        elif event.is_private: target_name = await get_user_name(client, event.chat_id)
+        await event.edit(f"**Sent {amount} USD to beggar {target_name}**")
+
+    # ==================== رفع ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.رفع شحات$'))
+    async def raf3_shahat(event):
+        target_name = "User"
+        if event.is_reply: target_name = await get_user_name(client, (await event.get_reply_message()).sender_id)
+        elif event.is_private: target_name = await get_user_name(client, event.chat_id)
+        await event.edit(f"**Promoted {target_name} to Beggar**")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.رفع حمار$'))
+    async def raf3_hmar(event):
+        target_name = "User"
+        if event.is_reply: target_name = await get_user_name(client, (await event.get_reply_message()).sender_id)
+        elif event.is_private: target_name = await get_user_name(client, event.chat_id)
+        await event.edit(f"**Promoted {target_name} to Donkey**")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.رفع غبي$'))
+    async def raf3_ghaby(event):
+        target_name = "User"
+        if event.is_reply: target_name = await get_user_name(client, (await event.get_reply_message()).sender_id)
+        elif event.is_private: target_name = await get_user_name(client, event.chat_id)
+        await event.edit(f"**Promoted {target_name} to Stupid**")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.رفع سباك$'))
+    async def raf3_sabbak(event):
+        target_name = "User"
+        if event.is_reply: target_name = await get_user_name(client, (await event.get_reply_message()).sender_id)
+        elif event.is_private: target_name = await get_user_name(client, event.chat_id)
+        await event.edit(f"**Promoted {target_name} to Plumber**")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.رفع مالك$'))
+    async def raf3_malek(event):
+        target_name = "User"
+        if event.is_reply: target_name = await get_user_name(client, (await event.get_reply_message()).sender_id)
+        elif event.is_private: target_name = await get_user_name(client, event.chat_id)
+        await event.edit(f"**Promoted {target_name} to King**")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.رفع ادمن$'))
+    async def raf3_admin(event):
+        target_name = "User"
+        if event.is_reply: target_name = await get_user_name(client, (await event.get_reply_message()).sender_id)
+        elif event.is_private: target_name = await get_user_name(client, event.chat_id)
+        await event.edit(f"**Promoted {target_name} to Admin**")
+
+    # ==================== تهكير ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تهكير$'))
     async def hack(event):
         n = "الضحية"
@@ -323,6 +492,7 @@ async def setup_handlers(client, phone):
         await event.edit("**تم اختراق 50%**"); await asyncio.sleep(1)
         await event.edit(f"**تم تهكير {n} بنجاح**")
 
+    # ==================== ذكاء ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ذكاء (.+)'))
     async def ai_cmd(event):
         question = event.pattern_match.group(1).strip()
@@ -330,6 +500,16 @@ async def setup_handlers(client, phone):
         answer = await asyncio.get_event_loop().run_in_executor(None, ask_gemini, question)
         await event.edit(f"**{answer}**" if answer else "**• فشل**")
 
+    # ==================== بوت ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بوت (.+)'))
+    async def bot_cmd(event):
+        question = event.pattern_match.group(1).strip()
+        await event.edit("**• جاري التفكير**")
+        prompt = f"أنت بوت تيليجرام اسمه كيوجرام. أجب بالعربية. {question}"
+        answer = await asyncio.get_event_loop().run_in_executor(None, ask_gemini, prompt)
+        await event.edit(f"**{answer}**" if answer else "**• فشل**")
+
+    # ==================== صراحة ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.صراحة$'))
     async def sarah(event):
         await event.edit("**• جاري توليد سؤال صراحة**")
@@ -337,6 +517,7 @@ async def setup_handlers(client, phone):
         answer = await asyncio.get_event_loop().run_in_executor(None, ask_gemini, prompt)
         await event.edit(f"**{answer}**" if answer else "**• فشل**")
 
+    # ==================== كت ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.كت$'))
     async def kat(event):
         await event.edit("**• جاري توليد سؤال**")
@@ -344,7 +525,7 @@ async def setup_handlers(client, phone):
         answer = await asyncio.get_event_loop().run_in_executor(None, ask_gemini, prompt)
         await event.edit(f"**{answer}**" if answer else "**• فشل**")
 
-    # ==================== البنك ====================
+    # ==================== بنك ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.حسابي$'))
     async def bank_my_account(event):
         acc = get_bank_account(phone)
@@ -410,11 +591,12 @@ async def setup_handlers(client, phone):
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.عملة$'))
     async def bank_coin(event): await event.edit(f"**🪙 {random.choice(['ملك', 'كتابة'])}**")
 
+    # ==================== ألعاب ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اكس$'))
-    async def game_x(event): await animate_emojis(event, ["❌", "❎", "✖️"], 0.3)
+    async def game_x(event): await animate_emojis(event, X_FRAMES, 0.3)
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.او$'))
-    async def game_o(event): await animate_emojis(event, ["⭕", "⚪", "🔴"], 0.3)
+    async def game_o(event): await animate_emojis(event, O_FRAMES, 0.3)
 
     # ==================== أوامر المالك ====================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.احصائيات$'))
@@ -450,7 +632,7 @@ async def setup_handlers(client, phone):
 
     logger.info(f"✅ تم تحميل جميع الأوامر لـ {phone}")
 
-# ======================== بوت التنصيب (بيانات من المستخدم + main_loop) ========================
+# ======================== بوت التنصيب ========================
 @bot.on(events.NewMessage(pattern='/ping'))
 async def bot_ping(event):
     await event.respond('Pong!')
@@ -497,11 +679,13 @@ async def handle_setup(event):
         phone = event.text.strip()
         data['phone'] = phone
         try:
-            # استخدام run_coro للتعامل مع main_loop (نفس طريقة الموقع)
+            # تأخير عشوائي لتجنب FloodWait
+            await asyncio.sleep(random.uniform(1, 3))
+            
             async def send_code():
                 client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
                 await client.connect()
-                result = await client.send_code_request(phone)
+                result = await client.send_code_request(phone, force_sms=False)
                 return client, result.phone_code_hash
             
             client, phone_code_hash = run_coro(send_code())
@@ -509,15 +693,19 @@ async def handle_setup(event):
             data['hash'] = phone_code_hash
             data['state'] = 'code'
             await event.respond("📲 **تم إرسال كود التحقق. أرسله فوراً:**")
+        except FloodWaitError as e:
+            minutes = e.seconds // 60
+            await event.respond(f"⏳ **تم حظر الطلب مؤقتاً**\nاستنى {minutes} دقيقة قبل ما تطلب كود تاني")
+            del pending_logins[uid]
         except Exception as e:
-            await event.respond(f"❌ خطأ: {e}")
+            logger.error(f"Setup phone error: {type(e).__name__}: {e}")
+            await event.respond(f"❌ خطأ: {type(e).__name__}: {str(e)[:100]}")
             del pending_logins[uid]
 
     elif state == 'code':
         code = event.text.strip()
         data = pending_logins[uid]
         try:
-            # استخدام run_coro للتعامل مع main_loop
             async def verify_code():
                 if not data['client'].is_connected():
                     await data['client'].connect()
@@ -528,8 +716,12 @@ async def handle_setup(event):
             data['state'] = 'password'
             await event.respond("🔐 **الحساب محمي بكلمة مرور.**\nأرسل كلمة المرور:")
             return
+        except PhoneCodeExpiredError:
+            await event.respond("⏰ **انتهت صلاحية الكود.**\nاطلب كود جديد باستخدام `/resend`")
+            return
         except Exception as e:
-            await event.respond(f"❌ فشل التفعيل: {e}")
+            logger.error(f"Verify error: {type(e).__name__}: {e}")
+            await event.respond(f"❌ فشل التفعيل: {type(e).__name__}: {str(e)[:100]}")
             del pending_logins[uid]
             return
         await finish_setup(event, uid)
@@ -541,7 +733,7 @@ async def handle_setup(event):
                 await data['client'].sign_in(password=password)
             run_coro(verify_password())
         except Exception as e:
-            await event.respond(f"❌ فشل التفعيل: {e}")
+            await event.respond(f"❌ فشل التفعيل: {str(e)[:100]}")
             del pending_logins[uid]
             return
         await finish_setup(event, uid)
@@ -586,7 +778,6 @@ async def main():
     await load_all_sessions()
     await bot.run_until_disconnected()
 
-# تشغيل main_loop في خيط منفصل
 loop_thread = threading.Thread(target=start_main_loop, daemon=True)
 loop_thread.start()
 
