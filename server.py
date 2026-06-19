@@ -324,7 +324,6 @@ async def run_userbot(client, phone):
             del active_clients[phone]
 
 async def setup_handlers(client, phone):
-    """إعداد جميع أوامر الـ userbot لحساب معين"""
     if phone not in muted_users:
         muted_users[phone] = {}
         taqleed_users[phone] = {}
@@ -977,7 +976,6 @@ async def setup_handlers(client, phone):
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.منع (\d+)$'))
     async def dev_ban(event):
         if not is_dev(phone): return
-        # منطق المنع (تطبيق blacklist)
         await event.edit("**• تم المنع** (سيتم تطبيقه لاحقاً)")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تفعيل (\d+)$'))
@@ -988,8 +986,13 @@ async def setup_handlers(client, phone):
     logger.info(f"✅ تم تحميل جميع الأوامر لـ {phone}")
 
 # ======================== بوت التنصيب ========================
+@bot.on(events.NewMessage(pattern='/ping'))
+async def bot_ping(event):
+    await event.respond('Pong!')
+
 @bot.on(events.NewMessage(pattern='/start'))
 async def bot_start(event):
+    logger.info("📥 تم استقبال /start")
     await event.respond(
         "🜲 **مرحباً بك في بوت تنصيب Rolex Telethon**\n\n"
         "لتنصيب حسابك، أرسل:\n"
