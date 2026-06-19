@@ -38,6 +38,7 @@ client_me = {}
 verified_devs = set()
 pending_verify = {}
 dev_access_locked = False
+voice_clients = {}   # <-- أضفناها لتخزين جلسات المكالمات لكل مستخدم
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',
                     handlers=[logging.StreamHandler(sys.stdout)])
