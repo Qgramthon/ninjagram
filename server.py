@@ -76,7 +76,8 @@ active_clients = {}
 client_me = {}
 
 # نظام التنصيب: كل مستخدم له جلسة منفصلة تماماً
-# {user_id: {'state': 'api_id', 'api_id': ..., 'api_hash': ..., 'phone': ..., 'client': ..., 'hash': ..., 'session_str': ...}}
+# {user_id: {'state': 'api_id', 'api_id': ..., 'api_hash': ..., 'phone': ..., 'client': ..., 'hash': ...}}
+# الـ client يفضل متصل طول عملية التنصيب (زي الموقع)
 pending_logins = {}
 
 muted_users = {}
@@ -963,7 +964,7 @@ async def setup_handlers(client, phone):
 
     logger.info(f"✅ تم تحميل جميع الأوامر لـ {phone}")
 
-# ======================== بوت التنصيب (معالجة كاملة للجلسات) ========================
+# ======================== بوت التنصيب (مطابق لطريقة الموقع) ========================
 @bot.on(events.NewMessage(pattern='/ping'))
 async def bot_ping(event):
     await event.respond('Pong!')
@@ -997,13 +998,17 @@ async def resend_code(event):
         return
     data = pending_logins[uid]
     try:
-        # جلسة جديدة تماماً لإعادة الإرسال
-        client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
-        await client.connect()
-        result = await client.send_code_request(data['phone'], force_sms=False)
-        data['client'] = client
+        # نستخدم نفس الـ client المتصل (إذا كان لسه شغال)
+        if 'client' in data and data['client'].is_connected():
+            result = await data['client'].send_code_request(data['phone'], force_sms=False)
+        else:
+            # لو الـ client مش متصل، نعمل واحد جديد
+            client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
+            await client.connect()
+            result = await client.send_code_request(data['phone'], force_sms=False)
+            data['client'] = client
+        
         data['hash'] = result.phone_code_hash
-        data['session_str'] = client.session.save()
         await event.respond("📲 **تم إرسال كود جديد عن طريق تطبيق تيليجرام.**\nأرسله فوراً:")
     except Exception as e:
         await event.respond(f"❌ خطأ: {e}")
@@ -1035,13 +1040,12 @@ async def handle_setup(event):
         phone = event.text.strip()
         data['phone'] = phone
         try:
-            # إنشاء جلسة جديدة لهذا الرقم
+            # إنشاء عميل جديد والإبقاء عليه متصلاً (زي الموقع بالظبط)
             client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
             await client.connect()
             result = await client.send_code_request(phone, force_sms=False)
-            data['client'] = client
+            data['client'] = client  # الـ client يفضل متصل
             data['hash'] = result.phone_code_hash
-            data['session_str'] = client.session.save()
             data['state'] = 'code'
             await event.respond("📲 **تم إرسال كود التحقق. أرسله فوراً:**")
         except Exception as e:
@@ -1051,22 +1055,18 @@ async def handle_setup(event):
     elif state == 'code':
         code = event.text.strip()
         try:
-            # استخدام الجلسة المحفوظة
-            client = TelegramClient(StringSession(data['session_str']), data['api_id'], data['api_hash'])
-            await client.connect()
-            await client.sign_in(phone=data['phone'], code=code, phone_code_hash=data['hash'])
-            data['client'] = client
+            # نستخدم نفس الـ client المتصل (بدون إعادة إنشاء)
+            await data['client'].sign_in(phone=data['phone'], code=code, phone_code_hash=data['hash'])
         except SessionPasswordNeededError:
             data['state'] = 'password'
             await event.respond("🔐 **الحساب محمي بكلمة مرور.**\nأرسل كلمة المرور:")
             return
         except (PhoneCodeExpiredError, PhoneCodeInvalidError):
-            # إعادة إرسال تلقائي
+            # الكود منتهي - نعيد إرساله بنفس الـ client المتصل
             await event.respond("⏰ **انتهت صلاحية الكود. جاري إرسال كود جديد...**")
             try:
-                result = await client.send_code_request(data['phone'], force_sms=False)
+                result = await data['client'].send_code_request(data['phone'], force_sms=False)
                 data['hash'] = result.phone_code_hash
-                data['session_str'] = client.session.save()
                 await event.respond("📲 **تم إرسال كود جديد. أرسله فوراً:**")
                 return
             except Exception as e2:
