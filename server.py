@@ -8,7 +8,6 @@ import os
 import sys
 import uuid
 from datetime import datetime
-from functools import wraps
 
 from flask import Flask
 from telethon import TelegramClient, events
@@ -44,23 +43,13 @@ def health():
 def run_flask():
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
-# ======================== Main Event Loop (نفس طريقة الموقع) ========================
-main_loop = asyncio.new_event_loop()
-
-def run_coro(coro):
-    """تشغيل coroutine في الـ main_loop (نفس الموقع بالضبط)"""
-    future = asyncio.run_coroutine_threadsafe(coro, main_loop)
-    return future.result(timeout=60)
-
 # ======================== المتغيرات العامة ========================
 bot = TelegramClient(f'bot_session_{uuid.uuid4().hex[:6]}', BOT_API_ID, BOT_API_HASH)
 
-# العملاء النشطون (بعد التنصيب)
 active_clients = {}
-# التخزين المؤقت للعملاء اللي بيتنصبوا
 pending_logins = {}
 
-# ======================== بوت التنصيب (نضيف بس) ========================
+# ======================== بوت التنصيب ========================
 @bot.on(events.NewMessage(pattern='/ping'))
 async def bot_ping(event):
     await event.respond('Pong!')
@@ -71,7 +60,6 @@ async def bot_start(event):
         "🜲 **مرحباً بك في بوت تنصيب Rolex Telethon**\n\n"
         "لتنصيب حسابك، أرسل:\n"
         "`/setup` واتبع التعليمات.\n\n"
-        "بعد التنصيب، ارسل `.اوامر` من حسابك لرؤية الأوامر.\n\n"
         "للاستفسار: @Q_g_r_a_m",
         parse_mode='md'
     )
@@ -109,38 +97,47 @@ async def handle_setup(event):
         data['phone'] = phone
         try:
             # تأخير عشوائي لتجنب FloodWait
-            await asyncio.sleep(random.uniform(1, 3))
+            await asyncio.sleep(random.uniform(2, 5))
             
-            async def send_code():
-                client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
-                await client.connect()
-                result = await client.send_code_request(phone, force_sms=False)
-                return client, result.phone_code_hash
+            # إنشاء عميل جديد بالبيانات اللي المستخدم دخلها
+            client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
+            await client.connect()
             
-            client, phone_code_hash = run_coro(send_code())
+            # طلب الكود
+            result = await client.send_code_request(phone, force_sms=True)
+            
             data['client'] = client
-            data['hash'] = phone_code_hash
+            data['hash'] = result.phone_code_hash
             data['state'] = 'code'
-            await event.respond("📲 **تم إرسال كود التحقق. أرسله فوراً:**")
+            await event.respond("📲 **تم إرسال كود التحقق عبر SMS. أرسله فوراً:**")
+            
         except FloodWaitError as e:
             minutes = e.seconds // 60
             await event.respond(f"⏳ **تم حظر الطلب مؤقتاً**\nاستنى {minutes} دقيقة قبل ما تطلب كود تاني")
             del pending_logins[uid]
+        except PhoneNumberInvalidError:
+            await event.respond("❌ **رقم الهاتف غير صحيح**\nتأكد من كتابته بمفتاح الدولة: `+201234567890`")
+            del pending_logins[uid]
         except Exception as e:
             logger.error(f"Setup phone error: {type(e).__name__}: {e}")
-            await event.respond(f"❌ خطأ: {type(e).__name__}: {str(e)[:100]}")
+            await event.respond(f"❌ خطأ: {type(e).__name__}")
             del pending_logins[uid]
 
     elif state == 'code':
         code = event.text.strip()
         data = pending_logins[uid]
         try:
-            async def verify_code():
-                if not data['client'].is_connected():
-                    await data['client'].connect()
-                await data['client'].sign_in(phone=data['phone'], code=code, phone_code_hash=data['hash'])
+            # التأكد من اتصال العميل
+            if not data['client'].is_connected():
+                await data['client'].connect()
             
-            run_coro(verify_code())
+            # محاولة تسجيل الدخول
+            await data['client'].sign_in(
+                phone=data['phone'],
+                code=code,
+                phone_code_hash=data['hash']
+            )
+            
         except SessionPasswordNeededError:
             data['state'] = 'password'
             await event.respond("🔐 **الحساب محمي بكلمة مرور.**\nأرسل كلمة المرور:")
@@ -148,21 +145,25 @@ async def handle_setup(event):
         except PhoneCodeExpiredError:
             await event.respond("⏰ **انتهت صلاحية الكود.**\nاطلب كود جديد باستخدام `/resend`")
             return
+        except PhoneCodeInvalidError:
+            await event.respond("❌ **الكود غير صحيح.**\nتأكد من الكود وحاول مرة أخرى.")
+            return
         except Exception as e:
             logger.error(f"Verify error: {type(e).__name__}: {e}")
-            await event.respond(f"❌ فشل التفعيل: {type(e).__name__}: {str(e)[:100]}")
+            await event.respond(f"❌ فشل التفعيل: {type(e).__name__}")
             del pending_logins[uid]
             return
+        
         await finish_setup(event, uid)
 
     elif state == 'password':
         password = event.text.strip()
+        data = pending_logins[uid]
         try:
-            async def verify_password():
-                await data['client'].sign_in(password=password)
-            run_coro(verify_password())
+            await data['client'].sign_in(password=password)
         except Exception as e:
-            await event.respond(f"❌ فشل التفعيل: {str(e)[:100]}")
+            logger.error(f"Password error: {type(e).__name__}: {e}")
+            await event.respond(f"❌ فشل التفعيل: {type(e).__name__}")
             del pending_logins[uid]
             return
         await finish_setup(event, uid)
@@ -173,23 +174,31 @@ async def resend_code(event):
     if uid not in pending_logins or 'phone' not in pending_logins[uid]:
         await event.respond("⚠️ لم يتم بدء عملية التسجيل. أرسل /setup أولاً.")
         return
+    
     data = pending_logins[uid]
+    await event.respond("📲 **جاري إرسال كود جديد...**")
+    
     try:
-        async def resend():
-            if 'client' in data and data['client'].is_connected():
-                result = await data['client'].send_code_request(data['phone'], force_sms=False)
-                return result.phone_code_hash
-            else:
-                client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
-                await client.connect()
-                result = await client.send_code_request(data['phone'], force_sms=False)
-                data['client'] = client
-                return result.phone_code_hash
+        # تأخير عشوائي
+        await asyncio.sleep(random.uniform(1, 3))
         
-        data['hash'] = run_coro(resend())
+        # استخدام نفس العميل أو إنشاء واحد جديد
+        if 'client' not in data or not data['client'].is_connected():
+            client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
+            await client.connect()
+            data['client'] = client
+        
+        result = await data['client'].send_code_request(data['phone'], force_sms=True)
+        data['hash'] = result.phone_code_hash
+        
         await event.respond("📲 **تم إرسال كود جديد. أرسله فوراً:**")
+        
+    except FloodWaitError as e:
+        minutes = e.seconds // 60
+        await event.respond(f"⏳ **تم حظر الطلب**\nاستنى {minutes} دقيقة")
     except Exception as e:
-        await event.respond(f"❌ خطأ: {str(e)[:100]}")
+        logger.error(f"Resend error: {type(e).__name__}: {e}")
+        await event.respond(f"❌ خطأ: {type(e).__name__}")
 
 async def finish_setup(event, uid):
     data = pending_logins[uid]
@@ -201,7 +210,12 @@ async def finish_setup(event, uid):
     del pending_logins[uid]
 
     if await start_userbot(phone, session_str, api_id, api_hash):
-        await event.respond("✅ **تم تنصيب حسابك بنجاح!**\n\nيمكنك الآن استخدام حسابك كـ UserBot.\nارسل `.اوامر` من حسابك لرؤية الأوامر.")
+        await event.respond(
+            "✅ **تم تنصيب حسابك بنجاح!**\n\n"
+            "يمكنك الآن استخدام حسابك كـ UserBot.\n"
+            "ارسل `.اوامر` من حسابك لرؤية قائمة الأوامر.\n\n"
+            "⚜️ **Rolex Telethon**"
+        )
     else:
         await event.respond("❌ فشل تشغيل الحساب بعد التفعيل.")
 
@@ -242,10 +256,6 @@ async def load_all_sessions():
             logger.error(f"❌ فشل تحميل حساب {phone}: {e}")
 
 # ======================== بدء التشغيل ========================
-def start_main_loop():
-    asyncio.set_event_loop(main_loop)
-    main_loop.run_forever()
-
 async def main():
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
@@ -256,9 +266,5 @@ async def main():
     await load_all_sessions()
     await bot.run_until_disconnected()
 
-loop_thread = threading.Thread(target=start_main_loop, daemon=True)
-loop_thread.start()
-
 if __name__ == '__main__':
-    asyncio.run_coroutine_threadsafe(main(), main_loop)
-    loop_thread.join()
+    asyncio.run(main())
