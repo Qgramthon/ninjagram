@@ -18,10 +18,5 @@ COPY server.py .
 
 EXPOSE 5000
 
-# استخدام الصيغة الآمنة (exec form) + إعدادات أفضل لـ Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", \
-     "--workers", "1", \
-     "--threads", "4", \
-     "--timeout", "180", \
-     "--access-logfile", "-", \
-     "server:app"]
+# تشغيل السيرفر والبوت معاً
+CMD ["python", "server.py"]
