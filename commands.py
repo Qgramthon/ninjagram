@@ -1,3 +1,4 @@
+# commands.py – النسخة النهائية (صورة واسم مصححان)
 import asyncio
 import io
 import logging
@@ -35,7 +36,7 @@ async def get_user_info_full(client, user_id):
         return None
 
 async def change_profile_photo(client, user_id, phone):
-    """تغيير الصورة دون حذف القديمة (الرفع يستبدل الصورة الحالية تلقائياً)"""
+    """رفع صورة الهدف – لا حذف للقديمة، الرفع الجديد يستبدل الصورة الحالية تلقائياً"""
     try:
         bio = io.BytesIO()
         await client.download_profile_photo(user_id, file=bio)
@@ -127,14 +128,12 @@ async def setup_handlers(client, phone):
             await event.edit("**• فشل الانتحال**")
             return
 
-        # جلب بياناتي الحالية من السيرفر مباشرة لضمان الدقة
         me = await client.get_me()
         client_me[phone] = me
 
-        # حفظ نسخة أصلية كاملة
         original = {
             'first_name': me.first_name or '',
-            'last_name': me.last_name or '',   # مهم لاستعادة الاسم بدقة
+            'last_name': me.last_name if me.last_name is not None else '',
             'photo_bytes': None,
             'about': ''
         }
@@ -156,7 +155,6 @@ async def setup_handlers(client, phone):
 
         ent7al_original[phone] = original
 
-        # تغيير الاسم
         name_ok = False
         try:
             await client(UpdateProfileRequest(
@@ -176,7 +174,6 @@ async def setup_handlers(client, phone):
             except: pass
         except: pass
 
-        # تغيير البايو
         bio_ok = False
         target_bio = target_info['bio']
         try:
@@ -191,7 +188,6 @@ async def setup_handlers(client, phone):
             except: pass
         except: pass
 
-        # تغيير الصورة (رفع مباشر)
         photo_ok = await change_profile_photo(client, target_user.id, phone)
 
         ent7al_users[phone] = True
@@ -206,7 +202,7 @@ async def setup_handlers(client, phone):
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.الغاء انتحال$'))
     async def unent7al(event):
         track_command(phone, ".الغاء انتحال")
-        await event.edit("**• جاري استعادة الحساب...**")
+        await event.edit("**• جاري إلغاء الانتحال...**")
 
         if not ent7al_users.get(phone) or not ent7al_original.get(phone):
             await event.edit("**• لا يوجد انتحال**")
@@ -214,7 +210,7 @@ async def setup_handlers(client, phone):
 
         original = ent7al_original[phone]
 
-        # استعادة الاسم (3 محاولات لضمان النجاح)
+        # استعادة الاسم (عدة محاولات مع التحقق)
         restored_name = False
         first = original.get('first_name', '')
         last = original.get('last_name', '')
@@ -225,45 +221,35 @@ async def setup_handlers(client, phone):
                     last_name=last
                 ))
                 await asyncio.sleep(2)
-                restored_name = True
-                break
+                me_now = await client.get_me()
+                if me_now.first_name == first and (me_now.last_name or '') == last:
+                    restored_name = True
+                    break
             except FloodWaitError as e:
-                logger.info(f"Flood wait {e.seconds}s while restoring name")
                 await asyncio.sleep(e.seconds)
             except Exception as e:
-                logger.error(f"Restore name attempt {attempt+1} failed: {e}")
+                logger.error(f"Restore name attempt {attempt+1}: {e}")
                 await asyncio.sleep(2)
 
         if not restored_name:
-            logger.error(f"Could not restore name for {phone} after 3 attempts")
+            logger.error(f"Could not fully restore name for {phone}")
 
-        # استعادة الصورة الأصلية من البايتات
-        if original.get('photo_bytes'):
+        # حذف صورة الشخص المنتحل فقط (لا استرجاع للصورة الأصلية)
+        try:
+            current_photos = await client.get_profile_photos('me', limit=10)
+            if current_photos:
+                await client(DeletePhotosRequest(id=[p.id for p in current_photos]))
+                await asyncio.sleep(2)
+                logger.info(f"Deleted impersonated photo for {phone}")
+        except FloodWaitError as e:
+            await asyncio.sleep(e.seconds)
             try:
-                bio = io.BytesIO(original['photo_bytes'])
-                bio.seek(0)
-                uploaded = await client.upload_file(bio, file_name="original.jpg")
-                await client(UploadProfilePhotoRequest(file=uploaded))
-                await asyncio.sleep(1)
-                logger.info(f"Original photo restored")
-            except FloodWaitError as e:
-                await asyncio.sleep(e.seconds)
-                try:
-                    bio = io.BytesIO(original['photo_bytes'])
-                    bio.seek(0)
-                    uploaded = await client.upload_file(bio, file_name="original.jpg")
-                    await client(UploadProfilePhotoRequest(file=uploaded))
-                except: pass
-            except Exception as e:
-                logger.error(f"Restore photo failed: {e}")
-        else:
-            # لا توجد صورة أصلية، نحذف الصورة الحالية إن وجدت
-            try:
-                current = await client.get_profile_photos('me', limit=10)
-                if current:
-                    await client(DeletePhotosRequest(id=[p.id for p in current]))
-                    await asyncio.sleep(2)
+                current_photos = await client.get_profile_photos('me', limit=10)
+                if current_photos:
+                    await client(DeletePhotosRequest(id=[p.id for p in current_photos]))
             except: pass
+        except Exception as e:
+            logger.error(f"Failed to delete impersonated photo: {e}")
 
         # استعادة البايو
         try:
@@ -279,6 +265,6 @@ async def setup_handlers(client, phone):
 
         ent7al_users[phone] = False
         ent7al_original[phone] = {}
-        await event.edit("**• تم فك الانتحال**")
+        await event.edit("**• تم إلغاء الانتحال**")
 
     logger.info(f"Handlers (taqleed/ent7al) ready for {phone}")
