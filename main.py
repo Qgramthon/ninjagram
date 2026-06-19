@@ -1,9 +1,10 @@
-# main.py
-import asyncio, threading, logging, sys
+import asyncio
+import threading
+import logging
+import sys
 from shared import *
 from server import app
 from bot import bot
-import commands  # فقط للتأكد من استيراد المعالجات
 
 main_loop = asyncio.new_event_loop()
 
@@ -25,11 +26,9 @@ async def start_bot():
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
-    # تشغيل حلقة الأحداث في خيط منفصل
     loop_thread = threading.Thread(target=start_main_loop, daemon=True)
     loop_thread.start()
 
-    # إضافة مهمة البوت إلى الحلقة
     asyncio.run_coroutine_threadsafe(start_bot(), main_loop)
 
     logger.info("Qthon Server Started")
