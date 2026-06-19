@@ -2,11 +2,15 @@ import asyncio
 import io
 import logging
 from telethon import events
-from telethon.errors import FloodWaitError
+from telethon.errors import FloodWaitError, ChatAdminRequiredError
 from telethon.tl.functions.account import UpdateProfileRequest
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
 from telethon.tl.types import InputPhoto
 from telethon.tl.functions.users import GetFullUserRequest
+from telethon.tl.functions.contacts import ImportContactsRequest
+from telethon.tl.types import InputPhoneContact
+from telethon.tl.functions.channels import InviteToChannelRequest
+from telethon.tl.functions.messages import AddChatUserRequest
 from shared import (
     active_clients, muted_users, taqleed_users, ent7al_users, ent7al_original,
     client_me, track_command, logger
@@ -36,9 +40,6 @@ async def get_user_info_full(client, user_id):
         return None
 
 async def change_profile_photo(client, user_id, phone):
-    """
-    رفع صورة الهدف وإرجاع (نجاح, photo_id) حيث photo_id هو معرف الصورة الجديدة
-    """
     try:
         bio = io.BytesIO()
         await client.download_profile_photo(user_id, file=bio)
@@ -46,10 +47,8 @@ async def change_profile_photo(client, user_id, phone):
         uploaded = await client.upload_file(bio, file_name="photo.jpg")
         result = await client(UploadProfilePhotoRequest(file=uploaded))
         await asyncio.sleep(2)
-        # استخراج معرف الصورة المرفوعة حديثاً
-        new_photo = result.photo  # كائن Photo
-        if hasattr(new_photo, 'id'):
-            return True, new_photo.id
+        if hasattr(result, 'photo') and hasattr(result.photo, 'id'):
+            return True, result.photo.id
         return True, None
     except FloodWaitError as e:
         logger.warning(f"Flood wait {e.seconds}s during photo change for {phone}")
@@ -142,8 +141,8 @@ async def setup_handlers(client, phone):
         original = {
             'first_name': me.first_name or '',
             'last_name': me.last_name if me.last_name is not None else '',
-            'photo_bytes': None,        # لم نعد نستخدمها
-            'added_photo_id': None,     # سنخزن معرف الصورة المضافة هنا
+            'photo_bytes': None,
+            'added_photo_id': None,
             'about': ''
         }
 
@@ -152,9 +151,6 @@ async def setup_handlers(client, phone):
             if fu.full_user.about:
                 original['about'] = fu.full_user.about
         except: pass
-
-        # لا نقوم بنسخ الصورة الأصلية لأننا لن نسترجعها
-        # ent7al_original[phone] = original
 
         name_ok = False
         try:
@@ -214,7 +210,6 @@ async def setup_handlers(client, phone):
 
         original = ent7al_original[phone]
 
-        # استعادة الاسم
         restored_name = False
         first = original.get('first_name', '')
         last = original.get('last_name', '')
@@ -238,12 +233,11 @@ async def setup_handlers(client, phone):
         if not restored_name:
             logger.error(f"Could not fully restore name for {phone}")
 
-        # حذف الصورة المضافة فقط إن وجدت
         if original.get('added_photo_id'):
             try:
                 await client(DeletePhotosRequest(id=[InputPhoto(
                     id=original['added_photo_id'],
-                    access_hash=0,        # القيم الصفرية مقبولة إذا كان المعرف معروفاً
+                    access_hash=0,
                     file_reference=b''
                 )]))
                 await asyncio.sleep(2)
@@ -260,7 +254,6 @@ async def setup_handlers(client, phone):
             except Exception as e:
                 logger.error(f"Failed to delete added photo: {e}")
         else:
-            # في حالة فشل حفظ المعرف، نحذف أحدث صورة كإجراء احتياطي
             try:
                 current_photos = await client.get_profile_photos('me', limit=1)
                 if current_photos:
@@ -275,7 +268,6 @@ async def setup_handlers(client, phone):
             except Exception as e:
                 logger.error(f"Fallback photo deletion failed: {e}")
 
-        # استعادة البايو
         try:
             await client(UpdateProfileRequest(about=original.get('about', '')))
         except FloodWaitError as e:
@@ -290,4 +282,81 @@ async def setup_handlers(client, phone):
         ent7al_original[phone] = {}
         await event.edit("**• تم إلغاء الانتحال**")
 
-    logger.info(f"Handlers (taqleed/ent7al) ready for {phone}")
+    # ================== أمر إضافة جهات من جروب خارجي ==================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اضافة (\d+) (@?\w+)$'))
+    async def add_members_from_group(event):
+        if not event.is_group:
+            await event.edit("**• الأمر يعمل في المجموعات فقط**")
+            return
+
+        count = int(event.pattern_match.group(1))
+        target_username = event.pattern_match.group(2).strip()
+
+        await event.edit(f"**• جاري سحب {count} عضو من {target_username} وإضافتهم هنا...**")
+
+        try:
+            # جلب كيان الجروب المصدر
+            source_group = await client.get_entity(target_username)
+        except Exception as e:
+            await event.edit(f"**• لم يتم العثور على الجروب {target_username}**")
+            return
+
+        added = 0
+        failed = 0
+        try:
+            participants = await client.get_participants(source_group, limit=count)
+            for user in participants:
+                if user.bot or user.deleted:
+                    continue
+                try:
+                    # إضافة العضو إلى الجروب الحالي
+                    if hasattr(event.chat, 'megagroup') and event.chat.megagroup:
+                        # جروب سوبر
+                        await client(InviteToChannelRequest(
+                            channel=event.chat_id,
+                            users=[user.id]
+                        ))
+                    else:
+                        # جروب عادي
+                        await client(AddChatUserRequest(
+                            chat_id=event.chat_id,
+                            user_id=user.id,
+                            fwd_limit=10
+                        ))
+                    added += 1
+                    await asyncio.sleep(0.8)
+                except FloodWaitError as e:
+                    logger.info(f"Flood wait {e.seconds}s, pausing...")
+                    await asyncio.sleep(e.seconds)
+                    try:
+                        if hasattr(event.chat, 'megagroup') and event.chat.megagroup:
+                            await client(InviteToChannelRequest(
+                                channel=event.chat_id,
+                                users=[user.id]
+                            ))
+                        else:
+                            await client(AddChatUserRequest(
+                                chat_id=event.chat_id,
+                                user_id=user.id,
+                                fwd_limit=10
+                            ))
+                        added += 1
+                    except:
+                        failed += 1
+                except ChatAdminRequiredError:
+                    await event.edit("**• الصلاحيات غير كافية لإضافة الأعضاء**")
+                    return
+                except Exception as e:
+                    logger.warning(f"Failed to add {user.id}: {e}")
+                    failed += 1
+
+            await event.edit(
+                f"**• تمت إضافة {added} عضو بنجاح**\n"
+                f"{'• فشل في إضافة ' + str(failed) + ' عضو' if failed > 0 else ''}"
+            )
+        except ChatAdminRequiredError:
+            await event.edit("**• الصلاحيات غير كافية لسحب الأعضاء من الجروب المصدر**")
+        except Exception as e:
+            await event.edit(f"**• فشل: {str(e)[:50]}**")
+
+    logger.info(f"Handlers (taqleed/ent7al + add_members) ready for {phone}")
