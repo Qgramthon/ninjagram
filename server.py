@@ -41,8 +41,7 @@ except ImportError:
     PIL_AVAILABLE = False
 
 # ======================== الإعدادات الأساسية ========================
-API_ID = 2040
-API_HASH = 'b18441a1ff607e10a989891a5462e627'
+# API_ID و API_HASH الخاصين بالبوت فقط (ثابتين)
 BOT_TOKEN = '8887748662:AAFgLMUO2eXpYzityDj35-IDTLywtdO8S8Q'
 
 DATA_DIR = '/data' if os.path.exists('/data') else '.'
@@ -70,13 +69,15 @@ def run_flask():
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
 # ======================== المتغيرات العامة ========================
-bot = TelegramClient(f'bot_session_{uuid.uuid4().hex[:6]}', API_ID, API_HASH)
+# البوت يستخدم API_ID و API_HASH ثابتين
+BOT_API_ID = 2040
+BOT_API_HASH = 'b18441a1ff607e10a989891a5462e627'
+bot = TelegramClient(f'bot_session_{uuid.uuid4().hex[:6]}', BOT_API_ID, BOT_API_HASH)
 
 active_clients = {}
 client_me = {}
 
-# pending_logins = {user_id: {'state': ..., 'client': TelegramClient, 'hash': ..., ...}}
-# الـ client يفضل متصل ومفتوح طول فترة التنصيب (نفس منطق الموقع)
+# pending_logins = {user_id: {'state': ..., 'client': TelegramClient, 'api_id': ..., 'api_hash': ..., 'hash': ..., ...}}
 pending_logins = {}
 
 muted_users = {}
@@ -221,7 +222,11 @@ async def save_all_sessions():
     sessions = {}
     for phone, client in active_clients.items():
         if client.is_connected():
-            sessions[phone] = client.session.save()
+            sessions[phone] = {
+                'session': client.session.save(),
+                'api_id': client.api_id,
+                'api_hash': client.api_hash
+            }
     with open(SESSION_FILE, 'w') as f:
         json.dump(sessions, f)
 
@@ -230,9 +235,12 @@ async def load_all_sessions():
         return
     with open(SESSION_FILE, 'r') as f:
         sessions = json.load(f)
-    for phone, session_str in sessions.items():
+    for phone, data in sessions.items():
         try:
-            client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
+            session_str = data['session']
+            api_id = data['api_id']
+            api_hash = data['api_hash']
+            client = TelegramClient(StringSession(session_str), api_id, api_hash)
             await client.connect()
             if await client.is_user_authorized():
                 active_clients[phone] = client
@@ -963,8 +971,7 @@ async def setup_handlers(client, phone):
 
     logger.info(f"✅ تم تحميل جميع الأوامر لـ {phone}")
 
-# ======================== بوت التنصيب (مستوحى من طريقة الموقع) ========================
-# الفكرة: الـ client يفضل متصل طول فترة التنصيب ولا يتم إعادة إنشائه أبداً
+# ======================== بوت التنصيب ========================
 @bot.on(events.NewMessage(pattern='/ping'))
 async def bot_ping(event):
     await event.respond('Pong!')
@@ -1015,11 +1022,10 @@ async def handle_setup(event):
         phone = event.text.strip()
         data['phone'] = phone
         try:
-            # إنشاء عميل جديد - هذا العميل سيبقى متصلاً طوال فترة التنصيب
+            # نستخدم api_id و api_hash الخاصين بالمستخدم
             client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
             await client.connect()
-            # إرسال كود التحقق - نستخدم force_sms=True لضمان وصول الكود
-            result = await client.send_code_request(phone, force_sms=True)
+            result = await client.send_code_request(phone)
             data['client'] = client
             data['hash'] = result.phone_code_hash
             data['state'] = 'code'
@@ -1031,7 +1037,6 @@ async def handle_setup(event):
     elif state == 'code':
         code = event.text.strip()
         try:
-            # نستخدم نفس الـ client المتصل - لا نعيد إنشائه أبداً
             await data['client'].sign_in(phone=data['phone'], code=code, phone_code_hash=data['hash'])
         except SessionPasswordNeededError:
             data['state'] = 'password'
@@ -1057,15 +1062,19 @@ async def finish_setup(event, uid):
     data = pending_logins[uid]
     client = data['client']
     phone = data['phone']
+    api_id = data['api_id']
+    api_hash = data['api_hash']
     session_str = client.session.save()
     del pending_logins[uid]
-    if await start_userbot(phone, session_str):
+
+    # تخزين الـ api_id و api_hash مع الجلسة
+    if await start_userbot(phone, session_str, api_id, api_hash):
         await event.respond("✅ **تم تنصيب حسابك بنجاح!**\n\nيمكنك الآن استخدام أوامر السورس على حسابك.")
     else:
         await event.respond("❌ فشل تشغيل الحساب بعد التفعيل.")
 
-async def start_userbot(phone, session_str):
-    client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
+async def start_userbot(phone, session_str, api_id, api_hash):
+    client = TelegramClient(StringSession(session_str), api_id, api_hash)
     await client.connect()
     if await client.is_user_authorized():
         active_clients[phone] = client
