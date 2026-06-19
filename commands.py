@@ -36,13 +36,10 @@ async def get_user_info_full(client, user_id):
 
 async def change_profile_photo(client, user_id, phone):
     try:
-        # حذف جميع الصور الحالية
         current = await client.get_profile_photos('me', limit=10)
         if current:
             await client(DeletePhotosRequest(id=[p.id for p in current]))
-            await asyncio.sleep(3)   # انتظار أطول لضمان الحذف
-
-        # تحميل صورة الهدف
+            await asyncio.sleep(3)
         bio = io.BytesIO()
         await client.download_profile_photo(user_id, file=bio)
         bio.seek(0)
@@ -142,7 +139,6 @@ async def setup_handlers(client, phone):
                 original['photo'] = my_photos[0]
         except: pass
 
-        # حفظ النسخة الأصلية قبل أي تغيير
         ent7al_original[phone] = original
 
         name_ok = False
@@ -200,7 +196,6 @@ async def setup_handlers(client, phone):
 
         original = ent7al_original[phone]
 
-        # استعادة الصورة الأصلية
         if original.get('photo'):
             try:
                 current = await client.get_profile_photos('me', limit=10)
@@ -216,7 +211,6 @@ async def setup_handlers(client, phone):
             except Exception as e:
                 logger.error(f"Restore photo failed: {e}")
 
-        # استعادة الاسم
         try:
             await client(UpdateProfileRequest(
                 first_name=original.get('first_name', ''),
@@ -232,7 +226,6 @@ async def setup_handlers(client, phone):
         except Exception as e:
             logger.error(f"Restore name failed: {e}")
 
-        # استعادة البايو
         try:
             await client(UpdateProfileRequest(about=original.get('about', '')))
             await asyncio.sleep(1)
