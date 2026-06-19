@@ -74,6 +74,9 @@ bot = TelegramClient(f'bot_session_{uuid.uuid4().hex[:6]}', API_ID, API_HASH)
 
 active_clients = {}
 client_me = {}
+
+# نظام التنصيب: كل مستخدم له جلسة منفصلة تماماً
+# {user_id: {'state': 'api_id', 'api_id': ..., 'api_hash': ..., 'phone': ..., 'client': ..., 'hash': ..., 'session_str': ...}}
 pending_logins = {}
 
 muted_users = {}
@@ -960,7 +963,7 @@ async def setup_handlers(client, phone):
 
     logger.info(f"✅ تم تحميل جميع الأوامر لـ {phone}")
 
-# ======================== بوت التنصيب ========================
+# ======================== بوت التنصيب (معالجة كاملة للجلسات) ========================
 @bot.on(events.NewMessage(pattern='/ping'))
 async def bot_ping(event):
     await event.respond('Pong!')
@@ -971,14 +974,19 @@ async def bot_start(event):
     await event.respond(
         "🜲 **مرحباً بك في بوت تنصيب Rolex Telethon**\n\n"
         "لتنصيب حسابك، أرسل:\n"
-        "`/setup` واتبع التعليمات.\n\n"
+        "`/setup` واتبع التعليمات.\n"
+        "إذا كان الكود منتهي الصلاحية، أرسل `/resend`\n\n"
         "للاستفسار: @Q_g_r_a_m",
         parse_mode='md'
     )
 
 @bot.on(events.NewMessage(pattern='/setup'))
 async def setup_init(event):
-    pending_logins[event.sender_id] = {'state': 'api_id'}
+    # إنشاء جلسة جديدة تماماً للمستخدم
+    pending_logins[event.sender_id] = {
+        'state': 'api_id',
+        'created_at': time.time()
+    }
     await event.respond("📝 **أرسل API ID الخاص بك:**")
 
 @bot.on(events.NewMessage(pattern='/resend'))
@@ -989,13 +997,14 @@ async def resend_code(event):
         return
     data = pending_logins[uid]
     try:
-        # إنشاء عميل جديد للطلب
+        # جلسة جديدة تماماً لإعادة الإرسال
         client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
         await client.connect()
-        result = await client.send_code_request(data['phone'])
+        result = await client.send_code_request(data['phone'], force_sms=False)
         data['client'] = client
         data['hash'] = result.phone_code_hash
-        await event.respond("📲 **تم إرسال كود جديد. أرسله فوراً:**")
+        data['session_str'] = client.session.save()
+        await event.respond("📲 **تم إرسال كود جديد عن طريق تطبيق تيليجرام.**\nأرسله فوراً:")
     except Exception as e:
         await event.respond(f"❌ خطأ: {e}")
 
@@ -1004,52 +1013,60 @@ async def handle_setup(event):
     uid = event.sender_id
     if uid not in pending_logins:
         return
+
     state = pending_logins[uid].get('state')
+    data = pending_logins[uid]
+
     if state == 'api_id':
         try:
             api_id = int(event.text.strip())
-            pending_logins[uid]['api_id'] = api_id
-            pending_logins[uid]['state'] = 'api_hash'
+            data['api_id'] = api_id
+            data['state'] = 'api_hash'
             await event.respond("🔑 **أرسل API Hash الخاص بك:**")
         except:
             await event.respond("❌ يرجى إدخال رقم صحيح.")
+
     elif state == 'api_hash':
-        pending_logins[uid]['api_hash'] = event.text.strip()
-        pending_logins[uid]['state'] = 'phone'
+        data['api_hash'] = event.text.strip()
+        data['state'] = 'phone'
         await event.respond("📱 **أرسل رقم الهاتف (بمفتاح الدولة):**\nمثال: `+201234567890`")
+
     elif state == 'phone':
         phone = event.text.strip()
-        pending_logins[uid]['phone'] = phone
+        data['phone'] = phone
         try:
-            client = TelegramClient(StringSession(), pending_logins[uid]['api_id'], pending_logins[uid]['api_hash'])
+            # إنشاء جلسة جديدة لهذا الرقم
+            client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
             await client.connect()
-            result = await client.send_code_request(phone)
-            pending_logins[uid]['client'] = client
-            pending_logins[uid]['hash'] = result.phone_code_hash
-            pending_logins[uid]['state'] = 'code'
-            await event.respond("📲 **تم إرسال كود التحقق.**\nأرسل الكود الذي استلمته.")
+            result = await client.send_code_request(phone, force_sms=False)
+            data['client'] = client
+            data['hash'] = result.phone_code_hash
+            data['session_str'] = client.session.save()
+            data['state'] = 'code'
+            await event.respond("📲 **تم إرسال كود التحقق. أرسله فوراً:**")
         except Exception as e:
             await event.respond(f"❌ خطأ: {e}")
             del pending_logins[uid]
+
     elif state == 'code':
         code = event.text.strip()
-        data = pending_logins[uid]
         try:
-            # إعادة إنشاء العميل بنفس الجلسة لضمان عدم انتهاء الصلاحية
-            client = TelegramClient(StringSession(data['client'].session.save()), data['api_id'], data['api_hash'])
+            # استخدام الجلسة المحفوظة
+            client = TelegramClient(StringSession(data['session_str']), data['api_id'], data['api_hash'])
             await client.connect()
             await client.sign_in(phone=data['phone'], code=code, phone_code_hash=data['hash'])
-            data['client'] = client  # تحديث العميل
+            data['client'] = client
         except SessionPasswordNeededError:
-            pending_logins[uid]['state'] = 'password'
+            data['state'] = 'password'
             await event.respond("🔐 **الحساب محمي بكلمة مرور.**\nأرسل كلمة المرور:")
             return
-        except PhoneCodeExpiredError:
-            # الكود منتهي - نعيد إرسال كود جديد تلقائياً
+        except (PhoneCodeExpiredError, PhoneCodeInvalidError):
+            # إعادة إرسال تلقائي
             await event.respond("⏰ **انتهت صلاحية الكود. جاري إرسال كود جديد...**")
             try:
-                result = await data['client'].send_code_request(data['phone'])
+                result = await client.send_code_request(data['phone'], force_sms=False)
                 data['hash'] = result.phone_code_hash
+                data['session_str'] = client.session.save()
                 await event.respond("📲 **تم إرسال كود جديد. أرسله فوراً:**")
                 return
             except Exception as e2:
@@ -1061,9 +1078,9 @@ async def handle_setup(event):
             del pending_logins[uid]
             return
         await finish_setup(event, uid)
+
     elif state == 'password':
         password = event.text.strip()
-        data = pending_logins[uid]
         try:
             await data['client'].sign_in(password=password)
         except Exception as e:
