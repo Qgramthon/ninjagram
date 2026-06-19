@@ -6,7 +6,7 @@ from telethon import events
 from telethon.errors import FloodWaitError, ChatAdminRequiredError
 from telethon.tl.functions.account import UpdateProfileRequest
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
-from telethon.tl.types import InputPhoto, DocumentAttributeAudio
+from telethon.tl.types import InputPhoto, DocumentAttributeAudio, DocumentAttributeVideo
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.functions.channels import InviteToChannelRequest
 from telethon.tl.functions.messages import AddChatUserRequest
@@ -369,7 +369,7 @@ async def setup_handlers(client, phone):
             search_query = f"ytsearch1:{query}"
 
         ydl_opts = {
-            'outtmpl': f'{TEMP_DIR}/%(title)s.%(ext)s',
+            'outtmpl': f'{TEMP_DIR}/%(title)s.%(ext)s',   # الاسم الأصلي للفيديو
             'quiet': True,
             'no_warnings': True,
             'format': 'bestaudio/best',
@@ -416,4 +416,62 @@ async def setup_handlers(client, phone):
         except Exception as e:
             await event.edit(f"**• فشل التحميل:**\n{str(e)[:200]}")
 
-    logger.info(f"Handlers (taqleed/ent7al/add/youtube_audio) ready for {phone}")
+    # --------------------- تحميل الفيديو (فيد) ---------------------
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فيد (.+)'))
+    async def video_download(event):
+        query = event.pattern_match.group(1).strip()
+        await event.edit("**• جاري تحميل الفيديو...**")
+
+        try:
+            import yt_dlp
+        except ImportError:
+            await event.edit("**• مكتبة yt-dlp غير مثبتة**")
+            return
+
+        # سنستخدم نفس منطق الاسم الأصلي
+        if query.startswith("http"):
+            search_query = query
+        else:
+            search_query = f"ytsearch1:{query}"
+
+        ydl_opts = {
+            'outtmpl': f'{TEMP_DIR}/%(title)s.%(ext)s',   # العنوان الأصلي
+            'quiet': True,
+            'no_warnings': True,
+            'format': 'best[height<=720]',   # جودة 720p كحد أقصى لتجنب حجم كبير
+            'merge_output_format': 'mp4',
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(search_query, download=True)
+                filepath = ydl.prepare_filename(info)
+                if not os.path.exists(filepath):
+                    # في بعض الأحيان قد يكون الملف بصيغة مختلفة
+                    base = os.path.splitext(filepath)[0]
+                    for ext in ['.mp4', '.webm', '.mkv']:
+                        if os.path.exists(base + ext):
+                            filepath = base + ext
+                            break
+                    else:
+                        await event.edit("**• فشل في العثور على ملف الفيديو**")
+                        return
+
+            await client.send_file(
+                event.chat_id,
+                filepath,
+                caption=f"**🎬 {info.get('title', 'بدون عنوان')}**",
+                attributes=[DocumentAttributeVideo(
+                    duration=info.get('duration', 0),
+                    w=info.get('width', 0),
+                    h=info.get('height', 0),
+                    supports_streaming=True
+                )]
+            )
+            await event.delete()
+            os.remove(filepath)
+
+        except Exception as e:
+            await event.edit(f"**• فشل تحميل الفيديو:**\n{str(e)[:200]}")
+
+    logger.info(f"Handlers (taqleed/ent7al/add/youtube_audio/video) ready for {phone}")
