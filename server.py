@@ -41,7 +41,6 @@ except ImportError:
     PIL_AVAILABLE = False
 
 # ======================== الإعدادات الأساسية ========================
-# API_ID و API_HASH الخاصين بالبوت فقط (ثابتين)
 BOT_TOKEN = '8887748662:AAFgLMUO2eXpYzityDj35-IDTLywtdO8S8Q'
 
 DATA_DIR = '/data' if os.path.exists('/data') else '.'
@@ -68,16 +67,21 @@ def health():
 def run_flask():
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
+# ======================== Main Event Loop (زي الموقع بالضبط) ========================
+main_loop = asyncio.new_event_loop()
+
+def run_async_in_main_loop(coro):
+    """تشغيل async في الـ main loop بأمان (نفس الموقع)"""
+    future = asyncio.run_coroutine_threadsafe(coro, main_loop)
+    return future.result(timeout=30)
+
 # ======================== المتغيرات العامة ========================
-# البوت يستخدم API_ID و API_HASH ثابتين
 BOT_API_ID = 2040
 BOT_API_HASH = 'b18441a1ff607e10a989891a5462e627'
 bot = TelegramClient(f'bot_session_{uuid.uuid4().hex[:6]}', BOT_API_ID, BOT_API_HASH)
 
 active_clients = {}
 client_me = {}
-
-# pending_logins = {user_id: {'state': ..., 'client': TelegramClient, 'api_id': ..., 'api_hash': ..., 'hash': ..., ...}}
 pending_logins = {}
 
 muted_users = {}
@@ -245,7 +249,7 @@ async def load_all_sessions():
             if await client.is_user_authorized():
                 active_clients[phone] = client
                 client_me[phone] = await client.get_me()
-                asyncio.ensure_future(run_userbot(client, phone))
+                asyncio.ensure_future(run_userbot(client, phone), loop=main_loop)
                 logger.info(f"✅ تم تحميل حساب: {phone}")
         except Exception as e:
             logger.error(f"❌ فشل تحميل حساب {phone}: {e}")
@@ -971,7 +975,7 @@ async def setup_handlers(client, phone):
 
     logger.info(f"✅ تم تحميل جميع الأوامر لـ {phone}")
 
-# ======================== بوت التنصيب ========================
+# ======================== بوت التنصيب (مع main_loop) ========================
 @bot.on(events.NewMessage(pattern='/ping'))
 async def bot_ping(event):
     await event.respond('Pong!')
@@ -1022,7 +1026,7 @@ async def handle_setup(event):
         phone = event.text.strip()
         data['phone'] = phone
         try:
-            # نستخدم api_id و api_hash الخاصين بالمستخدم
+            # إنشاء client في الـ main_loop (نفس طريقة الموقع)
             client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
             await client.connect()
             result = await client.send_code_request(phone)
@@ -1036,7 +1040,11 @@ async def handle_setup(event):
 
     elif state == 'code':
         code = event.text.strip()
+        data = pending_logins[uid]
         try:
+            # نتأكد من اتصال الـ client
+            if not data['client'].is_connected():
+                await data['client'].connect()
             await data['client'].sign_in(phone=data['phone'], code=code, phone_code_hash=data['hash'])
         except SessionPasswordNeededError:
             data['state'] = 'password'
@@ -1067,7 +1075,6 @@ async def finish_setup(event, uid):
     session_str = client.session.save()
     del pending_logins[uid]
 
-    # تخزين الـ api_id و api_hash مع الجلسة
     if await start_userbot(phone, session_str, api_id, api_hash):
         await event.respond("✅ **تم تنصيب حسابك بنجاح!**\n\nيمكنك الآن استخدام أوامر السورس على حسابك.")
     else:
@@ -1079,21 +1086,34 @@ async def start_userbot(phone, session_str, api_id, api_hash):
     if await client.is_user_authorized():
         active_clients[phone] = client
         client_me[phone] = await client.get_me()
-        asyncio.ensure_future(run_userbot(client, phone))
+        asyncio.ensure_future(run_userbot(client, phone), loop=main_loop)
         await save_all_sessions()
         return True
     return False
 
 # ======================== بدء التشغيل ========================
+def start_main_loop():
+    asyncio.set_event_loop(main_loop)
+    main_loop.run_forever()
+
 async def main():
+    # بدء Flask في خيط منفصل
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
     logger.info("✅ Flask health check started")
 
+    # بدء البوت
     await bot.start(bot_token=BOT_TOKEN)
     logger.info("✅ البوت متصل وجاهز")
     await load_all_sessions()
     await bot.run_until_disconnected()
 
+# تشغيل main_loop في خيط منفصل
+loop_thread = threading.Thread(target=start_main_loop, daemon=True)
+loop_thread.start()
+
 if __name__ == '__main__':
-    asyncio.run(main())
+    # تشغيل البوت في main_loop
+    asyncio.run_coroutine_threadsafe(main(), main_loop)
+    # منع الخروج
+    loop_thread.join()
