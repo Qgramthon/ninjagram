@@ -67,11 +67,9 @@ def health():
     return "OK", 200
 
 def run_flask():
-    """تشغيل Flask في الخلفية عشان Railway يلاقي port مفتوح"""
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
 # ======================== المتغيرات العامة ========================
-# جلسة بوت فريدة كل مرة (عشان نضمن عدم وجود تعارض)
 bot = TelegramClient(f'bot_session_{uuid.uuid4().hex[:6]}', API_ID, API_HASH)
 
 active_clients = {}
@@ -953,7 +951,7 @@ async def setup_handlers(client, phone):
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.منع (\d+)$'))
     async def dev_ban(event):
         if not is_dev(phone): return
-        await event.edit("**• تم المنع** (سيتم تطبيقه لاحقاً)")
+        await event.edit("**• تم المنع**")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تفعيل (\d+)$'))
     async def dev_unban(event):
@@ -982,6 +980,24 @@ async def bot_start(event):
 async def setup_init(event):
     pending_logins[event.sender_id] = {'state': 'api_id'}
     await event.respond("📝 **أرسل API ID الخاص بك:**")
+
+@bot.on(events.NewMessage(pattern='/resend'))
+async def resend_code(event):
+    uid = event.sender_id
+    if uid not in pending_logins or 'phone' not in pending_logins[uid]:
+        await event.respond("⚠️ لم يتم بدء عملية التسجيل. أرسل /setup أولاً.")
+        return
+    data = pending_logins[uid]
+    try:
+        # إنشاء عميل جديد للطلب
+        client = TelegramClient(StringSession(), data['api_id'], data['api_hash'])
+        await client.connect()
+        result = await client.send_code_request(data['phone'])
+        data['client'] = client
+        data['hash'] = result.phone_code_hash
+        await event.respond("📲 **تم إرسال كود جديد. أرسله فوراً:**")
+    except Exception as e:
+        await event.respond(f"❌ خطأ: {e}")
 
 @bot.on(events.NewMessage())
 async def handle_setup(event):
@@ -1019,11 +1035,27 @@ async def handle_setup(event):
         code = event.text.strip()
         data = pending_logins[uid]
         try:
-            await data['client'].sign_in(phone=data['phone'], code=code, phone_code_hash=data['hash'])
+            # إعادة إنشاء العميل بنفس الجلسة لضمان عدم انتهاء الصلاحية
+            client = TelegramClient(StringSession(data['client'].session.save()), data['api_id'], data['api_hash'])
+            await client.connect()
+            await client.sign_in(phone=data['phone'], code=code, phone_code_hash=data['hash'])
+            data['client'] = client  # تحديث العميل
         except SessionPasswordNeededError:
             pending_logins[uid]['state'] = 'password'
             await event.respond("🔐 **الحساب محمي بكلمة مرور.**\nأرسل كلمة المرور:")
             return
+        except PhoneCodeExpiredError:
+            # الكود منتهي - نعيد إرسال كود جديد تلقائياً
+            await event.respond("⏰ **انتهت صلاحية الكود. جاري إرسال كود جديد...**")
+            try:
+                result = await data['client'].send_code_request(data['phone'])
+                data['hash'] = result.phone_code_hash
+                await event.respond("📲 **تم إرسال كود جديد. أرسله فوراً:**")
+                return
+            except Exception as e2:
+                await event.respond(f"❌ خطأ: {e2}")
+                del pending_logins[uid]
+                return
         except Exception as e:
             await event.respond(f"❌ فشل التفعيل: {e}")
             del pending_logins[uid]
@@ -1064,19 +1096,13 @@ async def start_userbot(phone, session_str):
 
 # ======================== بدء التشغيل ========================
 async def main():
-    # تشغيل Flask في الخلفية
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
     logger.info("✅ Flask health check started")
 
-    # تشغيل البوت
     await bot.start(bot_token=BOT_TOKEN)
     logger.info("✅ البوت متصل وجاهز")
-
-    # تحميل الجلسات القديمة
     await load_all_sessions()
-
-    # استمرار التشغيل
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
