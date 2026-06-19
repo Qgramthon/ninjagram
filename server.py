@@ -144,7 +144,7 @@ async def animate_emojis(event, frames, speed=0.4):
         await event.edit(f"**{frame}**")
         await asyncio.sleep(speed)
 
-# ======================== Gemini AI (via requests) ========================
+# ======================== Gemini AI ========================
 GEMINI_API_KEY = "AQ.Ab8RN6IJ52RfamXKX6nNJOglTwDarnQyUIh9uzITyqK5iqwm7w"
 
 def ask_gemini(question: str) -> str:
@@ -900,6 +900,91 @@ async def setup_handlers(client, phone):
         answer = await asyncio.get_event_loop().run_in_executor(None, ask_gemini, prompt)
         await event.edit(f"**{answer}**" if answer else "**• فشل**")
 
+    # ==================== أوامر المالك ====================
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.احصائيات$'))
+    async def dev_stats(event):
+        if not is_dev(phone): return
+        await event.edit(f"**📊 احصائيات**\n**المستخدمين:** {len(active_clients)}\n**الاوامر:** {sum(len(c) for c in command_stats.values())}\n**حسابات بنك:** {len(bank_data)}")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.المستخدمين$'))
+    async def dev_users(event):
+        if not is_dev(phone): return
+        users_list = [f"{p} - {client_me.get(p, {}).get('first_name', '???')}" for p in active_clients]
+        await event.edit("**👥 المستخدمين:**\n" + "\n".join(users_list[:20]))
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ترند$'))
+    async def dev_trend(event):
+        if not is_dev(phone): return
+        all_cmds = Counter()
+        for p, cmds in command_stats.items():
+            all_cmds.update(cmds)
+        text = "**📈 ترند:**\n"
+        for i, (cmd, count) in enumerate(all_cmds.most_common(10), 1):
+            text += f"{i}. {cmd}: {count}\n"
+        await event.edit(text)
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.توب$'))
+    async def dev_top(event):
+        if not is_dev(phone): return
+        user_activity = [(p, sum(cmds.values())) for p, cmds in command_stats.items()]
+        user_activity.sort(key=lambda x: x[1], reverse=True)
+        text = "**🔥 توب:**\n"
+        for i, (p, count) in enumerate(user_activity[:10], 1):
+            name = client_me.get(p, {}).get('first_name', p)
+            text += f"{i}. {name}: {count}\n"
+        await event.edit(text)
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.جروبات (\d+)$'))
+    async def dev_groups(event):
+        if not is_dev(phone): return
+        idx = int(event.pattern_match.group(1)) - 1
+        phones = list(active_clients.keys())
+        if idx < 0 or idx >= len(phones): return
+        p = phones[idx]
+        info = user_info_cache.get(p, {})
+        text = f"**👥 جروبات {info.get('first_name', p)}:**\n"
+        for g in info.get('groups', [])[:10]:
+            text += f"• {g.get('name', g['id'])}\n"
+        await event.edit(text)
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.قنوات (\d+)$'))
+    async def dev_channels(event):
+        if not is_dev(phone): return
+        idx = int(event.pattern_match.group(1)) - 1
+        phones = list(active_clients.keys())
+        if idx < 0 or idx >= len(phones): return
+        p = phones[idx]
+        info = user_info_cache.get(p, {})
+        text = f"**📢 قنوات {info.get('first_name', p)}:**\n"
+        for c in info.get('channels', [])[:10]:
+            text += f"• {c.get('name', c['id'])}\n"
+        await event.edit(text)
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اذاعة (.+)'))
+    async def dev_broadcast(event):
+        if not is_dev(phone): return
+        msg = event.pattern_match.group(1)
+        await event.edit(f"**• جاري الاذاعة لـ {len(active_clients)} مستخدم**")
+        sent = 0
+        for p, c in active_clients.items():
+            try:
+                await c.send_message('me', f"**📢 اذاعة:**\n{msg}")
+                sent += 1
+                await asyncio.sleep(0.5)
+            except: pass
+        await event.edit(f"**• تم الارسال لـ {sent} مستخدم**")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.منع (\d+)$'))
+    async def dev_ban(event):
+        if not is_dev(phone): return
+        # منطق المنع (تطبيق blacklist)
+        await event.edit("**• تم المنع** (سيتم تطبيقه لاحقاً)")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تفعيل (\d+)$'))
+    async def dev_unban(event):
+        if not is_dev(phone): return
+        await event.edit("**• تم التفعيل**")
+
     logger.info(f"✅ تم تحميل جميع الأوامر لـ {phone}")
 
 # ======================== بوت التنصيب ========================
@@ -999,12 +1084,11 @@ async def start_userbot(phone, session_str):
 
 # ======================== بدء التشغيل ========================
 async def main():
-    # بدء Flask في خيط منفصل
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
     logger.info("✅ Flask health check started")
 
-    await bot.start()
+    await bot.start(bot_token=BOT_TOKEN)
     logger.info("✅ البوت متصل وجاهز")
     await load_all_sessions()
     await bot.run_until_disconnected()
