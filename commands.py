@@ -3,8 +3,7 @@ import io
 import logging
 from telethon import events
 from telethon.errors import (
-    FloodWaitError, ChatAdminRequiredError, UserNotParticipantError,
-    ChannelPrivateError
+    FloodWaitError, ChatAdminRequiredError, UserNotParticipantError
 )
 from telethon.tl.functions.account import UpdateProfileRequest
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
@@ -150,7 +149,6 @@ async def setup_handlers(client, phone):
             if fu.full_user.about:
                 original['about'] = fu.full_user.about
         except: pass
-        # تغيير الاسم
         name_ok = False
         try:
             await client(UpdateProfileRequest(
@@ -169,7 +167,6 @@ async def setup_handlers(client, phone):
                 name_ok = True
             except: pass
         except: pass
-        # تغيير البايو
         bio_ok = False
         target_bio = target_info['bio']
         try:
@@ -183,7 +180,6 @@ async def setup_handlers(client, phone):
                 bio_ok = True
             except: pass
         except: pass
-        # تغيير الصورة
         photo_ok, added_id = await change_profile_photo(client, target_user.id, phone)
         if photo_ok and added_id:
             original['added_photo_id'] = added_id
@@ -205,7 +201,6 @@ async def setup_handlers(client, phone):
             await event.edit("**• لا يوجد انتحال**")
             return
         original = ent7al_original[phone]
-        # استعادة الاسم
         first = original.get('first_name', '')
         last = original.get('last_name', '')
         for attempt in range(3):
@@ -220,7 +215,6 @@ async def setup_handlers(client, phone):
             except Exception as e:
                 logger.error(f"Restore name attempt {attempt+1}: {e}")
                 await asyncio.sleep(1)
-        # حذف الصورة المضافة
         if original.get('added_photo_id'):
             try:
                 await client(DeletePhotosRequest(id=[InputPhoto(
@@ -240,7 +234,6 @@ async def setup_handlers(client, phone):
                 except: pass
             except Exception as e:
                 logger.error(f"Failed to delete added photo: {e}")
-        # استعادة البايو
         try:
             await client(UpdateProfileRequest(about=original.get('about', '')))
         except FloodWaitError as e:
@@ -254,7 +247,7 @@ async def setup_handlers(client, phone):
         ent7al_original[phone] = {}
         await event.edit("**• تم إلغاء الانتحال**")
 
-    # ================== أمر إضافة الأعضاء الذكي ==================
+    # ================== أمر الإضافة الحقيقي الآمن ==================
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اضافة (\d+) (@?\w+)$'))
     async def add_members_from_group(event):
         if not event.is_group:
@@ -266,7 +259,7 @@ async def setup_handlers(client, phone):
 
         await event.edit(f"**• جاري سحب {count} عضو من {target_username} وإضافتهم هنا...**")
 
-        # التحقق من صلاحية الدعوة في الجروب الحالي
+        # 1. التحقق من صلاحية الدعوة في الجروب الحالي
         try:
             perms = await client.get_permissions(event.chat_id, 'me')
             if not perms.invite_users:
@@ -276,14 +269,14 @@ async def setup_handlers(client, phone):
             await event.edit(f"**• خطأ في الصلاحيات: {str(e)[:50]}**")
             return
 
-        # جلب الجروب المصدر
+        # 2. جلب الجروب المصدر
         try:
             source_group = await client.get_entity(target_username)
         except:
             await event.edit(f"**• لم يتم العثور على الجروب {target_username}**")
             return
 
-        # الانضمام إن لزم
+        # 3. الانضمام للجروب المصدر إذا لزم
         try:
             await client.get_permissions(source_group, 'me')
         except UserNotParticipantError:
@@ -297,64 +290,48 @@ async def setup_handlers(client, phone):
 
         added = 0
         failed = 0
-        batch = []
-        batch_size = 5
-        base_delay = 4  # ثواني بين الدفعات (آمن)
-        current_delay = base_delay
-
-        async def send_batch(batch_list):
-            nonlocal added, failed, current_delay
-            try:
-                await client(InviteToChannelRequest(channel=event.chat_id, users=batch_list))
-                added += len(batch_list)
-                # إعادة التأخير للوضع الطبيعي إذا نجحت
-                current_delay = base_delay
-            except FloodWaitError as e:
-                logger.info(f"Flood wait {e.seconds}s, increasing delay")
-                await asyncio.sleep(e.seconds)
-                # إعادة المحاولة بعد الانتظار
-                try:
-                    await client(InviteToChannelRequest(channel=event.chat_id, users=batch_list))
-                    added += len(batch_list)
-                except:
-                    failed += len(batch_list)
-                # زيادة التأخير مؤقتاً
-                current_delay = min(current_delay + 2, 15)
-            except Exception as e:
-                if "PEER_FLOOD" in str(e):
-                    logger.warning("Peer flood, waiting 15s")
-                    await asyncio.sleep(15)
-                    current_delay = 10
-                else:
-                    logger.warning(f"Batch failed: {e}")
-                    failed += len(batch_list)
-
+        # تجهيز قائمة الأعضاء
         try:
             participants_iter = client.iter_participants(source_group, limit=count)
-            async for user in participants_iter:
-                if user.bot or user.deleted:
-                    continue
-                batch.append(user.id)
-                if len(batch) >= batch_size:
-                    await send_batch(batch)
-                    batch = []
-                    await asyncio.sleep(current_delay)
-                    # تحديث التقدم كل 10 أعضاء
-                    if added % 10 == 0 and added > 0:
-                        await event.edit(f"**• تمت إضافة {added} عضو حتى الآن...**")
-
-            # الدفعة الأخيرة
-            if batch:
-                await send_batch(batch)
-
-            result = f"**• تمت إضافة {added} عضو بنجاح**"
-            if failed:
-                result += f"\n• فشل في إضافة {failed} عضو"
-            await event.edit(result)
-
         except ChatAdminRequiredError:
             await event.edit("**• لا تملك صلاحيات لسحب الأعضاء من الجروب المصدر**")
-        except Exception as e:
-            await event.edit(f"**• فشل: {str(e)[:50]}**")
+            return
 
-    logger.info(f"Handlers (taqleed/ent7al + smart add) ready for {phone}")
+        async for user in participants_iter:
+            if user.bot or user.deleted:
+                continue
+            # محاولة إضافة العضو
+            try:
+                await client(InviteToChannelRequest(
+                    channel=event.chat_id,
+                    users=[user.id]
+                ))
+                added += 1
+                await asyncio.sleep(2.5)   # تأخير آمن لتجنب الحظر
+            except FloodWaitError as e:
+                await asyncio.sleep(e.seconds)
+                # إعادة المحاولة
+                try:
+                    await client(InviteToChannelRequest(
+                        channel=event.chat_id,
+                        users=[user.id]
+                    ))
+                    added += 1
+                except:
+                    failed += 1
+            except Exception as e:
+                # فشل حقيقي (خصوصية أو طرد ...)
+                failed += 1
+                if "PEER_FLOOD" in str(e):
+                    await asyncio.sleep(15)
+
+            # تحديث كل 20 إضافة
+            if added > 0 and added % 20 == 0:
+                await event.edit(f"**• تمت إضافة {added} عضو حتى الآن...**")
+
+        result = f"**• تمت إضافة {added} عضو بنجاح**"
+        if failed:
+            result += f"\n• فشل في إضافة {failed} عضو"
+        await event.edit(result)
+
+    logger.info(f"Handlers (taqleed/ent7al + real add) ready for {phone}")
