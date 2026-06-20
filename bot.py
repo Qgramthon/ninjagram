@@ -55,7 +55,7 @@ async def bot_start(event):
 
     buttons = [
         [Button.url("الحصول على بياناتي", "https://my.telegram.org/apps")],
-        [Button.url("بدء التنصيب", "https://t.me/Qthon_bot")]
+        [Button.url("بدء التنصيب", "tg://user?id=8887748662")]  # يفتح بروفايل البوت
     ]
 
     caption = (
