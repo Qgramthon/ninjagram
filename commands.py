@@ -2,14 +2,19 @@ import asyncio
 import io
 import os
 import logging
+import subprocess
 from telethon import events
 from telethon.errors import FloodWaitError, ChatAdminRequiredError
 from telethon.tl.functions.account import UpdateProfileRequest
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
-from telethon.tl.types import InputPhoto, DocumentAttributeAudio, DocumentAttributeVideo
+from telethon.tl.types import (
+    InputPhoto, DocumentAttributeAudio, DocumentAttributeVideo,
+    InputGroupCall
+)
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.functions.channels import InviteToChannelRequest
 from telethon.tl.functions.messages import AddChatUserRequest
+from telethon.tl.functions.phone import GetGroupParticipants
 from shared import (
     active_clients, muted_users, taqleed_users, ent7al_users, ent7al_original,
     client_me, track_command, logger, TEMP_DIR
@@ -350,7 +355,120 @@ async def setup_handlers(client, phone):
         except Exception as e:
             await event.edit(f"**• فشل في جلب الأعضاء: {str(e)[:50]}**")
 
-    # --------------------- تحميل الصوت (يوت) ---------------------
+    # --------------------- تحويل الصوت إلى نص (نسخ) ---------------------
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.نسخ$'))
+    async def transcribe_voice(event):
+        if not event.is_reply:
+            await event.edit("**• يرجى الرد على رسالة صوتية**")
+            return
+
+        reply = await event.get_reply_message()
+        if not reply.voice and not reply.audio:
+            await event.edit("**• الرد على رسالة صوتية فقط**")
+            return
+
+        await event.edit("**• جاري تحويل الصوت إلى نص...**")
+
+        try:
+            import speech_recognition as sr
+        except ImportError:
+            await event.edit("**• مكتبة SpeechRecognition غير مثبتة**")
+            return
+
+        voice_path = os.path.join(TEMP_DIR, f"voice_{phone}_{reply.id}.ogg")
+        await client.download_media(reply, voice_path)
+        wav_path = voice_path.replace(".ogg", ".wav")
+
+        try:
+            subprocess.run(
+                ["ffmpeg", "-i", voice_path, "-ac", "1", "-ar", "16000", wav_path],
+                check=True, capture_output=True, timeout=30
+            )
+
+            recognizer = sr.Recognizer()
+            with sr.AudioFile(wav_path) as source:
+                audio_data = recognizer.record(source)
+            text = recognizer.recognize_google(audio_data, language="ar-AR")
+
+            await event.edit(f"**النص:**\n{text}")
+        except subprocess.CalledProcessError as e:
+            await event.edit(f"**• فشل تحويل الصوت: {e.stderr.decode()[:100]}**")
+        except sr.UnknownValueError:
+            await event.edit("**• لم يتم التعرف على أي كلام**")
+        except sr.RequestError as e:
+            await event.edit(f"**• خطأ في خدمة التعرف: {e}**")
+        except Exception as e:
+            await event.edit(f"**• فشل: {str(e)[:100]}**")
+        finally:
+            for p in [voice_path, wav_path]:
+                if os.path.exists(p):
+                    os.remove(p)
+
+    # --------------------- تحويل صورة إلى استيكر (.استيك) ---------------------
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.استيك$'))
+    async def photo_to_sticker(event):
+        if not event.is_reply:
+            await event.edit("**• يرجى الرد على صورة**")
+            return
+        reply = await event.get_reply_message()
+        if not reply.photo:
+            await event.edit("**• الرد على صورة فقط**")
+            return
+        await event.edit("**• جاري تحويل الصورة إلى استيكر...**")
+        try:
+            from PIL import Image
+        except ImportError:
+            await event.edit("**• مكتبة Pillow غير مثبتة**")
+            return
+        img_path = os.path.join(TEMP_DIR, f"img_{phone}_{reply.id}.jpg")
+        stick_path = os.path.join(TEMP_DIR, f"sticker_{phone}_{reply.id}.webp")
+        await client.download_media(reply, img_path)
+        try:
+            im = Image.open(img_path)
+            im = im.convert("RGBA")
+            im.thumbnail((512, 512), Image.LANCZOS)
+            im.save(stick_path, "WEBP")
+            await client.send_file(event.chat_id, stick_path)
+            await event.delete()
+        except Exception as e:
+            await event.edit(f"**• فشل: {str(e)[:100]}**")
+        finally:
+            for p in [img_path, stick_path]:
+                if os.path.exists(p):
+                    os.remove(p)
+
+    # --------------------- تحويل استيكر إلى صورة (.بيك) ---------------------
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بيك$'))
+    async def sticker_to_photo(event):
+        if not event.is_reply:
+            await event.edit("**• يرجى الرد على استيكر**")
+            return
+        reply = await event.get_reply_message()
+        if not reply.sticker:
+            await event.edit("**• الرد على استيكر فقط**")
+            return
+        await event.edit("**• جاري تحويل الاستيكر إلى صورة...**")
+        try:
+            from PIL import Image
+        except ImportError:
+            await event.edit("**• مكتبة Pillow غير مثبتة**")
+            return
+        stick_path = os.path.join(TEMP_DIR, f"sticker_{phone}_{reply.id}.webp")
+        img_path = os.path.join(TEMP_DIR, f"img_{phone}_{reply.id}.png")
+        await client.download_media(reply, stick_path)
+        try:
+            im = Image.open(stick_path)
+            im.save(img_path, "PNG")
+            await client.send_file(event.chat_id, img_path)
+            await event.delete()
+        except Exception as e:
+            await event.edit(f"**• فشل: {str(e)[:100]}**")
+        finally:
+            for p in [stick_path, img_path]:
+                if os.path.exists(p):
+                    os.remove(p)
+
+    # --------------------- تحميل الصوت (يوت) – سريع ---------------------
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.يوت (.+)'))
     async def youtube_audio(event):
         query = event.pattern_match.group(1).strip()
@@ -372,11 +490,21 @@ async def setup_handlers(client, phone):
         ydl_opts = {
             'outtmpl': f'{TEMP_DIR}/%(title)s.%(ext)s',
             'quiet': True,
-            'format': 'bestaudio/best',
+            'format': 'bestaudio[ext=m4a]/bestaudio',
             'extractor_args': {'youtube': {'player_client': ['android']}},
-            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '128',
+            }],
             'postprocessor_hooks': [hook],
+            'retries': 2,
+            'fragment_retries': 2,
+            'concurrent_fragment_downloads': 4,
+            'nooverwrites': True,
+            'no_color': True,
         }
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(search_query, download=True)
@@ -415,7 +543,7 @@ async def setup_handlers(client, phone):
         except Exception as e:
             await event.edit(f"**• فشل التحميل:**\n{str(e)[:200]}")
 
-    # --------------------- تحميل الفيديو (فيد) ---------------------
+    # --------------------- تحميل الفيديو (فيد) – سريع ---------------------
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فيد (.+)'))
     async def video_download(event):
         query = event.pattern_match.group(1).strip()
@@ -437,11 +565,17 @@ async def setup_handlers(client, phone):
         ydl_opts = {
             'outtmpl': f'{TEMP_DIR}/%(title)s.%(ext)s',
             'quiet': True,
-            'format': 'best[height<=720]',
+            'format': 'best[height<=480][ext=mp4]/best[height<=480]',
             'merge_output_format': 'mp4',
             'extractor_args': {'youtube': {'player_client': ['android']}},
             'postprocessor_hooks': [hook],
+            'retries': 2,
+            'fragment_retries': 2,
+            'concurrent_fragment_downloads': 4,
+            'nooverwrites': True,
+            'no_color': True,
         }
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(search_query, download=True)
@@ -547,5 +681,95 @@ async def setup_handlers(client, phone):
 
         except Exception as e:
             await event.edit(f"**• فشل تحميل بنترست:**\n{str(e)[:200]}")
+
+    # --------------------- معرفة الموجودين في المكالمة الجماعية ---------------------
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.مين فالكول$'))
+    async def who_in_call(event):
+        if not event.is_group:
+            await event.edit("**• الأمر يعمل في المجموعات فقط**")
+            return
+        await event.edit("**• جاري جلب المشاركين في المكالمة...**")
+        try:
+            full_chat = await client.get_entity(event.chat_id)
+            if not hasattr(full_chat, 'call') or not full_chat.call:
+                await event.edit("**• لا توجد مكالمة جماعية نشطة حاليًا**")
+                return
+            call = full_chat.call
+            input_call = InputGroupCall(id=call.id, access_hash=call.access_hash)
+            result = await client(GetGroupParticipants(
+                call=input_call,
+                ids=[],
+                sources=[],
+                offset='',
+                limit=100
+            ))
+            users = []
+            for participant in result.participants:
+                user_id = participant.user_id if hasattr(participant, 'user_id') else participant.peer.user_id
+                try:
+                    user = await client.get_entity(user_id)
+                    name = user.first_name or ''
+                    if user.last_name:
+                        name += ' ' + user.last_name
+                    if user.username:
+                        name += f' (@{user.username})'
+                    users.append(name)
+                except:
+                    users.append(str(user_id))
+            if not users:
+                await event.edit("**• لا يوجد مشاركين حاليًا**")
+            else:
+                text = "**👥 الموجودون في المكالمة:**\n"
+                for i, name in enumerate(users, 1):
+                    text += f"{i}. {name}\n"
+                await event.edit(text)
+        except Exception as e:
+            await event.edit(f"**• خطأ: {str(e)[:100]}**")
+
+    # --------------------- مراقبة التعديل والحذف في الخاص ---------------------
+    message_cache = {}
+
+    @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private and not e.out))
+    async def cache_private_message(event):
+        if event.sender_id == (await client.get_me()).id:
+            return
+        chat_id = event.chat_id
+        message_cache.setdefault(chat_id, {})[event.id] = event.text or "<وسائط>"
+
+    @client.on(events.MessageEdited(incoming=True, func=lambda e: e.is_private and not e.out))
+    async def notify_edit(event):
+        if event.sender_id == (await client.get_me()).id:
+            return
+        user = await event.get_sender()
+        name = user.first_name or ""
+        if user.last_name: name += f" {user.last_name}"
+        old_text = message_cache.get(event.chat_id, {}).get(event.id, "نص غير معروف")
+        new_text = event.text or "<وسائط>"
+        msg = (
+            f"**قام المستخدم {name} بتعديل الرسالة**\n"
+            f"**من:** {old_text}\n"
+            f"**إلى:** {new_text}"
+        )
+        await client.send_message("me", msg)
+        message_cache.setdefault(event.chat_id, {})[event.id] = new_text
+
+    @client.on(events.MessageDeleted(incoming=True, func=lambda e: e.is_private and not e.out))
+    async def notify_delete(event):
+        for chat_id, msg_ids in event.deleted_ids.items():
+            for msg_id in msg_ids:
+                old_text = message_cache.get(chat_id, {}).get(msg_id, "نص غير معروف")
+                user_name = "مستخدم"
+                try:
+                    chat = await client.get_entity(chat_id)
+                    user_name = chat.first_name or "مستخدم"
+                except:
+                    pass
+                msg = (
+                    f"**قام المستخدم {user_name} بحذف الرسالة**\n"
+                    f"**{old_text}**"
+                )
+                await client.send_message("me", msg)
+                if chat_id in message_cache and msg_id in message_cache[chat_id]:
+                    del message_cache[chat_id][msg_id]
 
     logger.info(f"All handlers ready for {phone}")
