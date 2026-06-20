@@ -44,6 +44,9 @@ verified_devs = set()
 pending_verify = {}
 dev_access_locked = False
 
+# حلقة الأحداث الرئيسية (تُستعمل من السيرفر والبوت)
+main_loop = asyncio.new_event_loop()
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',
                     handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger(__name__)
