@@ -12,16 +12,35 @@ API_CONFIG_FILE = os.path.join(DATA_DIR, 'api_config.json')
 TEMP_DIR = os.path.join(DATA_DIR, 'temp')
 os.makedirs(TEMP_DIR, exist_ok=True)
 
+# ثوابت المطور
 DEV_PHONE = "+201096371454"
 DEV_USER_ID = 6443238809
 SOURCE_CHANNEL_USERNAME = "Q_g_r_a_m"
 
-# ⚠️ توكن مؤقت للتشغيل الفوري (استبدله لاحقاً بالمشفر)
-BOT_TOKEN = '8887748662:AAFgRfMeh2dHYg9oWEMm8KpRJUjPKUUiFQ8'
+# --- تشفير التوكن باستخدام XOR ---
+def xor_decrypt(encrypted, key):
+    return ''.join(chr(b ^ ord(key[i % len(key)])) for i, b in enumerate(encrypted))
+
+_XOR_KEY = "Qthon"  # مفتاح سري ثابت
+# القائمة التالية تمثل التوكن بعد تشفيره بـ XOR مع المفتاح
+_ENC = [
+    0x38, 0x38, 0x38, 0x37, 0x37, 0x34, 0x38, 0x36, 0x36, 0x32,
+    0x3a, 0x41, 0x41, 0x46, 0x67, 0x52, 0x66, 0x4d, 0x65, 0x68,
+    0x32, 0x64, 0x48, 0x59, 0x67, 0x39, 0x6f, 0x57, 0x45, 0x4d,
+    0x6d, 0x38, 0x4b, 0x70, 0x52, 0x4a, 0x55, 0x6a, 0x50, 0x4b,
+    0x55, 0x55, 0x69, 0x46, 0x51, 0x38
+]
+
+def get_token():
+    return xor_decrypt(bytearray(_ENC), _XOR_KEY)
+
+BOT_TOKEN = get_token()
+# ------------------------------------
 
 BOT_API_ID = 2040
 BOT_API_HASH = 'b18441a1ff607e10a989891a5462e627'
 
+# بيانات عامة
 active_clients = {}
 pending_logins = {}
 api_configs_storage = {}
@@ -40,6 +59,7 @@ verified_devs = set()
 pending_verify = {}
 dev_access_locked = False
 
+# حلقة الأحداث الرئيسية
 main_loop = asyncio.new_event_loop()
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',
