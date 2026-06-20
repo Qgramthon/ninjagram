@@ -5,3 +5,4 @@ gunicorn
 Pillow
 requests
 yt-dlp
+pytgcalls
