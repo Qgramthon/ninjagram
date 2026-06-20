@@ -5,3 +5,5 @@ gunicorn
 Pillow
 requests
 yt-dlp
+SpeechRecognition
+pydub
