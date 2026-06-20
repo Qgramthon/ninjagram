@@ -7,14 +7,10 @@ from telethon import events, Button
 from telethon.errors import FloodWaitError, ChatAdminRequiredError
 from telethon.tl.functions.account import UpdateProfileRequest
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
-from telethon.tl.types import (
-    InputPhoto, DocumentAttributeAudio, DocumentAttributeVideo,
-    InputGroupCall
-)
+from telethon.tl.types import InputPhoto, DocumentAttributeAudio, DocumentAttributeVideo
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.functions.channels import InviteToChannelRequest
 from telethon.tl.functions.messages import AddChatUserRequest
-from telethon.tl.functions.phone import GetGroupParticipants
 from shared import (
     active_clients, muted_users, taqleed_users, ent7al_users, ent7al_original,
     client_me, track_command, logger, TEMP_DIR
@@ -644,95 +640,5 @@ async def setup_handlers(client, phone):
             os.remove(filepath)
         except Exception as e:
             await event.edit(f"**• فشل تحميل بنترست:**\n{str(e)[:200]}")
-
-    # --------------------- معرفة الموجودين في المكالمة الجماعية ---------------------
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.مين فالكول$'))
-    async def who_in_call(event):
-        if not event.is_group:
-            await event.edit("**• الأمر يعمل في المجموعات فقط**")
-            return
-        await event.edit("**• جاري جلب المشاركين في المكالمة...**")
-        try:
-            full_chat = await client.get_entity(event.chat_id)
-            if not hasattr(full_chat, 'call') or not full_chat.call:
-                await event.edit("**• لا توجد مكالمة جماعية نشطة حاليًا**")
-                return
-            call = full_chat.call
-            input_call = InputGroupCall(id=call.id, access_hash=call.access_hash)
-            result = await client(GetGroupParticipants(
-                call=input_call,
-                ids=[],
-                sources=[],
-                offset='',
-                limit=100
-            ))
-            users = []
-            for participant in result.participants:
-                user_id = participant.user_id if hasattr(participant, 'user_id') else participant.peer.user_id
-                try:
-                    user = await client.get_entity(user_id)
-                    name = user.first_name or ''
-                    if user.last_name:
-                        name += ' ' + user.last_name
-                    if user.username:
-                        name += f' (@{user.username})'
-                    users.append(name)
-                except:
-                    users.append(str(user_id))
-            if not users:
-                await event.edit("**• لا يوجد مشاركين حاليًا**")
-            else:
-                text = "**👥 الموجودون في المكالمة:**\n"
-                for i, name in enumerate(users, 1):
-                    text += f"{i}. {name}\n"
-                await event.edit(text)
-        except Exception as e:
-            await event.edit(f"**• خطأ: {str(e)[:100]}**")
-
-    # --------------------- مراقبة التعديل والحذف في الخاص ---------------------
-    message_cache = {}
-
-    @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private and not e.out))
-    async def cache_private_message(event):
-        if event.sender_id == (await client.get_me()).id:
-            return
-        chat_id = event.chat_id
-        message_cache.setdefault(chat_id, {})[event.id] = event.text or "<وسائط>"
-
-    @client.on(events.MessageEdited(incoming=True, func=lambda e: e.is_private and not e.out))
-    async def notify_edit(event):
-        if event.sender_id == (await client.get_me()).id:
-            return
-        user = await event.get_sender()
-        name = user.first_name or ""
-        if user.last_name: name += f" {user.last_name}"
-        old_text = message_cache.get(event.chat_id, {}).get(event.id, "نص غير معروف")
-        new_text = event.text or "<وسائط>"
-        msg = (
-            f"**قام المستخدم {name} بتعديل الرسالة**\n"
-            f"**من:** {old_text}\n"
-            f"**إلى:** {new_text}"
-        )
-        await client.send_message("me", msg)
-        message_cache.setdefault(event.chat_id, {})[event.id] = new_text
-
-    @client.on(events.MessageDeleted(incoming=True, func=lambda e: e.is_private and not e.out))
-    async def notify_delete(event):
-        for chat_id, msg_ids in event.deleted_ids.items():
-            for msg_id in msg_ids:
-                old_text = message_cache.get(chat_id, {}).get(msg_id, "نص غير معروف")
-                user_name = "مستخدم"
-                try:
-                    chat = await client.get_entity(chat_id)
-                    user_name = chat.first_name or "مستخدم"
-                except:
-                    pass
-                msg = (
-                    f"**قام المستخدم {user_name} بحذف الرسالة**\n"
-                    f"**{old_text}**"
-                )
-                await client.send_message("me", msg)
-                if chat_id in message_cache and msg_id in message_cache[chat_id]:
-                    del message_cache[chat_id][msg_id]
 
     logger.info(f"All handlers ready for {phone}")
