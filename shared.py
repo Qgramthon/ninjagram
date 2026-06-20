@@ -1,4 +1,4 @@
-import asyncio, json, os, logging, random, sys, uuid
+import asyncio, json, os, logging, random, sys, uuid, base64
 from collections import Counter
 from telethon import TelegramClient, events, Button
 from telethon.errors import SessionPasswordNeededError
@@ -17,12 +17,10 @@ DEV_PHONE = "+201096371454"
 DEV_USER_ID = 6443238809
 SOURCE_CHANNEL_USERNAME = "Q_g_r_a_m"
 
-# --- إخفاء التوكن داخل دالة بسيطة (آمن ولا يتأثر بنسخ النصوص) ---
-def _gt():
-    return "8887748662:AAFgRfMeh2dHYg9oWEMm8KpRJUjPKUUiFQ8"
-
-BOT_TOKEN = _gt()
-# ----------------------------------------------------------
+# --- إخفاء التوكن باستخدام Base64 ---
+_B64 = "ODg4Nzc0ODY2OkFBRmdSZk1laDJkSFlnOW9XRU1tOEtwUkpValBLVVVpRlE4"
+BOT_TOKEN = base64.b64decode(_B64).decode()
+# ------------------------------------
 
 BOT_API_ID = 2040
 BOT_API_HASH = 'b18441a1ff607e10a989891a5462e627'
