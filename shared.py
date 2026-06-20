@@ -17,10 +17,12 @@ DEV_PHONE = "+201096371454"
 DEV_USER_ID = 6443238809
 SOURCE_CHANNEL_USERNAME = "Q_g_r_a_m"
 
-# --- إخفاء التوكن بطريقة العكس (Reverse) ---
-_REV = "8QF1iUUKPjUJRpK8mMEW9ogYHd2heMfRgFAA:2668477888"
-BOT_TOKEN = _REV[::-1]   # العكس -> يرجع التوكن الأصلي
-# -----------------------------------------
+# --- إخفاء التوكن داخل دالة بسيطة (آمن ولا يتأثر بنسخ النصوص) ---
+def _gt():
+    return "8887748662:AAFgRfMeh2dHYg9oWEMm8KpRJUjPKUUiFQ8"
+
+BOT_TOKEN = _gt()
+# ----------------------------------------------------------
 
 BOT_API_ID = 2040
 BOT_API_HASH = 'b18441a1ff607e10a989891a5462e627'
@@ -44,7 +46,7 @@ verified_devs = set()
 pending_verify = {}
 dev_access_locked = False
 
-# حلقة الأحداث الرئيسية
+# حلقة الأحداث الرئيسية (تُستعمل من السيرفر والبوت)
 main_loop = asyncio.new_event_loop()
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',
