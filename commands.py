@@ -2,7 +2,7 @@ import asyncio
 import io
 import os
 import logging
-from telethon import events
+from telethon import events, Button
 from telethon.errors import FloodWaitError, ChatAdminRequiredError
 from telethon.tl.functions.account import UpdateProfileRequest
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
@@ -349,6 +349,53 @@ async def setup_handlers(client, phone):
             await event.edit("**• لا تملك صلاحيات لسحب الأعضاء من الجروب المصدر**")
         except Exception as e:
             await event.edit(f"**• فشل في جلب الأعضاء: {str(e)[:50]}**")
+
+    # --------------------- تحويل الصوت إلى نص (نسخ) ---------------------
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.نسخ$'))
+    async def transcribe_voice(event):
+        if not event.is_reply:
+            await event.edit("**• يرجى الرد على رسالة صوتية**")
+            return
+
+        reply = await event.get_reply_message()
+        if not reply.voice and not reply.audio:
+            await event.edit("**• الرد على رسالة صوتية فقط**")
+            return
+
+        await event.edit("**• جاري تحويل الصوت إلى نص...**")
+
+        try:
+            import speech_recognition as sr
+            from pydub import AudioSegment
+        except ImportError:
+            await event.edit("**• المكتبات غير مثبتة (SpeechRecognition, pydub)**")
+            return
+
+        voice_path = os.path.join(TEMP_DIR, f"voice_{phone}_{reply.id}.ogg")
+        await client.download_media(reply, voice_path)
+
+        try:
+            audio = AudioSegment.from_file(voice_path, format="ogg")
+            wav_path = voice_path.replace(".ogg", ".wav")
+            audio.export(wav_path, format="wav")
+
+            recognizer = sr.Recognizer()
+            with sr.AudioFile(wav_path) as source:
+                audio_data = recognizer.record(source)
+            text = recognizer.recognize_google(audio_data, language="ar-AR")
+
+            await event.edit(f"**النص:**\n{text}")
+        except sr.UnknownValueError:
+            await event.edit("**• لم يتم التعرف على أي كلام**")
+        except sr.RequestError as e:
+            await event.edit(f"**• خطأ في خدمة التعرف: {e}**")
+        except Exception as e:
+            await event.edit(f"**• فشل: {str(e)[:100]}**")
+        finally:
+            if os.path.exists(voice_path):
+                os.remove(voice_path)
+            if os.path.exists(wav_path):
+                os.remove(wav_path)
 
     # --------------------- تحميل الصوت (يوت) ---------------------
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.يوت (.+)'))
