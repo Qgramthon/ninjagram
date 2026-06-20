@@ -640,5 +640,60 @@ async def setup_handlers(client, phone):
             os.remove(filepath)
         except Exception as e:
             await event.edit(f"**• فشل تحميل بنترست:**\n{str(e)[:200]}")
+            # --------------------- معرفة الموجودين في المكالمة الجماعية ---------------------
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.مين فالكول$'))
+async def who_in_call(event):
+    if not event.is_group:
+        await event.edit("**• الأمر يعمل في المجموعات فقط**")
+        return
+
+    await event.edit("**• جاري جلب المشاركين في المكالمة...**")
+
+    try:
+        # الحصول على معلومات المجموعة الكاملة
+        full_chat = await client.get_entity(event.chat_id)
+        if not hasattr(full_chat, 'call') or not full_chat.call:
+            await event.edit("**• لا توجد مكالمة جماعية نشطة حاليًا**")
+            return
+
+        from telethon.tl.types import InputGroupCall
+        from telethon.tl.functions.phone import GetGroupParticipants
+
+        call = full_chat.call
+        input_call = InputGroupCall(id=call.id, access_hash=call.access_hash)
+
+        # جلب قائمة المشاركين
+        result = await client(GetGroupParticipants(
+            call=input_call,
+            ids=[],
+            sources=[],
+            offset='',
+            limit=100
+        ))
+
+        users = []
+        for participant in result.participants:
+            user_id = participant.user_id if hasattr(participant, 'user_id') else participant.peer.user_id
+            try:
+                user = await client.get_entity(user_id)
+                name = user.first_name or ''
+                if user.last_name:
+                    name += ' ' + user.last_name
+                if user.username:
+                    name += f' (@{user.username})'
+                users.append(name)
+            except:
+                users.append(str(user_id))
+
+        if not users:
+            await event.edit("**• لا يوجد مشاركين حاليًا**")
+        else:
+            text = "**👥 الموجودون في المكالمة:**\n"
+            for i, name in enumerate(users, 1):
+                text += f"{i}. {name}\n"
+            await event.edit(text)
+
+    except Exception as e:
+        await event.edit(f"**• خطأ: {str(e)[:100]}**")
 
     logger.info(f"All handlers ready for {phone}")
