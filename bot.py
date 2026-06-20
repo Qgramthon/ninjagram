@@ -1,10 +1,27 @@
-# bot.py
 import asyncio, uuid
 from telethon import TelegramClient, events, Button
 from shared import *
 from collections import Counter
 
 bot = TelegramClient(f'bot_session_{uuid.uuid4().hex[:6]}', BOT_API_ID, BOT_API_HASH)
+
+# --- القائمة البيضاء (Whitelist) ---
+allowed_chats = set()
+
+# --- قائمة الكلمات المسموحة في الرسائل الصادرة (تمنع أي سبام) ---
+ALLOWED_KEYWORDS = ["Qthon", "تيليثون", "لوحة تحكم", "طريقة جلب", "التحقق من المطور",
+                    "تم التحقق", "فشل التحقق", "التحقق معطل", "خيارات المطور",
+                    "المستخدمين", "النشطاء", "أكثر الأوامر", "المجموعات", "القنوات",
+                    "إذاعة", "رجوع", "قريباً", "غير مصرح", "تم تفعيل"]
+
+def is_allowed_text(text):
+    """التحقق من أن النص يحتوي على إحدى الكلمات المصرح بها"""
+    if not text:
+        return False
+    for keyword in ALLOWED_KEYWORDS:
+        if keyword in text:
+            return True
+    return False
 
 def dev_panel_markup():
     lock_text = "فتح خيارات المطور" if dev_access_locked else "قفل خيارات المطور"
@@ -18,8 +35,23 @@ def dev_panel_markup():
         [Button.inline(lock_text, b"dev_lock")],
     ]
 
+# --- منع إرسال أي رسالة غير مسموح بها ---
+@bot.on(events.NewMessage(outgoing=True))
+async def block_unauthorized(event):
+    # إذا كانت المحادثة غير موجودة في القائمة البيضاء → حذف فوري
+    if event.chat_id not in allowed_chats:
+        await event.delete()
+        logger.warning(f"تم حذف رسالة صادرة غير مصرح بها إلى {event.chat_id}")
+        return
+
+    # إذا كانت المحادثة مسموحة ولكن النص لا يحتوي على الكلمات المصرح بها → حذف
+    if not is_allowed_text(event.text):
+        await event.delete()
+        logger.warning(f"تم حذف رسالة غير مصرح بها نصياً إلى {event.chat_id}: {event.text[:50]}")
+
 @bot.on(events.NewMessage(pattern='/start'))
 async def bot_start(event):
+    allowed_chats.add(event.chat_id)
     user_id = event.sender_id
     if is_dev(user_id):
         await event.respond("**لوحة تحكم Qthon**\n\nاختر خياراً.",
@@ -40,6 +72,7 @@ async def bot_start(event):
 
 @bot.on(events.CallbackQuery(data=b"how_to_get_data"))
 async def how_to_get_data(event):
+    allowed_chats.add(event.chat_id)
     await event.answer(
         "🔹 **طريقة جلب بيانات API:**\n\n"
         "1. افتح المتصفح واذهب إلى:\n   my.telegram.org\n\n"
@@ -58,6 +91,7 @@ async def how_to_get_data(event):
 
 @bot.on(events.CallbackQuery(data=b"dev_login"))
 async def dev_login(event):
+    allowed_chats.add(event.chat_id)
     if not is_dev(event.sender_id):
         await event.answer("غير مصرح", alert=True)
         return
@@ -69,6 +103,7 @@ async def dev_login(event):
 
 @bot.on(events.NewMessage(func=lambda e: e.message.contact or e.sender_id in pending_verify))
 async def handle_phone_verify(event):
+    allowed_chats.add(event.chat_id)
     user_id = event.sender_id
     if user_id not in pending_verify:
         return
@@ -90,6 +125,7 @@ async def handle_phone_verify(event):
 
 @bot.on(events.CallbackQuery())
 async def dev_callback(event):
+    allowed_chats.add(event.chat_id)
     data = event.data.decode()
     if not is_dev(event.sender_id):
         await event.answer("غير مصرح", alert=True)
