@@ -4,7 +4,7 @@ from flask import Flask, jsonify, request
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
-from shared import *
+from shared import *            # يستورد كل المتغيرات والدوال، بما فيها main_loop
 
 app = Flask(__name__)
 
@@ -401,7 +401,7 @@ def api_verify():
     return run_in_main(_verify())
 
 def run_in_main(coro):
-    # تنفيذ الكوروتين في حلقة الأحداث الرئيسية (يجب تعريف main_loop في main)
-    from main import main_loop
+    # main_loop أصبح موجودًا في shared.py
+    from shared import main_loop
     future = asyncio.run_coroutine_threadsafe(coro, main_loop)
     return future.result(timeout=60)
