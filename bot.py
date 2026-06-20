@@ -68,19 +68,29 @@ async def bot_start(event):
 
     # إرسال الصورة إذا كانت موجودة في المشروع
     if os.path.exists(START_IMAGE):
-        await event.respond(
+        await bot.send_file(
+            event.chat_id,
             file=START_IMAGE,
             caption=caption,
             buttons=buttons,
             parse_mode='md'
         )
     else:
-        await event.respond(caption, buttons=buttons, parse_mode='md')
+        await bot.send_message(
+            event.chat_id,
+            caption,
+            buttons=buttons,
+            parse_mode='md'
+        )
 
     # لوحة المطور تظهر فقط للمطور بعد /start
     if is_dev(user_id):
-        await event.respond("**لوحة تحكم Qthon**\n\nاختر خياراً.",
-                            buttons=dev_panel_markup(), parse_mode='md')
+        await bot.send_message(
+            event.chat_id,
+            "**لوحة تحكم Qthon**\n\nاختر خياراً.",
+            buttons=dev_panel_markup(),
+            parse_mode='md'
+        )
 
 @bot.on(events.CallbackQuery(data=b"how_to_get_data"))
 async def how_to_get_data(event):
