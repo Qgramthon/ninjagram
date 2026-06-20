@@ -6,11 +6,8 @@ from shared import *
 from server import app
 from bot import bot
 
-# لا تنشئ main_loop هنا، لأنه موجود في shared.py
-# main_loop = asyncio.new_event_loop()   <-- تم حذفه
-
 def start_main_loop():
-    asyncio.set_event_loop(main_loop)          # main_loop من shared.py
+    asyncio.set_event_loop(main_loop)
     main_loop.run_until_complete(load_all_sessions())
     asyncio.ensure_future(auto_save_sessions_loop())
     main_loop.run_forever()
@@ -21,10 +18,15 @@ async def auto_save_sessions_loop():
         await save_all_sessions()
 
 async def start_bot():
-    await bot.start(bot_token=BOT_TOKEN)
-    logger.info("بوت المطور يعمل")
-    await notify_dev("Qthon Bot started successfully!")
-    await bot.run_until_disconnected()
+    try:
+        logger.info("بدء تشغيل البوت...")
+        await bot.start(bot_token=BOT_TOKEN)
+        me = await bot.get_me()
+        logger.info(f"بوت المطور يعمل: @{me.username}")
+        await notify_dev("Qthon Bot started successfully!")
+        await bot.run_until_disconnected()
+    except Exception as e:
+        logger.error(f"فشل تشغيل البوت: {e}")
 
 if __name__ == '__main__':
     loop_thread = threading.Thread(target=start_main_loop, daemon=True)
