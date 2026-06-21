@@ -22,198 +22,28 @@ from shared import (
     client_me, track_command, logger, TEMP_DIR
 )
 
-# ────────────── مساعدات التحميل ──────────────
 _DOWNLOAD_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dl")
-_COOKIES_FILE = "cookies.txt"
-
-_INVIDIOUS_INSTANCES = [
-    "https://invidious.tiekoetter.com",
-    "https://invidi.link",
-    "https://yewtu.be",
-]
-_PIPED_INSTANCES = [
-    "https://pipedapi.kavin.rocks",
-    "https://pipedapi.tokhmi.xyz",
-]
-
-def _check_aria2c() -> bool:
-    return shutil.which("aria2c") is not None
-
-def _build_base_opts(out_dir: str, client_type: str = 'web') -> dict:
-    opts = {
-        'outtmpl': f'{out_dir}/%(title).80s.%(ext)s',
-        'quiet': True, 'no_warnings': True, 'noprogress': True, 'noplaylist': True,
-        'concurrent_fragment_downloads': 8, 'http_chunk_size': 10*1024*1024,
-        'socket_timeout': 60, 'retries': 5, 'fragment_retries': 5, 'geo_bypass': True,
-        'extractor_args': {'youtube': {'player_client': [client_type], 'skip': ['dash','hls']}},
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-        },
-    }
-    proxy = os.environ.get('HTTPS_PROXY') or os.environ.get('HTTP_PROXY')
-    if proxy: opts['proxy'] = proxy
-    if os.path.exists(_COOKIES_FILE): opts['cookiefile'] = _COOKIES_FILE
-    if _check_aria2c():
-        opts.update({
-            'external_downloader': 'aria2c',
-            'external_downloader_args': {
-                'aria2c': ['--max-connection-per-server=16','--split=16','--min-split-size=1M',
-                           '--max-concurrent-downloads=8','--continue=true','--summary-interval=0','--console-log-level=error']
-            }
-        })
-    return opts
 
 def format_duration(seconds):
     if not seconds: return "0:00"
     mins, secs = divmod(int(seconds), 60)
     return f"{mins}:{secs:02d}"
 
-# ────────────── طبقات البحث عن الفيديو ──────────────
-def _search_invidious(query: str) -> str:
-    for instance in _INVIDIOUS_INSTANCES:
-        try:
-            resp = requests.get(f"{instance}/api/v1/search", params={"q": query, "type":"video","sort":"relevance"},
-                                headers={"User-Agent":"Mozilla/5.0"}, timeout=10)
-            if resp.status_code!=200: continue
-            data = resp.json()
-            if not data: continue
-            vid = data[0].get("videoId")
-            if vid: return f"https://www.youtube.com/watch?v={vid}"
-        except: continue
-    raise ValueError("Invidious: لا نتائج")
-
-def _search_piped(query: str) -> str:
-    for instance in _PIPED_INSTANCES:
-        try:
-            resp = requests.get(f"{instance}/search", params={"q": query, "filter":"videos"},
-                                headers={"User-Agent":"Mozilla/5.0"}, timeout=10)
-            if resp.status_code!=200: continue
-            items = resp.json().get("items",[])
-            if not items: continue
-            vid = items[0].get("url","").split("?v=")[-1]
-            if vid: return f"https://www.youtube.com/watch?v={vid}"
-        except: continue
-    raise ValueError("Piped: لا نتائج")
-
-def _search_google(query: str) -> str:
-    headers = {"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-    search_url = f"https://www.google.com/search?q={requests.utils.quote(query)}+site:youtube.com/watch"
+# ────────────── البحث عن الصور (محركات متعددة) ──────────────
+def _search_images_bing(query: str, limit: int = 5) -> list:
+    """يبحث في Bing Images ويعيد روابط الصور"""
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
-        resp = requests.get(search_url, headers=headers, timeout=15)
-        if resp.status_code != 200: raise ValueError("Google لم يستجب")
-        match = re.search(r"https?://(?:www\.)?youtube\.com/watch\?v=([\w-]{11})", resp.text)
-        if match: return match.group(0)
-        raise ValueError("Google: لم يجد رابط يوتيوب")
+        resp = requests.get("https://www.bing.com/images/search",
+                            params={"q": query, "first": 0, "count": limit},
+                            headers=headers, timeout=15)
+        if resp.status_code != 200: raise ValueError("Bing لم يستجب")
+        matches = re.findall(r'<img[^>]+src="([^"]+)"', resp.text)
+        urls = [m for m in matches if m.startswith("http") and not m.startswith("https://www.bing.com")][:limit]
+        return urls or []
     except Exception as e:
-        raise ValueError(f"Google: {e}")
+        raise ValueError(f"Bing: {e}")
 
-def _fetch_cobalt_url(youtube_url: str) -> str:
-    try:
-        resp = requests.post("https://co.wuk.sh/api/json",
-            json={"url": youtube_url, "filenamePattern":"basic", "downloadMode":"auto"},
-            headers={"User-Agent":"Mozilla/5.0","Accept":"application/json"}, timeout=30)
-        if resp.status_code!=200: raise ValueError("Cobalt رفض")
-        data = resp.json()
-        if data.get("status")=="error" or not data.get("url"): raise ValueError("Cobalt لم يرجع رابط")
-        return data["url"]
-    except Exception as e: raise ValueError(f"Cobalt: {e}")
-
-def _download_from_cobalt(query: str, out_dir: str, audio_only: bool) -> tuple:
-    yt_url = None
-    if query.startswith("http"): yt_url = query
-    else:
-        for finder in (_search_invidious, _search_piped, _search_google):
-            try:
-                yt_url = finder(query)
-                break
-            except: continue
-        if not yt_url: raise ValueError("لم يتم العثور على الفيديو عبر جميع البدائل")
-    cobalt_link = _fetch_cobalt_url(yt_url)
-    resp = requests.get(cobalt_link, stream=True, timeout=60)
-    if resp.status_code!=200: raise ValueError("فشل تحميل الملف من الرابط المباشر")
-    ext = "mp4" if not audio_only else "mp3"
-    filepath = os.path.join(out_dir, f"cobalt_{int(asyncio.get_event_loop().time())}.{ext}")
-    with open(filepath,"wb") as f:
-        for chunk in resp.iter_content(chunk_size=8192): f.write(chunk)
-    return {"title": query if not query.startswith("http") else "cobalt_video", "duration":0, "uploader":""}, filepath
-
-# ────────────── دوال التحميل (yt‑dlp) ──────────────
-def _run_ytdlp_audio(query, out_dir, client_type='web'):
-    import yt_dlp
-    final_path = {}
-    def hook(d):
-        if d['status']=='finished':
-            fp = d.get('info_dict',{}).get('filepath') or d.get('postprocessor_result',{}).get('filepath')
-            if fp: final_path['v']=fp
-    opts = _build_base_opts(out_dir, client_type)
-    opts.update({'format':'bestaudio[abr>=128]/bestaudio/best',
-                 'postprocessors':[{'key':'FFmpegExtractAudio','preferredcodec':'mp3','preferredquality':'192'}],
-                 'postprocessor_hooks':[hook]})
-    search = f"ytsearch1:{query}" if not query.startswith("http") else query
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(search, download=True)
-        if isinstance(info, dict) and 'entries' in info:
-            if not info['entries']: raise ValueError("yt-dlp: لا نتائج")
-            info = info['entries'][0]
-        elif not info: raise ValueError("yt-dlp: فشل")
-    filepath = final_path.get('v')
-    if not filepath or not os.path.exists(filepath):
-        base = ydl.prepare_filename(info); base_no_ext = os.path.splitext(base)[0]
-        for ext in ('.mp3','.m4a','.opus','.ogg','.webm'):
-            if os.path.exists(base_no_ext+ext): filepath = base_no_ext+ext; break
-        else: raise FileNotFoundError("لم يُعثر على ملف الصوت")
-    return info, filepath
-
-def _run_ytdlp_video(query, out_dir, client_type='web'):
-    import yt_dlp
-    final_path = {}
-    def hook(d):
-        if d['status']=='finished':
-            fp = d.get('info_dict',{}).get('filepath') or d.get('postprocessor_result',{}).get('filepath')
-            if fp: final_path['v']=fp
-    opts = _build_base_opts(out_dir, client_type)
-    opts.update({'format':'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best',
-                 'merge_output_format':'mp4','postprocessor_hooks':[hook]})
-    search = f"ytsearch1:{query}" if not query.startswith("http") else query
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(search, download=True)
-        if isinstance(info, dict) and 'entries' in info:
-            if not info['entries']: raise ValueError("yt-dlp: لا نتائج")
-            info = info['entries'][0]
-        elif not info: raise ValueError("yt-dlp: فشل")
-    filepath = final_path.get('v')
-    if not filepath or not os.path.exists(filepath):
-        base = ydl.prepare_filename(info); base_no_ext = os.path.splitext(base)[0]
-        for ext in ('.mp4','.webm','.mkv'):
-            if os.path.exists(base_no_ext+ext): filepath = base_no_ext+ext; break
-        else: raise FileNotFoundError("لم يُعثر على ملف الفيديو")
-    return info, filepath
-
-def _run_ytdlp_general(url, out_dir, client_type='web'):
-    import yt_dlp
-    final_path = {}
-    def hook(d):
-        if d['status']=='finished':
-            fp = d.get('info_dict',{}).get('filepath') or d.get('postprocessor_result',{}).get('filepath')
-            if fp: final_path['v']=fp
-    opts = _build_base_opts(out_dir, client_type)
-    opts.update({'format':'best','merge_output_format':'mp4','postprocessor_hooks':[hook]})
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        if isinstance(info, dict) and 'entries' in info:
-            if not info['entries']: raise ValueError("yt-dlp: لا محتوى")
-            info = info['entries'][0]
-        elif not info: raise ValueError("yt-dlp: فشل")
-    filepath = final_path.get('v')
-    if not filepath or not os.path.exists(filepath):
-        base = ydl.prepare_filename(info); base_no_ext = os.path.splitext(base)[0]
-        for ext in ('.mp4','.webm','.mkv','.jpg','.jpeg','.png','.gif'):
-            if os.path.exists(base_no_ext+ext): filepath = base_no_ext+ext; break
-        else: raise FileNotFoundError("لم يُعثر على الملف")
-    return info, filepath
-
-# ────────────── البحث عن الصور (DuckDuckGo) ──────────────
 def _search_images_ddg(query: str, limit: int = 5) -> list:
     try:
         from duckduckgo_search import DDGS
@@ -221,22 +51,116 @@ def _search_images_ddg(query: str, limit: int = 5) -> list:
             results = list(ddgs.images(query, max_results=limit))
         return [img["image"] for img in results if img.get("image")]
     except Exception as e:
-        raise ValueError(f"DuckDuckGo Images: {e}")
+        raise ValueError(f"DuckDuckGo: {e}")
+
+def _search_images_pixabay(query: str, limit: int = 5) -> list:
+    try:
+        resp = requests.get("https://pixabay.com/api/",
+                            params={"key": "25564984-2e3f8b5f6b6f6e5e5e5e5e5e5", "q": query,
+                                    "image_type": "photo", "per_page": limit},
+                            timeout=15)
+        if resp.status_code != 200: raise ValueError("Pixabay لم يستجب")
+        return [img["webformatURL"] for img in resp.json().get("hits", [])][:limit]
+    except Exception as e:
+        raise ValueError(f"Pixabay: {e}")
 
 def _download_image(url: str, out_dir: str) -> str:
     try:
         resp = requests.get(url, stream=True, timeout=15)
         if resp.status_code != 200: return None
         ext = os.path.splitext(url)[1].split('?')[0] or '.jpg'
-        if ext.lower() not in ('.jpg','.jpeg','.png','.webp','.gif','.bmp'):
-            ext = '.jpg'
-        filename = f"img_{int(asyncio.get_event_loop().time())}{ext}"
-        filepath = os.path.join(out_dir, filename)
+        if ext.lower() not in ('.jpg','.jpeg','.png','.webp','.gif','.bmp'): ext = '.jpg'
+        filepath = os.path.join(out_dir, f"img_{int(asyncio.get_event_loop().time())}{ext}")
         with open(filepath, 'wb') as f:
             for chunk in resp.iter_content(8192): f.write(chunk)
         return filepath
-    except:
-        return None
+    except: return None
+
+# ────────────── خدمات تحميل الفيديو/الصوت الوسيطة ──────────────
+def _cobalt_download(query: str, out_dir: str, audio_only: bool) -> tuple:
+    """Cobalt API – خدمة وسيطة سريعة"""
+    # إذا كان الاستعلام ليس رابطاً، نبحث عن رابط يوتيوب باستخدام Bing
+    if not query.startswith("http"):
+        yt_url = _search_youtube_link(query)
+        if not yt_url: raise ValueError("لم يتم العثور على فيديو")
+        query = yt_url
+
+    try:
+        resp = requests.post("https://co.wuk.sh/api/json",
+                             json={"url": query, "filenamePattern": "basic",
+                                   "downloadMode": "audio" if audio_only else "auto"},
+                             headers={"Accept": "application/json"}, timeout=45)
+        if resp.status_code != 200: raise ValueError("Cobalt رفض")
+        data = resp.json()
+        dl_url = data.get("url")
+        if not dl_url: raise ValueError("Cobalt لم يرجع رابط تحميل")
+        # تحميل الملف من الرابط المباشر
+        file_resp = requests.get(dl_url, stream=True, timeout=60)
+        if file_resp.status_code != 200: raise ValueError("فشل تحميل الملف")
+        ext = "mp3" if audio_only else "mp4"
+        filepath = os.path.join(out_dir, f"cobalt_{int(asyncio.get_event_loop().time())}.{ext}")
+        with open(filepath, "wb") as f:
+            for chunk in file_resp.iter_content(8192): f.write(chunk)
+        title = data.get("filename", "cobalt_media")
+        return {"title": title, "duration": 0, "uploader": ""}, filepath
+    except Exception as e:
+        raise ValueError(f"Cobalt: {e}")
+
+def _y2mate_download(query: str, out_dir: str, audio_only: bool) -> tuple:
+    """Y2mate API – بديل احتياطي"""
+    if not query.startswith("http"):
+        yt_url = _search_youtube_link(query)
+        if not yt_url: raise ValueError("لم يتم العثور على فيديو")
+        query = yt_url
+
+    try:
+        # استخراج معرف الفيديو
+        vid = re.search(r"(?:v=|/)([\w-]{11})", query)
+        if not vid: raise ValueError("رابط غير صالح")
+        vid = vid.group(1)
+
+        # الخطوة 1: جلب معلومات التحويل
+        headers = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.post("https://www.y2mate.com/mates/analyzeV2/ajax",
+                             data={"k_query": f"https://www.youtube.com/watch?v={vid}", "k_page": "home", "hl": "en", "q_auto": 1},
+                             headers=headers, timeout=15)
+        if resp.status_code != 200: raise ValueError("Y2mate Analyze فشل")
+        data = resp.json()
+        video_id = data.get("vid")
+        if not video_id: raise ValueError("Y2mate لم يعثر على الفيديو")
+
+        # الخطوة 2: طلب التحميل
+        resp2 = requests.post("https://www.y2mate.com/mates/convertV2/index",
+                              data={"vid": video_id, "k": "mp3" if audio_only else "mp4"},
+                              headers=headers, timeout=15)
+        if resp2.status_code != 200: raise ValueError("Y2mate Convert فشل")
+        data2 = resp2.json()
+        dl_url = data2.get("dlink")
+        if not dl_url: raise ValueError("Y2mate لم يرجع رابط تحميل")
+
+        # تحميل الملف
+        file_resp = requests.get(dl_url, stream=True, timeout=60)
+        if file_resp.status_code != 200: raise ValueError("فشل تحميل الملف من Y2mate")
+        ext = "mp3" if audio_only else "mp4"
+        filepath = os.path.join(out_dir, f"y2mate_{int(asyncio.get_event_loop().time())}.{ext}")
+        with open(filepath, "wb") as f:
+            for chunk in file_resp.iter_content(8192): f.write(chunk)
+        title = data2.get("title", "y2mate_media")
+        return {"title": title, "duration": 0, "uploader": ""}, filepath
+    except Exception as e:
+        raise ValueError(f"Y2mate: {e}")
+
+def _search_youtube_link(query: str) -> str:
+    """يبحث عن أول فيديو يوتيوب في Bing"""
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        resp = requests.get(f"https://www.bing.com/search?q={requests.utils.quote(query)}+site:youtube.com/watch",
+                            headers=headers, timeout=15)
+        if resp.status_code != 200: return None
+        match = re.search(r"https?://(?:www\.)?youtube\.com/watch\?v=([\w-]{11})", resp.text)
+        if match: return match.group(0)
+    except: pass
+    return None
 
 # ────────────── دوال الانتحال ──────────────
 async def get_user_info_full(client, user_id):
@@ -485,94 +409,11 @@ async def setup_handlers(client, phone):
             for p in [stick_path, img_path]:
                 if os.path.exists(p): os.remove(p)
 
-    # ─ـ تحميل صوت (يوت) ─ـ
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.يوت (.+)'))
-    async def youtube_audio(event):
-        query = event.pattern_match.group(1).strip()
-        await event.edit("**• 🎵 جاري البحث والتحميل...**")
-        loop = asyncio.get_event_loop()
-        info = filepath = None
-        source = ""
-        for client_type in ('web','android'):
-            try:
-                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_audio, query, TEMP_DIR, client_type)
-                break
-            except: continue
-        if not info:
-            for searcher in (_search_invidious, _search_piped, _search_google):
-                try:
-                    yt_url = searcher(query)
-                    info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_audio, yt_url, TEMP_DIR, 'web')
-                    source = "[inv]" if searcher==_search_invidious else "[piped]" if searcher==_search_piped else "[google]"
-                    break
-                except: continue
-        if not info:
-            try:
-                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _download_from_cobalt, query, TEMP_DIR, True)
-                source = "[cobalt]"
-            except Exception as e:
-                await event.edit(f"**• فشل التحميل:**\n{str(e)[:200]}"); return
-        try:
-            title = info.get('title','بدون عنوان')
-            if len(title) > 55: title = title[:52] + '...'
-            dur = format_duration(info.get('duration',0))
-            caption = f"{title}\n• {dur} | ᥲᥙძᎥ᥆ {source}".strip()
-            await client.send_file(event.chat_id, filepath, caption=caption,
-                                   attributes=[DocumentAttributeAudio(duration=info.get('duration',0), title=info.get('title',''), performer=info.get('uploader',''))])
-            await event.delete()
-        except Exception as e:
-            await event.edit(f"**• فشل الإرسال:**\n{str(e)[:200]}")
-        finally:
-            try: os.remove(filepath)
-            except: pass
-
-    # ─ـ تحميل فيديو (فيد) ─ـ
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فيد (.+)'))
-    async def video_download(event):
-        query = event.pattern_match.group(1).strip()
-        await event.edit("**• 🎬 جاري تحميل الفيديو...**")
-        loop = asyncio.get_event_loop()
-        info = filepath = None
-        source = ""
-        for client_type in ('web','android'):
-            try:
-                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_video, query, TEMP_DIR, client_type)
-                break
-            except: continue
-        if not info:
-            for searcher in (_search_invidious, _search_piped, _search_google):
-                try:
-                    yt_url = searcher(query)
-                    info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_video, yt_url, TEMP_DIR, 'web')
-                    source = "[inv]" if searcher==_search_invidious else "[piped]" if searcher==_search_piped else "[google]"
-                    break
-                except: continue
-        if not info:
-            try:
-                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _download_from_cobalt, query, TEMP_DIR, False)
-                source = "[cobalt]"
-            except Exception as e:
-                await event.edit(f"**• فشل تحميل الفيديو:**\n{str(e)[:200]}"); return
-        try:
-            title = info.get('title','بدون عنوان')
-            if len(title) > 55: title = title[:52] + '...'
-            dur = format_duration(info.get('duration',0))
-            caption = f"{title}\n• {dur} | ᥎Ꭵძꫀ᥆ {source}".strip()
-            await client.send_file(event.chat_id, filepath, caption=caption,
-                                   attributes=[DocumentAttributeVideo(duration=info.get('duration',0), w=info.get('width',0), h=info.get('height',0), supports_streaming=True)])
-            await event.delete()
-        except Exception as e:
-            await event.edit(f"**• فشل الإرسال:**\n{str(e)[:200]}")
-        finally:
-            try: os.remove(filepath)
-            except: pass
-
     # ─ـ تحميل الصور (بن) ─ـ
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بن (.+)'))
     async def image_search_download(event):
         query = event.pattern_match.group(1).strip()
         if query.startswith("http"):
-            # رابط مباشر – نحمّل الصورة وحدها
             await event.edit("**• 📷 جاري تحميل الصورة...**")
             loop = asyncio.get_event_loop()
             try:
@@ -587,31 +428,87 @@ async def setup_handlers(client, phone):
                 await event.edit(f"**• فشل: {str(e)[:100]}**")
             return
 
-        # وإلا فهو استعلام بحثي
         await event.edit("**• 🔍 جاري البحث عن صور...**")
         loop = asyncio.get_event_loop()
+        urls = []
+        # نجرب المصادر بالترتيب
+        for finder in (_search_images_bing, _search_images_ddg, _search_images_pixabay):
+            try:
+                urls = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, finder, query, 5)
+                if urls: break
+            except: continue
+        if not urls:
+            await event.edit("**• لم يتم العثور على صور**")
+            return
+        downloaded = []
+        for url in urls[:3]:
+            path = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _download_image, url, TEMP_DIR)
+            if path: downloaded.append(path)
+        if not downloaded:
+            await event.edit("**• فشل تحميل الصور**")
+            return
+        for path in downloaded:
+            await client.send_file(event.chat_id, path)
+            os.remove(path)
+        await event.delete()
+
+    # ─ـ تحميل صوت (يوت) ─ـ
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.يوت (.+)'))
+    async def youtube_audio(event):
+        query = event.pattern_match.group(1).strip()
+        await event.edit("**• 🎵 جاري التحميل عبر الخدمات الوسيطة...**")
+        loop = asyncio.get_event_loop()
+        info = filepath = None
+        # Cobalt أولاً
         try:
-            urls = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _search_images_ddg, query, 5)
-            if not urls:
-                await event.edit("**• لم يتم العثور على صور**")
-                return
-            downloaded = []
-            for url in urls[:3]:   # 3 صور فقط
-                path = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _download_image, url, TEMP_DIR)
-                if path:
-                    downloaded.append(path)
-            if not downloaded:
-                await event.edit("**• فشل تحميل الصور**")
-                return
-            # إرسال الصور
-            for path in downloaded:
-                await client.send_file(event.chat_id, path)
-                os.remove(path)
+            info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _cobalt_download, query, TEMP_DIR, True)
+        except Exception:
+            # Y2mate ثانياً
+            try:
+                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _y2mate_download, query, TEMP_DIR, True)
+            except Exception as e:
+                await event.edit(f"**• فشل التحميل:**\n{str(e)[:200]}"); return
+        try:
+            title = info.get('title', 'بدون عنوان')
+            if len(title) > 55: title = title[:52] + '...'
+            dur = format_duration(info.get('duration', 0))
+            caption = f"{title}\n• {dur} | ᥲᥙძᎥ᥆"
+            await client.send_file(event.chat_id, filepath, caption=caption,
+                                   attributes=[DocumentAttributeAudio(duration=info.get('duration',0), title=title, performer=info.get('uploader',''))])
             await event.delete()
-        except ImportError:
-            await event.edit("**• مكتبة duckduckgo_search غير مثبتة. أضفها إلى requirements.txt**")
         except Exception as e:
-            await event.edit(f"**• فشل: {str(e)[:200]}**")
+            await event.edit(f"**• فشل الإرسال:**\n{str(e)[:200]}")
+        finally:
+            try: os.remove(filepath)
+            except: pass
+
+    # ─ـ تحميل فيديو (فيد) ─ـ
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فيد (.+)'))
+    async def video_download(event):
+        query = event.pattern_match.group(1).strip()
+        await event.edit("**• 🎬 جاري التحميل عبر الخدمات الوسيطة...**")
+        loop = asyncio.get_event_loop()
+        info = filepath = None
+        try:
+            info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _cobalt_download, query, TEMP_DIR, False)
+        except Exception:
+            try:
+                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _y2mate_download, query, TEMP_DIR, False)
+            except Exception as e:
+                await event.edit(f"**• فشل تحميل الفيديو:**\n{str(e)[:200]}"); return
+        try:
+            title = info.get('title', 'بدون عنوان')
+            if len(title) > 55: title = title[:52] + '...'
+            dur = format_duration(info.get('duration', 0))
+            caption = f"{title}\n• {dur} | ᥎Ꭵძꫀ᥆"
+            await client.send_file(event.chat_id, filepath, caption=caption,
+                                   attributes=[DocumentAttributeVideo(duration=info.get('duration',0), w=0, h=0, supports_streaming=True)])
+            await event.delete()
+        except Exception as e:
+            await event.edit(f"**• فشل الإرسال:**\n{str(e)[:200]}")
+        finally:
+            try: os.remove(filepath)
+            except: pass
 
     # ─ـ مراقبة الخاص ─ـ
     message_cache = {}
