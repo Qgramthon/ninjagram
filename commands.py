@@ -52,6 +52,9 @@ message_cache = {}
 active_animations = {}
 MIN_FREE_SPACE_MB = 50
 
+# متغيرات تنسيق النص العام
+text_format_mode = {}  # يخزن وضع التنسيق لكل رقم
+
 # ============== دوال المساحة ==============
 def get_free_space_mb():
     try:
@@ -114,80 +117,73 @@ def clean_filename(name):
 # ============== دوال النصوص المزخرفة ==============
 def make_bold(text):
     """تحويل النص إلى عريض"""
-    bold_chars = {
+    bold_map = {
         'a': '𝗮', 'b': '𝗯', 'c': '𝗰', 'd': '𝗱', 'e': '𝗲', 'f': '𝗳', 'g': '𝗴', 'h': '𝗵',
         'i': '𝗶', 'j': '𝗷', 'k': '𝗸', 'l': '𝗹', 'm': '𝗺', 'n': '𝗻', 'o': '𝗼', 'p': '𝗽',
         'q': '𝗾', 'r': '𝗿', 's': '𝘀', 't': '𝘁', 'u': '𝘂', 'v': '𝘃', 'w': '𝘄', 'x': '𝘅',
-        'y': '𝘆', 'z': '𝘇', 'A': '𝗔', 'B': '𝗕', 'C': '𝗖', 'D': '𝗗', 'E': '𝗘', 'F': '𝗙',
-        'G': '𝗚', 'H': '𝗛', 'I': '𝗜', 'J': '𝗝', 'K': '𝗞', 'L': '𝗟', 'M': '𝗠', 'N': '𝗡',
-        'O': '𝗢', 'P': '𝗣', 'Q': '𝗤', 'R': '𝗥', 'S': '𝗦', 'T': '𝗧', 'U': '𝗨', 'V': '𝗩',
-        'W': '𝗪', 'X': '𝗫', 'Y': '𝗬', 'Z': '𝗭', '0': '𝟬', '1': '𝟭', '2': '𝟮', '3': '𝟯',
-        '4': '𝟰', '5': '𝟱', '6': '𝟲', '7': '𝟳', '8': '𝟴', '9': '𝟵'
+        'y': '𝘆', 'z': '𝘇',
+        'A': '𝗔', 'B': '𝗕', 'C': '𝗖', 'D': '𝗗', 'E': '𝗘', 'F': '𝗙', 'G': '𝗚', 'H': '𝗛',
+        'I': '𝗜', 'J': '𝗝', 'K': '𝗞', 'L': '𝗟', 'M': '𝗠', 'N': '𝗡', 'O': '𝗢', 'P': '𝗣',
+        'Q': '𝗤', 'R': '𝗥', 'S': '𝗦', 'T': '𝗧', 'U': '𝗨', 'V': '𝗩', 'W': '𝗪', 'X': '𝗫',
+        'Y': '𝗬', 'Z': '𝗭',
+        '0': '𝟬', '1': '𝟭', '2': '𝟮', '3': '𝟯', '4': '𝟰', '5': '𝟱', '6': '𝟲', '7': '𝟳', '8': '𝟴', '9': '𝟵',
     }
-    return ''.join(bold_chars.get(c, c) for c in text)
+    return ''.join(bold_map.get(c, c) for c in text)
 
 def make_italic(text):
     """تحويل النص إلى مائل"""
-    italic_chars = {
+    italic_map = {
         'a': '𝘢', 'b': '𝘣', 'c': '𝘤', 'd': '𝘥', 'e': '𝘦', 'f': '𝘧', 'g': '𝘨', 'h': '𝘩',
         'i': '𝘪', 'j': '𝘫', 'k': '𝘬', 'l': '𝘭', 'm': '𝘮', 'n': '𝘯', 'o': '𝘰', 'p': '𝘱',
         'q': '𝘲', 'r': '𝘳', 's': '𝘴', 't': '𝘵', 'u': '𝘶', 'v': '𝘷', 'w': '𝘸', 'x': '𝘹',
-        'y': '𝘺', 'z': '𝘻', 'A': '𝘈', 'B': '𝘉', 'C': '𝘊', 'D': '𝘋', 'E': '𝘌', 'F': '𝘍',
-        'G': '𝘎', 'H': '𝘏', 'I': '𝘐', 'J': '𝘑', 'K': '𝘒', 'L': '𝘓', 'M': '𝘔', 'N': '𝘕',
-        'O': '𝘖', 'P': '𝘗', 'Q': '𝘘', 'R': '𝘙', 'S': '𝘚', 'T': '𝘛', 'U': '𝘜', 'V': '𝘝',
-        'W': '𝘞', 'X': '𝘟', 'Y': '𝘠', 'Z': '𝘡'
+        'y': '𝘺', 'z': '𝘻',
+        'A': '𝘈', 'B': '𝘉', 'C': '𝘊', 'D': '𝘋', 'E': '𝘌', 'F': '𝘍', 'G': '𝘎', 'H': '𝘏',
+        'I': '𝘐', 'J': '𝘑', 'K': '𝘒', 'L': '𝘓', 'M': '𝘔', 'N': '𝘕', 'O': '𝘖', 'P': '𝘗',
+        'Q': '𝘘', 'R': '𝘙', 'S': '𝘚', 'T': '𝘛', 'U': '𝘜', 'V': '𝘝', 'W': '𝘞', 'X': '𝘟',
+        'Y': '𝘠', 'Z': '𝘡',
     }
-    return ''.join(italic_chars.get(c, c) for c in text)
+    return ''.join(italic_map.get(c, c) for c in text)
 
 def make_strikethrough(text):
     """تحويل النص إلى مشطوب"""
-    return ''.join(c + '̶' for c in text)
+    return '\u0336'.join(c for c in text) + '\u0336'
+
+def apply_format(text, format_type):
+    """تطبيق التنسيق حسب النوع"""
+    if format_type == 'bold':
+        return make_bold(text)
+    elif format_type == 'italic':
+        return make_italic(text)
+    elif format_type == 'strike':
+        return make_strikethrough(text)
+    return text
 
 # ============== دوال النسب الوهمية ==============
 def get_random_percentage():
-    """نسبة عشوائية"""
     return random.randint(1, 100)
 
 def get_love_comment(percentage):
-    """تعليقات الحب"""
-    if percentage >= 90:
-        return "💘 حب من طرف واحد ولا اتنين يا عم"
-    elif percentage >= 70:
-        return "❤️‍🔥 فيه حب بس مش قد كده"
-    elif percentage >= 50:
-        return "💕 نص نص يا معلم"
-    elif percentage >= 30:
-        return "💔 الحب ضعيف شوية"
-    else:
-        return "💀 مفيش حب خالص يا عم"
+    if percentage >= 90: return "💘 حب من طرف واحد ولا اتنين يا عم"
+    elif percentage >= 70: return "❤️‍🔥 فيه حب بس مش قد كده"
+    elif percentage >= 50: return "💕 نص نص يا معلم"
+    elif percentage >= 30: return "💔 الحب ضعيف شوية"
+    else: return "💀 مفيش حب خالص يا عم"
 
 def get_stupidity_comment(percentage):
-    """تعليقات الغباء"""
-    if percentage >= 90:
-        return "🐄 هاتوله برسيم... شكل مفيش منك امل"
-    elif percentage >= 70:
-        return "🤪 غبي بس لسه فيه بصيص أمل"
-    elif percentage >= 50:
-        return "🤔 نص نص... مش متأكدين"
-    elif percentage >= 30:
-        return "🧐 لا يعم ده طلع بيفهم اهو"
-    else:
-        return "🧠 ده عبقري والله"
+    if percentage >= 90: return "🐄 هاتوله برسيم... شكل مفيش منك امل"
+    elif percentage >= 70: return "🤪 غبي بس لسه فيه بصيص أمل"
+    elif percentage >= 50: return "🤔 نص نص... مش متأكدين"
+    elif percentage >= 30: return "🧐 لا يعم ده طلع بيفهم اهو"
+    else: return "🧠 ده عبقري والله"
 
 def get_lying_comment(percentage):
-    """تعليقات الكذب"""
-    if percentage >= 90:
-        return "🤥 دنت كداب اوي يلا"
-    elif percentage >= 70:
-        return "😏 كداب ومحترف كمان"
-    elif percentage >= 50:
-        return "🤨 فيه كدب شوية"
-    elif percentage >= 30:
-        return "🙂 لا يعم ده غلبان صادق"
-    else:
-        return "😇 ده صادق جدا والله"
+    if percentage >= 90: return "🤥 دنت كداب اوي يلا"
+    elif percentage >= 70: return "😏 كداب ومحترف كمان"
+    elif percentage >= 50: return "🤨 فيه كدب شوية"
+    elif percentage >= 30: return "🙂 لا يعم ده غلبان صادق"
+    else: return "😇 ده صادق جدا والله"
 
-# ============== دوال التهكير والقتل الوهمية ==============
+# ============== دوال التهكير والقتل ==============
 HACK_MESSAGES = [
     "🔓 جاري اختراق الحساب...",
     "📱 جاري الوصول للبيانات...",
@@ -272,65 +268,10 @@ async def run_animation(event, animation_name, duration=5):
         if anim_key in active_animations:
             del active_animations[anim_key]
 
-# ============== دوال البحث عن الصور المحسنة ==============
-def search_images_google(query: str, limit: int = 10) -> list:
-    """بحث محسن في جوجل"""
-    images = []
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        }
-        
-        # إضافة كلمة "صور" للبحث لتحسين الدقة
-        search_query = f"{query} صور"
-        url = f"https://www.google.com/search?q={requests.utils.quote(search_query)}&tbm=isch&hl=ar&safe=active&nfpr=1"
-        resp = requests.get(url, headers=headers, timeout=15)
-        
-        if resp.status_code == 200:
-            # استخراج روابط الصور من data-src أو src
-            urls = re.findall(r'(?:data-src|src)="(https?://[^"]+\.(?:jpg|jpeg|png|webp|gif|bmp)[^"]*)"', resp.text, re.I)
-            
-            for url in urls:
-                if 'google' not in url.lower() and 'gstatic' not in url.lower():
-                    if not any(skip in url.lower() for skip in ['icon', 'avatar', 'logo', 'favicon']):
-                        images.append(url)
-                        if len(images) >= limit:
-                            break
-            
-            logger.info(f"Google Images: {len(images)} صورة لـ '{query}'")
-    except Exception as e:
-        logger.error(f"خطأ بحث جوجل: {e}")
-    
-    return images
-
-def search_images_brave(query: str, limit: int = 10) -> list:
-    """بحث في Brave"""
-    images = []
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/json',
-        }
-        
-        url = f"https://search.brave.com/api/images?q={requests.utils.quote(query)}&count={limit}"
-        resp = requests.get(url, headers=headers, timeout=15)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            for result in data.get('results', []):
-                if 'url' in result:
-                    images.append(result['url'])
-    except:
-        pass
-    
-    return images
-
+# ============== دوال البحث عن الصور ==============
 def search_all_images(query: str, limit: int = 5) -> list:
-    """بحث شامل مع تحسين الدقة"""
     all_images = []
     
-    # محاولة DuckDuckGo أولاً (أفضل دقة)
     try:
         from duckduckgo_search import DDGS
         with DDGS() as ddgs:
@@ -338,42 +279,33 @@ def search_all_images(query: str, limit: int = 5) -> list:
             for img in results:
                 if img.get("image"):
                     all_images.append(img["image"])
-        logger.info(f"DuckDuckGo: {len(all_images)} صورة")
     except:
         pass
     
-    # ثم جوجل
-    if len(all_images) < limit:
-        google_images = search_images_google(query, limit)
-        all_images.extend(google_images)
-    
-    # ثم Bing
     if len(all_images) < limit:
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
-            url = f"https://www.bing.com/images/search?q={requests.utils.quote(query)}+image&first=1&count={limit}"
+            search_query = f"{query} صور"
+            url = f"https://www.google.com/search?q={requests.utils.quote(search_query)}&tbm=isch&hl=ar"
             resp = requests.get(url, headers=headers, timeout=15)
             if resp.status_code == 200:
-                urls = re.findall(r'src="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', resp.text, re.I)
+                urls = re.findall(r'(?:data-src|src)="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', resp.text, re.I)
                 for url in urls:
-                    if 'bing' not in url.lower():
+                    if 'google' not in url.lower():
                         all_images.append(url)
         except:
             pass
     
-    # إزالة التكرار
     seen = set()
     unique = []
     for url in all_images:
-        if url not in seen and not any(s in url.lower() for s in ['icon', 'avatar', 'logo', 'favicon', 'thumb']):
+        if url not in seen:
             seen.add(url)
             unique.append(url)
     
-    logger.info(f"إجمالي الصور الفريدة: {len(unique)}")
     return unique[:limit]
 
 def download_image_direct(url: str, out_dir: str) -> str:
-    """تحميل صورة"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.google.com/'}
         resp = requests.get(url, headers=headers, stream=True, timeout=30)
@@ -543,36 +475,58 @@ async def setup_handlers(client, phone):
     if phone not in taqleed_users: taqleed_users[phone] = {}
     if phone not in ent7al_users: ent7al_users[phone] = False
     if phone not in ent7al_original: ent7al_original[phone] = {}
+    if phone not in text_format_mode: text_format_mode[phone] = None
 
-    # ============== أوامر النصوص ==============
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.عريض (.+)'))
-    async def bold_text(event):
-        text = event.pattern_match.group(1)
-        await event.edit(make_bold(text))
+    # ============== تنسيق تلقائي للرسائل الصادرة ==============
+    @client.on(events.NewMessage(outgoing=True))
+    async def auto_format_outgoing(event):
+        """تنسيق تلقائي للرسائل الصادرة حسب الوضع المحدد"""
+        # تجاهل الأوامر
+        if event.text and event.text.startswith('.'):
+            return
+        
+        format_type = text_format_mode.get(phone)
+        if format_type and event.text:
+            formatted = apply_format(event.text, format_type)
+            if formatted != event.text:
+                await event.edit(formatted)
 
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.مائل (.+)'))
-    async def italic_text(event):
-        text = event.pattern_match.group(1)
-        await event.edit(make_italic(text))
+    # ============== أوامر تفعيل/إلغاء التنسيق ==============
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.عريض$'))
+    async def toggle_bold(event):
+        """تفعيل/إلغاء وضع الخط العريض"""
+        if text_format_mode.get(phone) == 'bold':
+            text_format_mode[phone] = None
+            await event.edit("**• ✅ تم إلغاء الخط العريض**")
+        else:
+            text_format_mode[phone] = 'bold'
+            await event.edit("**• ✅ تم تفعيل الخط العريض - كل رسايلك هتبقى عريضة**")
 
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.مشطوب (.+)'))
-    async def strikethrough_text(event):
-        text = event.pattern_match.group(1)
-        await event.edit(make_strikethrough(text))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.مائل$'))
+    async def toggle_italic(event):
+        """تفعيل/إلغاء وضع الخط المائل"""
+        if text_format_mode.get(phone) == 'italic':
+            text_format_mode[phone] = None
+            await event.edit("**• ✅ تم إلغاء الخط المائل**")
+        else:
+            text_format_mode[phone] = 'italic'
+            await event.edit("**• ✅ تم تفعيل الخط المائل - كل رسايلك هتبقى مائلة**")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.مشطوب$'))
+    async def toggle_strike(event):
+        """تفعيل/إلغاء وضع الخط المشطوب"""
+        if text_format_mode.get(phone) == 'strike':
+            text_format_mode[phone] = None
+            await event.edit("**• ✅ تم إلغاء الخط المشطوب**")
+        else:
+            text_format_mode[phone] = 'strike'
+            await event.edit("**• ✅ تم تفعيل الخط المشطوب - كل رسايلك هتبقى مشطوبة**")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ خط$'))
-    async def normal_text(event):
-        if event.is_reply:
-            reply = await event.get_reply_message()
-            if reply.text:
-                # إزالة التنسيق
-                clean_text = re.sub(r'[̶]', '', reply.text)
-                clean_text = re.sub(r'[𝗮-𝗭𝘢-𝘻]', lambda m: chr(ord('a') + (ord(m.group()) - ord('𝗮')) % 26) if '𝗮' <= m.group() <= '𝗭' else m.group(), clean_text)
-                await event.edit(clean_text)
-            else:
-                await event.edit("**• ❌ الرد على نص فقط**")
-        else:
-            await event.edit("**• ❌ يرجى الرد على رسالة**")
+    async def reset_format(event):
+        """إلغاء أي تنسيق ورجوع الخط طبيعي"""
+        text_format_mode[phone] = None
+        await event.edit("**• ✅ تم إرجاع الخط إلى الوضع الطبيعي**")
 
     # ============== أوامر النسب ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.حب$'))
