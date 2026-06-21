@@ -53,18 +53,26 @@ async def bot_start(event):
     allowed_chats.add(event.chat_id)
     user_id = event.sender_id
 
-    # زر واحد فقط يفتح بروفايل البوت
+    # إذا كان المستخدم هو المطور → نرسل لوحة التحكم فقط
+    if is_dev(user_id):
+        await bot.send_message(
+            event.chat_id,
+            "**لوحة تحكم Qthon**\n\nاختر خياراً.",
+            buttons=dev_panel_markup(),
+            parse_mode='md'
+        )
+        return
+
+    # المستخدم العادي → رسالة التنصيب مع الصورة والزر
     buttons = [
         [Button.url("بدء التنصيب", "https://t.me/Qthon_bot?profile")]
     ]
-
     caption = (
         "**• لبدء تنصيب تيليثون ڪيوجࢪام 🜲**\n"
         "**- افتح تطبيق البوت كما فالصورة**\n"
         "**- تابع إجراءات التنصيب المطلوبة**"
     )
 
-    # إرسال الصورة إذا كانت موجودة في المشروع
     if os.path.exists(START_IMAGE):
         await bot.send_file(
             event.chat_id,
@@ -78,15 +86,6 @@ async def bot_start(event):
             event.chat_id,
             caption,
             buttons=buttons,
-            parse_mode='md'
-        )
-
-    # لوحة المطور تظهر فقط للمطور بعد /start
-    if is_dev(user_id):
-        await bot.send_message(
-            event.chat_id,
-            "**لوحة تحكم Qthon**\n\nاختر خياراً.",
-            buttons=dev_panel_markup(),
             parse_mode='md'
         )
 
