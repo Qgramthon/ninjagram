@@ -27,7 +27,6 @@ def _check_aria2c() -> bool:
     return shutil.which("aria2c") is not None
 
 def _build_base_opts(out_dir: str) -> dict:
-    """خيارات yt-dlp محسّنة مع انتحال iOS لتجاوز حظر يوتيوب"""
     opts = {
         'outtmpl': f'{out_dir}/%(title).80s.%(ext)s',
         'quiet': True,
@@ -36,12 +35,13 @@ def _build_base_opts(out_dir: str) -> dict:
         'noplaylist': True,
         'concurrent_fragment_downloads': 8,
         'http_chunk_size': 10 * 1024 * 1024,
-        'socket_timeout': 30,
+        'socket_timeout': 60,
         'retries': 5,
         'fragment_retries': 5,
+        'geo_bypass': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['ios'],           # iOS بدلاً من android
+                'player_client': ['ios'],
                 'skip': ['dash', 'hls'],
             }
         },
@@ -98,7 +98,11 @@ def _run_ytdlp_audio(query: str, out_dir: str) -> tuple:
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(search, download=True)
         if isinstance(info, dict) and 'entries' in info:
+            if not info['entries']:
+                raise ValueError("لم يتم العثور على أي نتيجة")
             info = info['entries'][0]
+        elif not info:
+            raise ValueError("لم يتم العثور على فيديو")
 
     filepath = final_path.get('v')
     if not filepath or not os.path.exists(filepath):
@@ -133,7 +137,11 @@ def _run_ytdlp_video(query: str, out_dir: str) -> tuple:
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(search, download=True)
         if isinstance(info, dict) and 'entries' in info:
+            if not info['entries']:
+                raise ValueError("لم يتم العثور على أي فيديو")
             info = info['entries'][0]
+        elif not info:
+            raise ValueError("لم يتم العثور على فيديو")
 
     filepath = final_path.get('v')
     if not filepath or not os.path.exists(filepath):
@@ -167,7 +175,11 @@ def _run_ytdlp_general(url: str, out_dir: str) -> tuple:
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
         if isinstance(info, dict) and 'entries' in info:
+            if not info['entries']:
+                raise ValueError("لم يتم العثور على المحتوى")
             info = info['entries'][0]
+        elif not info:
+            raise ValueError("فشل التحميل")
 
     filepath = final_path.get('v')
     if not filepath or not os.path.exists(filepath):
@@ -513,17 +525,17 @@ async def setup_handlers(client, phone):
         except Exception as e:
             await event.edit(f"**• فشل في جلب الأعضاء: {str(e)[:50]}**")
 
-    # ── نسخ الصوت ─ـ
+    # ── نسخ الصوت والفيديو ─ـ
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.نسخ$'))
     async def transcribe_voice(event):
         if not event.is_reply:
-            await event.edit("**• يرجى الرد على رسالة صوتية**")
+            await event.edit("**• يرجى الرد على رسالة صوتية أو فيديو**")
             return
         reply = await event.get_reply_message()
-        if not reply.voice and not reply.audio:
-            await event.edit("**• الرد على رسالة صوتية فقط**")
+        if not reply.voice and not reply.audio and not reply.video:
+            await event.edit("**• الرد على رسالة صوتية أو فيديو فقط**")
             return
-        await event.edit("**• جاري تحويل الصوت إلى نص...**")
+        await event.edit("**• جاري تحويل المقطع إلى نص...**")
         try:
             import speech_recognition as sr
         except ImportError:
@@ -604,6 +616,8 @@ async def setup_handlers(client, phone):
         loop = asyncio.get_event_loop()
         try:
             info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_audio, query, TEMP_DIR)
+        except ValueError as e:
+            await event.edit(f"**• {e}**"); return
         except FileNotFoundError as e:
             await event.edit(f"**• {e}**"); return
         except Exception as e:
@@ -631,6 +645,8 @@ async def setup_handlers(client, phone):
         loop = asyncio.get_event_loop()
         try:
             info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_video, query, TEMP_DIR)
+        except ValueError as e:
+            await event.edit(f"**• {e}**"); return
         except FileNotFoundError as e:
             await event.edit(f"**• {e}**"); return
         except Exception as e:
@@ -660,6 +676,8 @@ async def setup_handlers(client, phone):
         loop = asyncio.get_event_loop()
         try:
             info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_general, url, TEMP_DIR)
+        except ValueError as e:
+            await event.edit(f"**• {e}**"); return
         except FileNotFoundError as e:
             await event.edit(f"**• {e}**"); return
         except Exception as e:
