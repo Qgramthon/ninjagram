@@ -10,3 +10,4 @@ pydub
 aiohttp
 aiofiles
 httpx[http2]
+pytube
