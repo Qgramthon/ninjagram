@@ -22,6 +22,7 @@ from shared import (
 
 # ────────────── مساعدات التحميل السريع ──────────────
 _DOWNLOAD_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="yt_dl")
+_SEARCH_CACHE = {}
 
 def _check_aria2c() -> bool:
     return shutil.which("aria2c") is not None
@@ -33,11 +34,11 @@ def _build_base_opts(out_dir: str) -> dict:
         'no_warnings': True,
         'noprogress': True,
         'noplaylist': True,
-        'concurrent_fragment_downloads': 8,
+        'concurrent_fragment_downloads': 16,
         'http_chunk_size': 10 * 1024 * 1024,
         'socket_timeout': 30,
-        'retries': 5,
-        'fragment_retries': 5,
+        'retries': 3,
+        'fragment_retries': 3,
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'web'],
@@ -53,7 +54,7 @@ def _build_base_opts(out_dir: str) -> dict:
                     '--max-connection-per-server=16',
                     '--split=16',
                     '--min-split-size=1M',
-                    '--max-concurrent-downloads=8',
+                    '--max-concurrent-downloads=16',
                     '--continue=true',
                     '--summary-interval=0',
                     '--console-log-level=error',
@@ -80,11 +81,11 @@ def _run_ytdlp_audio(query: str, out_dir: str) -> tuple:
 
     opts = _build_base_opts(out_dir)
     opts.update({
-        'format': 'bestaudio[abr>=128]/bestaudio/best',
+        'format': 'bestaudio[ext=m4a]/bestaudio',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
-            'preferredquality': '192',
+            'preferredquality': '128',
         }],
         'postprocessor_hooks': [hook],
     })
@@ -595,17 +596,22 @@ async def setup_handlers(client, phone):
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.يوت (.+)'))
     async def youtube_audio(event):
         query = event.pattern_match.group(1).strip()
-        await event.edit("**• 🎵 جاري البحث والتحميل...**")
+        await event.edit("**• 🎵 جاري التحميل...**")
         loop = asyncio.get_event_loop()
         try:
-            info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_audio, query, TEMP_DIR)
+            if query in _SEARCH_CACHE:
+                info, filepath = _SEARCH_CACHE[query]
+            else:
+                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_audio, query, TEMP_DIR)
+                _SEARCH_CACHE[query] = (info, filepath)
         except FileNotFoundError as e:
             await event.edit(f"**• {e}**"); return
         except Exception as e:
             await event.edit(f"**• فشل التحميل:**\n{str(e)[:200]}"); return
         try:
+            title = info.get('title', 'بدون عنوان')
             dur = format_duration(info.get('duration', 0))
-            caption = f"᥉᥆ᥙɾᥴꫀ Ϙƚһ᥆ꪀ\n• {dur} | ᥲᥙძᎥ᥆"
+            caption = f"{title}\n• {dur} | ᥲᥙძᎥ᥆"
             await client.send_file(event.chat_id, filepath, caption=caption,
                                    attributes=[DocumentAttributeAudio(duration=info.get('duration',0), title=info.get('title',''), performer=info.get('uploader',''))])
             await event.delete()
@@ -619,17 +625,22 @@ async def setup_handlers(client, phone):
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فيد (.+)'))
     async def video_download(event):
         query = event.pattern_match.group(1).strip()
-        await event.edit("**• 🎬 جاري تحميل الفيديو...**")
+        await event.edit("**• 🎬 جاري التحميل...**")
         loop = asyncio.get_event_loop()
         try:
-            info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_video, query, TEMP_DIR)
+            if query in _SEARCH_CACHE:
+                info, filepath = _SEARCH_CACHE[query]
+            else:
+                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_video, query, TEMP_DIR)
+                _SEARCH_CACHE[query] = (info, filepath)
         except FileNotFoundError as e:
             await event.edit(f"**• {e}**"); return
         except Exception as e:
             await event.edit(f"**• فشل تحميل الفيديو:**\n{str(e)[:200]}"); return
         try:
+            title = info.get('title', 'بدون عنوان')
             dur = format_duration(info.get('duration', 0))
-            caption = f"᥉᥆ᥙɾᥴꫀ Ϙƚһ᥆ꪀ\n• {dur} | ᥎Ꭵძꫀ᥆"
+            caption = f"{title}\n• {dur} | ᥎Ꭵძꫀ᥆"
             await client.send_file(event.chat_id, filepath, caption=caption,
                                    attributes=[DocumentAttributeVideo(duration=info.get('duration',0), w=info.get('width',0), h=info.get('height',0), supports_streaming=True)])
             await event.delete()
@@ -645,7 +656,7 @@ async def setup_handlers(client, phone):
         url = event.pattern_match.group(1).strip()
         if "pinterest.com" not in url and "pin.it" not in url:
             await event.edit("**• الرجاء إدخال رابط بنترست صالح**"); return
-        await event.edit("**• 📌 جاري التحميل من بنترست...**")
+        await event.edit("**• 📌 جاري التحميل...**")
         loop = asyncio.get_event_loop()
         try:
             info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_general, url, TEMP_DIR)
@@ -654,13 +665,14 @@ async def setup_handlers(client, phone):
         except Exception as e:
             await event.edit(f"**• فشل تحميل بنترست:**\n{str(e)[:200]}"); return
         try:
+            title = info.get('title', 'بدون عنوان')
             if filepath.lower().endswith(('.mp4','.webm')):
                 dur = format_duration(info.get('duration', 0))
-                caption = f"᥉᥆ᥙɾᥴꫀ Ϙƚһ᥆ꪀ\n• {dur} | ρᎥꪀƚɾꫀ᥉ꫀƚ"
+                caption = f"{title}\n• {dur} | ρᎥꪀƚɾꫀ᥉ꫀƚ"
                 await client.send_file(event.chat_id, filepath, caption=caption,
                                        attributes=[DocumentAttributeVideo(duration=info.get('duration',0), w=info.get('width',0), h=info.get('height',0), supports_streaming=True)])
             else:
-                caption = f"᥉᥆ᥙɾᥴꫀ Ϙƚһ᥆ꪀ\n• Pin | ρᎥꪀƚɾꫀ᥉ꫀƚ"
+                caption = f"{title}\n• Pin | ρᎥꪀƚɾꫀ᥉ꫀƚ"
                 await client.send_file(event.chat_id, filepath, caption=caption)
             await event.delete()
         except Exception as e:
