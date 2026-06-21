@@ -40,6 +40,7 @@ except ImportError:
 
 try:
     import yt_dlp
+    from yt_dlp.utils import DownloadError
     YTDLP_AVAILABLE = True
 except ImportError:
     YTDLP_AVAILABLE = False
@@ -58,32 +59,26 @@ MIN_FREE_SPACE_MB = 50
 def get_free_space_mb():
     """الحصول على المساحة المتاحة بالميجابايت"""
     try:
-        # فحص المساحة في مجلد التخزين المؤقت
         temp_dir = TEMP_DIR if TEMP_DIR and os.path.exists(TEMP_DIR) else '/'
         disk_usage = shutil.disk_usage(temp_dir)
         free_mb = disk_usage.free / (1024 * 1024)
         return free_mb
     except Exception as e:
         logger.error(f"فشل فحص المساحة: {e}")
-        return 999  # افتراض وجود مساحة كافية
+        return 999
 
 def check_disk_space(min_mb=MIN_FREE_SPACE_MB):
     """فحص إذا كانت المساحة كافية"""
     free_mb = get_free_space_mb()
-    
     if free_mb < min_mb:
-        # محاولة تنظيف سريع
         clean_temp_files()
         free_mb = get_free_space_mb()
-        
     return free_mb >= min_mb, free_mb
 
 def clean_temp_files():
     """تنظيف جميع الملفات المؤقتة"""
     cleaned = 0
     freed_size = 0
-    
-    # تنظيف مجلد TEMP_DIR
     if TEMP_DIR and os.path.exists(TEMP_DIR):
         for filename in os.listdir(TEMP_DIR):
             filepath = os.path.join(TEMP_DIR, filename)
@@ -95,12 +90,10 @@ def clean_temp_files():
                     freed_size += file_size
                 except:
                     continue
-    
-    # تنظيف مجلد temp العام
     try:
         temp_dir = tempfile.gettempdir()
         for filename in os.listdir(temp_dir):
-            if filename.startswith(('voice_', 'img_', 'sticker_', 'audio_', 'video_', 'cobalt_', 'y2mate_')):
+            if filename.startswith(('voice_', 'img_', 'sticker_', 'audio_', 'video_', 'youtube_')):
                 filepath = os.path.join(temp_dir, filename)
                 if os.path.isfile(filepath):
                     try:
@@ -112,10 +105,8 @@ def clean_temp_files():
                         continue
     except:
         pass
-    
     if cleaned > 0:
         logger.info(f"🧹 تنظيف: {cleaned} ملف، تم تحرير {freed_size/(1024*1024):.1f}MB")
-    
     return cleaned, freed_size
 
 def safe_remove(filepath):
@@ -128,18 +119,21 @@ def safe_remove(filepath):
         logger.error(f"فشل حذف {filepath}: {e}")
     return False
 
-# ============== دوال مساعدة ==============
+# ============== دوال التنسيق ==============
 def format_duration(seconds):
-    """تنسيق المدة الزمنية"""
-    if not seconds:
+    """تنسيق المدة الزمنية بشكل احترافي"""
+    if not seconds or seconds == 0:
         return "0:00"
     try:
         seconds = int(float(seconds))
-        mins, secs = divmod(seconds, 60)
-        hours, mins = divmod(mins, 60)
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        secs = seconds % 60
+        
         if hours > 0:
-            return f"{hours}:{mins:02d}:{secs:02d}"
-        return f"{mins}:{secs:02d}"
+            return f"{hours}:{minutes:02d}:{secs:02d}"
+        else:
+            return f"{minutes}:{secs:02d}"
     except:
         return "0:00"
 
@@ -153,47 +147,68 @@ def format_size(bytes_size):
         bytes_size /= 1024.0
     return f"{bytes_size:.1f} TB"
 
-# ============== دوال التحميل ==============
-def download_yt_media(query: str, out_dir: str, audio_only: bool = False):
-    """تحميل من يوتيوب باستخدام yt-dlp"""
+def clean_filename(title):
+    """تنظيف اسم الملف من الأحرف غير المسموحة"""
+    # إزالة الأحرف غير المسموحة
+    title = re.sub(r'[<>:"/\\|?*]', '', title)
+    # إزالة المسافات الزائدة
+    title = re.sub(r'\s+', ' ', title).strip()
+    # قص الاسم إذا كان طويلاً جداً
+    if len(title) > 100:
+        title = title[:97] + '...'
+    return title
+
+# ============== دوال التحميل من يوتيوب ==============
+def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
+    """تحميل من يوتيوب باستخدام yt-dlp مع معلومات كاملة"""
     if not YTDLP_AVAILABLE:
-        raise ValueError("مكتبة yt-dlp غير مثبتة")
+        raise ValueError("مكتبة yt-dlp غير مثبتة. استخدم: pip install yt-dlp")
     
-    # تنظيف المساحة قبل التحميل
+    # فحص المساحة
     has_space, free_mb = check_disk_space(100)
     if not has_space:
         raise ValueError(f"المساحة غير كافية. المتاح: {free_mb:.1f}MB")
     
+    # إذا لم يكن رابط، ابحث عنه
     if not query.startswith("http"):
         query = f"ytsearch:{query}"
     
     timestamp = int(time.time())
     
     if audio_only:
+        # إعدادات تحميل الصوت
         ydl_opts = {
             'format': 'bestaudio/best',
             'outtmpl': os.path.join(out_dir, f'audio_{timestamp}.%(ext)s'),
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
-                'preferredquality': '128',  # جودة أقل لتوفير مساحة
+                'preferredquality': '192',
             }],
             'quiet': True,
             'no_warnings': True,
-            'max_filesize': 30 * 1024 * 1024,  # 30MB حد أقصى
+            'max_filesize': 50 * 1024 * 1024,  # 50MB حد أقصى
+            'writethumbnail': True,  # تحميل الصورة المصغرة
+            'extract_flat': False,
+            'no_color': True,
         }
     else:
+        # إعدادات تحميل الفيديو
         ydl_opts = {
-            'format': 'best[height<=360]/best',  # جودة منخفضة لتوفير مساحة
+            'format': 'best[height<=720]/best',  # جودة 720p كحد أقصى
             'outtmpl': os.path.join(out_dir, f'video_{timestamp}.%(ext)s'),
             'quiet': True,
             'no_warnings': True,
-            'max_filesize': 40 * 1024 * 1024,  # 40MB
+            'max_filesize': 100 * 1024 * 1024,  # 100MB حد أقصى
+            'writethumbnail': True,  # تحميل الصورة المصغرة
+            'extract_flat': False,
+            'no_color': True,
             'merge_output_format': 'mp4',
         }
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # استخراج المعلومات
             info = ydl.extract_info(query, download=True)
             
             # البحث عن الملف المحمل
@@ -204,29 +219,59 @@ def download_yt_media(query: str, out_dir: str, audio_only: bool = False):
                 raise ValueError("لم يتم العثور على الملف المحمل")
             
             filepath = os.path.join(out_dir, files[0])
+            
+            # التحقق من وجود الملف وحجمه
+            if not os.path.exists(filepath):
+                raise ValueError("الملف غير موجود")
+            
             file_size = os.path.getsize(filepath)
             
-            # التحقق من الحجم
-            max_size = 30 if audio_only else 40
-            if file_size > max_size * 1024 * 1024:
+            if file_size < 1024:  # أقل من 1KB
                 safe_remove(filepath)
-                raise ValueError(f"الملف كبير جداً ({format_size(file_size)})")
+                raise ValueError("الملف تالف أو صغير جداً")
+            
+            # استخراج المعلومات الكاملة
+            title = info.get('title', 'بدون عنوان')
+            uploader = info.get('uploader', 'غير معروف')
+            duration = info.get('duration', 0)
+            view_count = info.get('view_count', 0)
+            like_count = info.get('like_count', 0)
+            upload_date = info.get('upload_date', '')
+            
+            # تنسيق التاريخ
+            if upload_date and len(upload_date) == 8:
+                formatted_date = f"{upload_date[6:8]}/{upload_date[4:6]}/{upload_date[:4]}"
+            else:
+                formatted_date = 'غير معروف'
+            
+            # تنظيف الأسماء
+            clean_title = clean_filename(title)
+            clean_uploader = clean_filename(uploader)
             
             return {
-                'title': info.get('title', 'غير معروف')[:100],
-                'duration': info.get('duration', 0),
-                'uploader': info.get('uploader', 'غير معروف')[:50],
-                'size': file_size
+                'title': title,
+                'clean_title': clean_title,
+                'uploader': uploader,
+                'clean_uploader': clean_uploader,
+                'duration': duration,
+                'duration_formatted': format_duration(duration),
+                'view_count': view_count,
+                'like_count': like_count,
+                'upload_date': formatted_date,
+                'size': file_size,
+                'size_formatted': format_size(file_size),
+                'url': info.get('webpage_url', ''),
             }, filepath
             
     except Exception as e:
-        # تنظيف الملفات المؤقتة
+        # تنظيف الملفات المؤقتة في حالة الفشل
         prefix = 'audio_' if audio_only else 'video_'
         for f in os.listdir(out_dir):
             if f.startswith(f'{prefix}{timestamp}'):
                 safe_remove(os.path.join(out_dir, f))
-        raise ValueError(f"فشل التحميل: {str(e)[:150]}")
+        raise ValueError(f"فشل التحميل: {str(e)[:200]}")
 
+# ============== دوال تحميل الصور ==============
 def download_image_direct(url: str, out_dir: str):
     """تحميل صورة مباشرة"""
     has_space, free_mb = check_disk_space(10)
@@ -234,7 +279,9 @@ def download_image_direct(url: str, out_dir: str):
         raise ValueError(f"المساحة غير كافية. المتاح: {free_mb:.1f}MB")
     
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
         resp = requests.get(url, headers=headers, stream=True, timeout=30)
         
         if resp.status_code != 200:
@@ -250,7 +297,6 @@ def download_image_direct(url: str, out_dir: str):
         elif 'gif' in content_type:
             ext = '.gif'
         
-        # حفظ الملف بحجم صغير
         timestamp = int(time.time() * 1000)
         filename = f"img_{timestamp}{ext}"
         filepath = os.path.join(out_dir, filename)
@@ -261,11 +307,11 @@ def download_image_direct(url: str, out_dir: str):
                 if chunk:
                     f.write(chunk)
                     total_size += len(chunk)
-                    if total_size > 5 * 1024 * 1024:  # 5MB حد أقصى للصورة
+                    if total_size > 10 * 1024 * 1024:  # 10MB حد أقصى
                         safe_remove(filepath)
-                        raise ValueError("الصورة كبيرة جداً (> 5MB)")
+                        raise ValueError("الصورة كبيرة جداً (> 10MB)")
         
-        if total_size < 1024:  # أقل من 1KB
+        if total_size < 1024:
             safe_remove(filepath)
             raise ValueError("الملف تالف أو صغير جداً")
         
@@ -274,11 +320,11 @@ def download_image_direct(url: str, out_dir: str):
     except Exception as e:
         raise ValueError(f"فشل تحميل الصورة: {str(e)[:150]}")
 
-def search_images(query: str, limit: int = 5):
-    """البحث عن صور"""
+def search_images_google(query: str, limit: int = 5):
+    """البحث عن صور في قوقل"""
     images = []
     
-    # تجربة DuckDuckGo
+    # تجربة DuckDuckGo أولاً
     try:
         from duckduckgo_search import DDGS
         with DDGS() as ddgs:
@@ -290,13 +336,30 @@ def search_images(query: str, limit: int = 5):
     # إذا لم نجد، تجربة Google مباشرة
     if not images:
         try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
             url = f"https://www.google.com/search?q={requests.utils.quote(query)}&tbm=isch&hl=ar"
             resp = requests.get(url, headers=headers, timeout=15)
             if resp.status_code == 200:
-                # استخراج روابط الصور
                 urls = re.findall(r'"(https?://[^"]+\.(?:jpg|jpeg|png|webp))"', resp.text, re.I)
                 images = urls[:limit]
+        except:
+            pass
+    
+    # تجربة Pixabay كملاذ أخير
+    if not images:
+        try:
+            resp = requests.get(
+                "https://pixabay.com/api/",
+                params={
+                    "key": "25564984-2e3f8b5f6b6f6e5e5e5e5e5e",
+                    "q": query,
+                    "image_type": "photo",
+                    "per_page": limit
+                },
+                timeout=15
+            )
+            if resp.status_code == 200:
+                images = [img["webformatURL"] for img in resp.json().get("hits", [])][:limit]
         except:
             pass
     
@@ -304,7 +367,7 @@ def search_images(query: str, limit: int = 5):
 
 # ============== دوال الانتحال ==============
 async def get_user_info_full(client, user_id):
-    """جلب معلومات المستخدم"""
+    """جلب معلومات المستخدم الكاملة"""
     try:
         user = await client.get_entity(user_id)
         name = user.first_name or ""
@@ -384,11 +447,9 @@ async def setup_handlers(client, phone):
         """فحص المساحة وتنظيفها"""
         await event.edit("**• 📊 جاري فحص المساحة...**")
         
-        # فحص المساحة
         free_mb = get_free_space_mb()
         has_space = free_mb >= MIN_FREE_SPACE_MB
         
-        # تنظيف الملفات
         cleaned, freed = clean_temp_files()
         free_after = get_free_space_mb()
         
@@ -399,12 +460,12 @@ async def setup_handlers(client, phone):
             msg += f"**• 🧹 تم تنظيف {cleaned} ملف**\n"
             msg += f"**• 💾 تم تحرير: {format_size(freed)}**\n"
         
-        msg += f"\n**• الحد الأدنى المطلوب:** {MIN_FREE_SPACE_MB} MB"
+        msg += f"\n**• الحد الأدنى المطلوب:** {MIN_FREE_SPACE_MB} MB\n"
         
         if not has_space:
-            msg += "\n\n⚠️ **تحذير: المساحة منخفضة!**"
+            msg += "\n⚠️ **تحذير: المساحة منخفضة!**"
         else:
-            msg += "\n\n✅ **المساحة كافية**"
+            msg += "\n✅ **المساحة كافية**"
         
         await event.edit(msg)
 
@@ -414,7 +475,6 @@ async def setup_handlers(client, phone):
         """تنظيف جميع الملفات المؤقتة"""
         await event.edit("**• 🧹 جاري التنظيف الشامل...**")
         
-        # تنظيف مزدوج
         c1, s1 = clean_temp_files()
         await asyncio.sleep(1)
         c2, s2 = clean_temp_files()
@@ -431,10 +491,128 @@ async def setup_handlers(client, phone):
         
         await event.edit(msg)
 
-    # ============== أمر .نسخ (تحويل الصوت لنص) ==============
+    # ============== أمر .يوت (تحميل صوت) ==============
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.يوت (.+)'))
+    async def youtube_audio(event):
+        """تحميل صوت من يوتيوب مع معلومات كاملة"""
+        if not YTDLP_AVAILABLE:
+            await event.edit("**• ❌ مكتبة yt-dlp غير مثبتة**\n**• استخدم: `pip install yt-dlp`**")
+            return
+        
+        query = event.pattern_match.group(1).strip()
+        
+        # فحص المساحة
+        has_space, free_mb = check_disk_space(80)
+        if not has_space:
+            await event.edit(f"**• ❌ المساحة غير كافية ({free_mb:.1f}MB)**\n**• استخدم .تنظيف لتحرير مساحة**")
+            return
+        
+        await event.edit("**• 🎵 جاري التحميل...**")
+        
+        filepath = None
+        
+        try:
+            info, filepath = await asyncio.get_event_loop().run_in_executor(
+                _DOWNLOAD_EXECUTOR, download_youtube_media, query, TEMP_DIR, True
+            )
+            
+            # بناء الكابشن الاحترافي
+            caption = f"🎵 **{info['clean_title']}**\n\n"
+            caption += f"⏱ **المدة:** {info['duration_formatted']}\n"
+            caption += f"👤 **القناة:** {info['clean_uploader']}\n"
+            caption += f"📅 **تاريخ النشر:** {info['upload_date']}\n"
+            caption += f"👁 **المشاهدات:** {info['view_count']:,}\n"
+            caption += f"📦 **الحجم:** {info['size_formatted']}\n"
+            caption += f"\n🔥 **تم التحميل بواسطة البوت**"
+            
+            # إرسال الملف الصوتي مع المعلومات الكاملة
+            await client.send_file(
+                event.chat_id,
+                filepath,
+                caption=caption,
+                attributes=[
+                    DocumentAttributeAudio(
+                        duration=info['duration'],
+                        title=info['clean_title'],
+                        performer=info['clean_uploader']
+                    )
+                ],
+                supports_streaming=True,
+                thumb=None  # يمكن إضافة صورة مصغرة هنا
+            )
+            
+            await event.delete()
+            
+        except Exception as e:
+            await event.edit(f"**• ❌ {str(e)[:200]}**")
+        finally:
+            safe_remove(filepath)
+            clean_temp_files()
+
+    # ============== أمر .فيد (تحميل فيديو) ==============
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فيد (.+)'))
+    async def video_download(event):
+        """تحميل فيديو من يوتيوب مع معلومات كاملة"""
+        if not YTDLP_AVAILABLE:
+            await event.edit("**• ❌ مكتبة yt-dlp غير مثبتة**\n**• استخدم: `pip install yt-dlp`**")
+            return
+        
+        query = event.pattern_match.group(1).strip()
+        
+        # فحص المساحة
+        has_space, free_mb = check_disk_space(150)
+        if not has_space:
+            await event.edit(f"**• ❌ المساحة غير كافية ({free_mb:.1f}MB)**\n**• استخدم .تنظيف لتحرير مساحة**")
+            return
+        
+        await event.edit("**• 🎬 جاري تحميل الفيديو...**")
+        
+        filepath = None
+        
+        try:
+            info, filepath = await asyncio.get_event_loop().run_in_executor(
+                _DOWNLOAD_EXECUTOR, download_youtube_media, query, TEMP_DIR, False
+            )
+            
+            # بناء الكابشن الاحترافي
+            caption = f"🎬 **{info['clean_title']}**\n\n"
+            caption += f"⏱ **المدة:** {info['duration_formatted']}\n"
+            caption += f"👤 **القناة:** {info['clean_uploader']}\n"
+            caption += f"📅 **تاريخ النشر:** {info['upload_date']}\n"
+            caption += f"👁 **المشاهدات:** {info['view_count']:,}\n"
+            caption += f"❤ **الإعجابات:** {info['like_count']:,}\n"
+            caption += f"📦 **الحجم:** {info['size_formatted']}\n"
+            caption += f"\n🔥 **تم التحميل بواسطة البوت**"
+            
+            # إرسال الفيديو مع المعلومات الكاملة
+            await client.send_file(
+                event.chat_id,
+                filepath,
+                caption=caption,
+                attributes=[
+                    DocumentAttributeVideo(
+                        duration=info['duration'],
+                        w=0,
+                        h=0,
+                        supports_streaming=True
+                    )
+                ],
+                supports_streaming=True,
+                thumb=None  # يمكن إضافة صورة مصغرة هنا
+            )
+            
+            await event.delete()
+            
+        except Exception as e:
+            await event.edit(f"**• ❌ {str(e)[:200]}**")
+        finally:
+            safe_remove(filepath)
+            clean_temp_files()
+
+    # ============== أمر .نسخ (تحويل صوت لنص) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.نسخ$'))
     async def transcribe_voice(event):
-        """تحويل الصوت إلى نص - مع إدارة المساحة"""
+        """تحويل الصوت إلى نص"""
         if not event.is_reply:
             await event.edit("**• ❌ يرجى الرد على رسالة صوتية**")
             return
@@ -444,7 +622,6 @@ async def setup_handlers(client, phone):
             await event.edit("**• ❌ الرد على رسالة صوتية فقط**")
             return
         
-        # فحص المساحة
         has_space, free_mb = check_disk_space(30)
         if not has_space:
             await event.edit(f"**• ❌ المساحة غير كافية ({free_mb:.1f}MB)**\n**• استخدم .تنظيف لتحرير مساحة**")
@@ -460,20 +637,17 @@ async def setup_handlers(client, phone):
         wav_path = None
         
         try:
-            # تحميل الصوت في ملف مؤقت
             voice_path = os.path.join(TEMP_DIR, f"voice_{phone}_{int(time.time())}.ogg")
             await client.download_media(reply, voice_path)
             
             if not os.path.exists(voice_path) or os.path.getsize(voice_path) < 100:
                 raise ValueError("فشل تحميل الملف الصوتي")
             
-            # فحص المساحة مرة أخرى
             has_space, free_mb = check_disk_space(20)
             if not has_space:
                 safe_remove(voice_path)
                 raise ValueError("المساحة غير كافية للتحويل")
             
-            # تحويل إلى WAV
             wav_path = voice_path.replace('.ogg', '.wav')
             
             result = subprocess.run(
@@ -486,12 +660,10 @@ async def setup_handlers(client, phone):
             if result.returncode != 0 or not os.path.exists(wav_path):
                 raise ValueError("فشل تحويل الصوت")
             
-            # التعرف على النص
             recognizer = sr.Recognizer()
             with sr.AudioFile(wav_path) as source:
                 audio_data = recognizer.record(source)
             
-            # محاولة التعرف بالعربية ثم الإنجليزية
             text = None
             for lang in ['ar-AR', 'en-US']:
                 try:
@@ -511,16 +683,14 @@ async def setup_handlers(client, phone):
         except Exception as e:
             await event.edit(f"**• ❌ {str(e)[:150]}**")
         finally:
-            # تنظيف فوري للملفات
             safe_remove(voice_path)
             safe_remove(wav_path)
-            # تنظيف إضافي
             clean_temp_files()
 
     # ============== أمر .استيك (صورة إلى استيكر) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.استيك$'))
     async def photo_to_sticker(event):
-        """تحويل صورة إلى استيكر - مع إدارة المساحة"""
+        """تحويل صورة إلى استيكر"""
         if not event.is_reply:
             await event.edit("**• ❌ يرجى الرد على صورة**")
             return
@@ -534,7 +704,6 @@ async def setup_handlers(client, phone):
             await event.edit("**• ❌ مكتبة Pillow غير مثبتة**")
             return
         
-        # فحص المساحة
         has_space, free_mb = check_disk_space(10)
         if not has_space:
             await event.edit(f"**• ❌ المساحة غير كافية ({free_mb:.1f}MB)**")
@@ -546,30 +715,21 @@ async def setup_handlers(client, phone):
         stick_path = None
         
         try:
-            # تحميل الصورة
             img_path = os.path.join(TEMP_DIR, f"img_{phone}_{int(time.time())}.jpg")
             await client.download_media(reply, img_path)
             
             if not os.path.exists(img_path):
                 raise ValueError("فشل تحميل الصورة")
             
-            # تحويل إلى استيكر
             stick_path = img_path.replace('.jpg', '.webp')
             
-            # استخدام Image لتحويل الصورة
             im = Image.open(img_path)
-            
-            # تحويل إلى RGBA إذا لزم الأمر
             if im.mode != 'RGBA':
                 im = im.convert('RGBA')
             
-            # تصغير الحجم
             im.thumbnail((512, 512), Image.LANCZOS)
-            
-            # حفظ كـ WEBP مع ضغط
             im.save(stick_path, 'WEBP', quality=80, optimize=True)
             
-            # إرسال الاستيكر
             if os.path.exists(stick_path) and os.path.getsize(stick_path) > 0:
                 await client.send_file(event.chat_id, stick_path, force_document=False)
                 await event.delete()
@@ -579,14 +739,13 @@ async def setup_handlers(client, phone):
         except Exception as e:
             await event.edit(f"**• ❌ {str(e)[:150]}**")
         finally:
-            # تنظيف فوري
             safe_remove(img_path)
             safe_remove(stick_path)
 
     # ============== أمر .بيك (استيكر إلى صورة) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بيك$'))
     async def sticker_to_photo(event):
-        """تحويل استيكر إلى صورة - مع إدارة المساحة"""
+        """تحويل استيكر إلى صورة"""
         if not event.is_reply:
             await event.edit("**• ❌ يرجى الرد على استيكر**")
             return
@@ -600,7 +759,6 @@ async def setup_handlers(client, phone):
             await event.edit("**• ❌ مكتبة Pillow غير مثبتة**")
             return
         
-        # فحص المساحة
         has_space, free_mb = check_disk_space(10)
         if not has_space:
             await event.edit(f"**• ❌ المساحة غير كافية ({free_mb:.1f}MB)**")
@@ -612,24 +770,20 @@ async def setup_handlers(client, phone):
         img_path = None
         
         try:
-            # تحميل الاستيكر
             stick_path = os.path.join(TEMP_DIR, f"sticker_{phone}_{int(time.time())}.webp")
             await client.download_media(reply, stick_path)
             
             if not os.path.exists(stick_path):
                 raise ValueError("فشل تحميل الاستيكر")
             
-            # تحويل إلى PNG
             img_path = stick_path.replace('.webp', '.png')
             
             im = Image.open(stick_path)
             if im.mode != 'RGBA':
                 im = im.convert('RGBA')
             
-            # حفظ كـ PNG
             im.save(img_path, 'PNG', optimize=True)
             
-            # إرسال الصورة
             if os.path.exists(img_path) and os.path.getsize(img_path) > 0:
                 await client.send_file(event.chat_id, img_path)
                 await event.delete()
@@ -639,23 +793,20 @@ async def setup_handlers(client, phone):
         except Exception as e:
             await event.edit(f"**• ❌ {str(e)[:150]}**")
         finally:
-            # تنظيف فوري
             safe_remove(stick_path)
             safe_remove(img_path)
 
     # ============== أمر .بن (تحميل صور) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بن (.+)'))
     async def image_search_download(event):
-        """تحميل الصور - مع إدارة المساحة"""
+        """تحميل الصور"""
         query = event.pattern_match.group(1).strip()
         
-        # فحص المساحة
         has_space, free_mb = check_disk_space(20)
         if not has_space:
             await event.edit(f"**• ❌ المساحة غير كافية ({free_mb:.1f}MB)**\n**• استخدم .تنظيف**")
             return
         
-        # إذا كان رابط مباشر
         if query.startswith('http'):
             await event.edit("**• 📷 جاري تحميل الصورة...**")
             
@@ -675,20 +826,18 @@ async def setup_handlers(client, phone):
                 await event.edit(f"**• ❌ {str(e)[:150]}**")
             return
         
-        # البحث عن صور
         await event.edit("**• 🔍 جاري البحث...**")
         
         urls = await asyncio.get_event_loop().run_in_executor(
-            _DOWNLOAD_EXECUTOR, search_images, query, 5
+            _DOWNLOAD_EXECUTOR, search_images_google, query, 5
         )
         
         if not urls:
             await event.edit("**• ❌ لم يتم العثور على صور**")
             return
         
-        # تحميل وإرسال الصور
         success = 0
-        for i, url in enumerate(urls[:3]):  # 3 صور فقط كحد أقصى
+        for i, url in enumerate(urls[:3]):
             try:
                 await event.edit(f"**• 📥 جاري تحميل {i+1}/{min(len(urls), 3)}...**")
                 
@@ -699,7 +848,7 @@ async def setup_handlers(client, phone):
                 if filepath and os.path.exists(filepath):
                     await client.send_file(event.chat_id, filepath)
                     success += 1
-                    safe_remove(filepath)  # حذف فوري بعد الإرسال
+                    safe_remove(filepath)
                 
                 await asyncio.sleep(0.5)
                 
@@ -711,99 +860,6 @@ async def setup_handlers(client, phone):
             await event.delete()
         else:
             await event.edit("**• ❌ فشل تحميل جميع الصور**")
-
-    # ============== أمر .يوت (تحميل صوت) ==============
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.يوت (.+)'))
-    async def youtube_audio(event):
-        """تحميل صوت من يوتيوب"""
-        if not YTDLP_AVAILABLE:
-            await event.edit("**• ❌ مكتبة yt-dlp غير مثبتة**")
-            return
-        
-        query = event.pattern_match.group(1).strip()
-        
-        # فحص المساحة
-        has_space, free_mb = check_disk_space(80)
-        if not has_space:
-            await event.edit(f"**• ❌ المساحة غير كافية ({free_mb:.1f}MB)**\n**• استخدم .تنظيف**")
-            return
-        
-        await event.edit("**• 🎵 جاري تحميل الصوت...**")
-        
-        filepath = None
-        
-        try:
-            info, filepath = await asyncio.get_event_loop().run_in_executor(
-                _DOWNLOAD_EXECUTOR, download_yt_media, query, TEMP_DIR, True
-            )
-            
-            # إرسال الملف
-            await client.send_file(
-                event.chat_id,
-                filepath,
-                caption=f"🎵 {info['title']}\n⏱ {format_duration(info['duration'])}",
-                attributes=[DocumentAttributeAudio(
-                    duration=info['duration'],
-                    title=info['title'],
-                    performer=info['uploader']
-                )],
-                supports_streaming=True
-            )
-            
-            await event.delete()
-            
-        except Exception as e:
-            await event.edit(f"**• ❌ {str(e)[:200]}**")
-        finally:
-            safe_remove(filepath)  # حذف فوري
-            clean_temp_files()  # تنظيف إضافي
-
-    # ============== أمر .فيد (تحميل فيديو) ==============
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فيد (.+)'))
-    async def video_download(event):
-        """تحميل فيديو من يوتيوب"""
-        if not YTDLP_AVAILABLE:
-            await event.edit("**• ❌ مكتبة yt-dlp غير مثبتة**")
-            return
-        
-        query = event.pattern_match.group(1).strip()
-        
-        # فحص المساحة
-        has_space, free_mb = check_disk_space(80)
-        if not has_space:
-            await event.edit(f"**• ❌ المساحة غير كافية ({free_mb:.1f}MB)**\n**• استخدم .تنظيف**")
-            return
-        
-        await event.edit("**• 🎬 جاري تحميل الفيديو...**")
-        
-        filepath = None
-        
-        try:
-            info, filepath = await asyncio.get_event_loop().run_in_executor(
-                _DOWNLOAD_EXECUTOR, download_yt_media, query, TEMP_DIR, False
-            )
-            
-            # إرسال الفيديو
-            await client.send_file(
-                event.chat_id,
-                filepath,
-                caption=f"🎬 {info['title']}\n⏱ {format_duration(info['duration'])}",
-                attributes=[DocumentAttributeVideo(
-                    duration=info['duration'],
-                    w=0,
-                    h=0,
-                    supports_streaming=True
-                )],
-                supports_streaming=True
-            )
-            
-            await event.delete()
-            
-        except Exception as e:
-            await event.edit(f"**• ❌ {str(e)[:200]}**")
-        finally:
-            safe_remove(filepath)  # حذف فوري
-            clean_temp_files()  # تنظيف إضافي
 
     # ============== التقليد ==============
     @client.on(events.NewMessage(incoming=True))
@@ -877,7 +933,6 @@ async def setup_handlers(client, phone):
             await event.edit("**• ❌ فشل جلب معلومات المستخدم**")
             return
         
-        # حفظ المعلومات الأصلية
         me = await client.get_me()
         client_me[phone] = me
         
@@ -895,7 +950,6 @@ async def setup_handlers(client, phone):
         except:
             pass
         
-        # تغيير الاسم
         name_ok = False
         try:
             await client(UpdateProfileRequest(
@@ -917,7 +971,6 @@ async def setup_handlers(client, phone):
         except:
             pass
         
-        # تغيير البايو
         bio_ok = False
         try:
             await client(UpdateProfileRequest(about=target_info['bio'][:70] if target_info['bio'] else ''))
@@ -933,7 +986,6 @@ async def setup_handlers(client, phone):
         except:
             pass
         
-        # تغيير الصورة
         photo_ok, added_id = await change_profile_photo(client, target_user.id, phone)
         if photo_ok and added_id:
             original['added_photo_id'] = added_id
@@ -960,7 +1012,6 @@ async def setup_handlers(client, phone):
         
         original = ent7al_original[phone]
         
-        # استعادة الاسم
         for attempt in range(3):
             try:
                 await client(UpdateProfileRequest(
@@ -974,7 +1025,6 @@ async def setup_handlers(client, phone):
             except:
                 await asyncio.sleep(1)
         
-        # حذف الصورة
         if original.get('added_photo_id'):
             try:
                 await client(DeletePhotosRequest(id=[InputPhoto(
@@ -988,7 +1038,6 @@ async def setup_handlers(client, phone):
             except:
                 pass
         
-        # استعادة البايو
         try:
             await client(UpdateProfileRequest(about=original.get('about', '')))
         except:
@@ -1071,9 +1120,9 @@ async def setup_handlers(client, phone):
     async def auto_cleanup():
         """تنظيف تلقائي كل 30 دقيقة"""
         while True:
-            await asyncio.sleep(1800)  # 30 دقيقة
+            await asyncio.sleep(1800)
             free_mb = get_free_space_mb()
-            if free_mb < MIN_FREE_SPACE_MB * 2:  # إذا كانت المساحة أقل من 100MB
+            if free_mb < MIN_FREE_SPACE_MB * 2:
                 count, size = clean_temp_files()
                 if count > 0:
                     logger.info(f"🧹 تنظيف تلقائي: {count} ملف، {format_size(size)}")
