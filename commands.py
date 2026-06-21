@@ -1,13 +1,17 @@
-
 import asyncio
 import io
 import os
 import logging
+import subprocess
+import shutil
+from concurrent.futures import ThreadPoolExecutor
 from telethon import events
 from telethon.errors import FloodWaitError, ChatAdminRequiredError
 from telethon.tl.functions.account import UpdateProfileRequest
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
-from telethon.tl.types import InputPhoto, DocumentAttributeAudio, DocumentAttributeVideo
+from telethon.tl.types import (
+    InputPhoto, DocumentAttributeAudio, DocumentAttributeVideo
+)
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.functions.channels import InviteToChannelRequest
 from telethon.tl.functions.messages import AddChatUserRequest
@@ -16,12 +20,164 @@ from shared import (
     client_me, track_command, logger, TEMP_DIR
 )
 
+# ────────────── مساعدات التحميل السريع ──────────────
+_DOWNLOAD_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="yt_dl")
+
+def _check_aria2c() -> bool:
+    return shutil.which("aria2c") is not None
+
+def _build_base_opts(out_dir: str) -> dict:
+    opts = {
+        'outtmpl': f'{out_dir}/%(title).80s.%(ext)s',
+        'quiet': True,
+        'no_warnings': True,
+        'noprogress': True,
+        'noplaylist': True,
+        'concurrent_fragment_downloads': 8,
+        'http_chunk_size': 10 * 1024 * 1024,
+        'socket_timeout': 30,
+        'retries': 5,
+        'fragment_retries': 5,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'],
+                'skip': ['dash', 'hls'],
+            }
+        },
+    }
+    if _check_aria2c():
+        opts.update({
+            'external_downloader': 'aria2c',
+            'external_downloader_args': {
+                'aria2c': [
+                    '--max-connection-per-server=16',
+                    '--split=16',
+                    '--min-split-size=1M',
+                    '--max-concurrent-downloads=8',
+                    '--continue=true',
+                    '--summary-interval=0',
+                    '--console-log-level=error',
+                ]
+            },
+        })
+    return opts
+
 def format_duration(seconds):
     if not seconds:
         return "0:00"
     mins, secs = divmod(int(seconds), 60)
     return f"{mins}:{secs:02d}"
 
+# ────────────── دوال التحميل الخلفية ──────────────
+def _run_ytdlp_audio(query: str, out_dir: str) -> tuple:
+    import yt_dlp
+    final_path = {}
+    def hook(d):
+        if d['status'] == 'finished':
+            fp = d.get('info_dict', {}).get('filepath') or d.get('postprocessor_result', {}).get('filepath')
+            if fp:
+                final_path['v'] = fp
+
+    opts = _build_base_opts(out_dir)
+    opts.update({
+        'format': 'bestaudio[abr>=128]/bestaudio/best',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'postprocessor_hooks': [hook],
+    })
+
+    search = f"ytsearch1:{query}" if not query.startswith("http") else query
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(search, download=True)
+        if isinstance(info, dict) and 'entries' in info:
+            info = info['entries'][0]
+
+    filepath = final_path.get('v')
+    if not filepath or not os.path.exists(filepath):
+        base = ydl.prepare_filename(info)
+        base_no_ext = os.path.splitext(base)[0]
+        for ext in ('.mp3', '.m4a', '.opus', '.ogg', '.webm'):
+            c = base_no_ext + ext
+            if os.path.exists(c):
+                filepath = c
+                break
+        else:
+            raise FileNotFoundError("لم يُعثر على ملف الصوت بعد التحميل")
+    return info, filepath
+
+def _run_ytdlp_video(query: str, out_dir: str) -> tuple:
+    import yt_dlp
+    final_path = {}
+    def hook(d):
+        if d['status'] == 'finished':
+            fp = d.get('info_dict', {}).get('filepath') or d.get('postprocessor_result', {}).get('filepath')
+            if fp:
+                final_path['v'] = fp
+
+    opts = _build_base_opts(out_dir)
+    opts.update({
+        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best',
+        'merge_output_format': 'mp4',
+        'postprocessor_hooks': [hook],
+    })
+
+    search = f"ytsearch1:{query}" if not query.startswith("http") else query
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(search, download=True)
+        if isinstance(info, dict) and 'entries' in info:
+            info = info['entries'][0]
+
+    filepath = final_path.get('v')
+    if not filepath or not os.path.exists(filepath):
+        base = ydl.prepare_filename(info)
+        base_no_ext = os.path.splitext(base)[0]
+        for ext in ('.mp4', '.webm', '.mkv'):
+            c = base_no_ext + ext
+            if os.path.exists(c):
+                filepath = c
+                break
+        else:
+            raise FileNotFoundError("لم يُعثر على ملف الفيديو بعد التحميل")
+    return info, filepath
+
+def _run_ytdlp_general(url: str, out_dir: str) -> tuple:
+    import yt_dlp
+    final_path = {}
+    def hook(d):
+        if d['status'] == 'finished':
+            fp = d.get('info_dict', {}).get('filepath') or d.get('postprocessor_result', {}).get('filepath')
+            if fp:
+                final_path['v'] = fp
+
+    opts = _build_base_opts(out_dir)
+    opts.update({
+        'format': 'best',
+        'merge_output_format': 'mp4',
+        'postprocessor_hooks': [hook],
+    })
+
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        if isinstance(info, dict) and 'entries' in info:
+            info = info['entries'][0]
+
+    filepath = final_path.get('v')
+    if not filepath or not os.path.exists(filepath):
+        base = ydl.prepare_filename(info)
+        base_no_ext = os.path.splitext(base)[0]
+        for ext in ('.mp4', '.webm', '.mkv', '.jpg', '.jpeg', '.png', '.gif'):
+            c = base_no_ext + ext
+            if os.path.exists(c):
+                filepath = c
+                break
+        else:
+            raise FileNotFoundError("لم يُعثر على الملف بعد التحميل")
+    return info, filepath
+
+# ────────────── دوال الانتحال ──────────────
 async def get_user_info_full(client, user_id):
     try:
         user = await client.get_entity(user_id)
@@ -75,6 +231,7 @@ async def change_profile_photo(client, user_id, phone):
         logger.error(f"Photo change failed for {phone}: {e}")
         return False, None
 
+# ────────────── المعالجات ──────────────
 async def setup_handlers(client, phone):
     if phone not in muted_users:
         muted_users[phone] = {}
@@ -85,7 +242,7 @@ async def setup_handlers(client, phone):
     if phone not in ent7al_original:
         ent7al_original[phone] = {}
 
-    # --------------------- التقليد ---------------------
+    # ── التقليد ──
     @client.on(events.NewMessage(incoming=True))
     async def auto_taqleed(event):
         sender_id = event.sender_id
@@ -113,7 +270,7 @@ async def setup_handlers(client, phone):
             del taqleed_users[phone][target]
         await event.edit("**• تم فك التقليد**")
 
-    # --------------------- الانتحال ---------------------
+    # ── الانتحال ──
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.انتحال$'))
     async def ent7al(event):
         track_command(phone, ".انتحال")
@@ -284,7 +441,7 @@ async def setup_handlers(client, phone):
         ent7al_original[phone] = {}
         await event.edit("**• تم إلغاء الانتحال**")
 
-    # --------------------- إضافة أعضاء من جروب خارجي ---------------------
+    # ── إضافة أعضاء ──
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اضافة (\d+) (@?\w+)$'))
     async def add_members_from_group(event):
         if not event.is_group:
@@ -351,202 +508,197 @@ async def setup_handlers(client, phone):
         except Exception as e:
             await event.edit(f"**• فشل في جلب الأعضاء: {str(e)[:50]}**")
 
-    # --------------------- تحميل الصوت (يوت) ---------------------
+    # ── نسخ الصوت ──
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.نسخ$'))
+    async def transcribe_voice(event):
+        if not event.is_reply:
+            await event.edit("**• يرجى الرد على رسالة صوتية**")
+            return
+        reply = await event.get_reply_message()
+        if not reply.voice and not reply.audio:
+            await event.edit("**• الرد على رسالة صوتية فقط**")
+            return
+        await event.edit("**• جاري تحويل الصوت إلى نص...**")
+        try:
+            import speech_recognition as sr
+        except ImportError:
+            await event.edit("**• مكتبة SpeechRecognition غير مثبتة**")
+            return
+        voice_path = os.path.join(TEMP_DIR, f"voice_{phone}_{reply.id}.ogg")
+        await client.download_media(reply, voice_path)
+        wav_path = voice_path.replace(".ogg", ".wav")
+        try:
+            subprocess.run(["ffmpeg", "-i", voice_path, "-ac", "1", "-ar", "16000", wav_path], check=True, capture_output=True, timeout=30)
+            recognizer = sr.Recognizer()
+            with sr.AudioFile(wav_path) as source:
+                audio_data = recognizer.record(source)
+            text = recognizer.recognize_google(audio_data, language="ar-AR")
+            await event.edit(f"**النص:**\n{text}")
+        except subprocess.CalledProcessError as e:
+            await event.edit(f"**• فشل تحويل الصوت: {e.stderr.decode()[:100]}**")
+        except sr.UnknownValueError:
+            await event.edit("**• لم يتم التعرف على أي كلام**")
+        except sr.RequestError as e:
+            await event.edit(f"**• خطأ في خدمة التعرف: {e}**")
+        except Exception as e:
+            await event.edit(f"**• فشل: {str(e)[:100]}**")
+        finally:
+            for p in [voice_path, wav_path]:
+                if os.path.exists(p): os.remove(p)
+
+    # ── استيكر من صورة ──
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.استيك$'))
+    async def photo_to_sticker(event):
+        if not event.is_reply: await event.edit("**• يرجى الرد على صورة**"); return
+        reply = await event.get_reply_message()
+        if not reply.photo: await event.edit("**• الرد على صورة فقط**"); return
+        await event.edit("**• جاري تحويل الصورة إلى استيكر...**")
+        try: from PIL import Image
+        except ImportError: await event.edit("**• مكتبة Pillow غير مثبتة**"); return
+        img_path = os.path.join(TEMP_DIR, f"img_{phone}_{reply.id}.jpg")
+        stick_path = os.path.join(TEMP_DIR, f"sticker_{phone}_{reply.id}.webp")
+        await client.download_media(reply, img_path)
+        try:
+            im = Image.open(img_path).convert("RGBA")
+            im.thumbnail((512, 512), Image.LANCZOS)
+            im.save(stick_path, "WEBP")
+            await client.send_file(event.chat_id, stick_path)
+            await event.delete()
+        except Exception as e: await event.edit(f"**• فشل: {str(e)[:100]}**")
+        finally:
+            for p in [img_path, stick_path]:
+                if os.path.exists(p): os.remove(p)
+
+    # ── صورة من استيكر ──
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بيك$'))
+    async def sticker_to_photo(event):
+        if not event.is_reply: await event.edit("**• يرجى الرد على استيكر**"); return
+        reply = await event.get_reply_message()
+        if not reply.sticker: await event.edit("**• الرد على استيكر فقط**"); return
+        await event.edit("**• جاري تحويل الاستيكر إلى صورة...**")
+        try: from PIL import Image
+        except ImportError: await event.edit("**• مكتبة Pillow غير مثبتة**"); return
+        stick_path = os.path.join(TEMP_DIR, f"sticker_{phone}_{reply.id}.webp")
+        img_path = os.path.join(TEMP_DIR, f"img_{phone}_{reply.id}.png")
+        await client.download_media(reply, stick_path)
+        try:
+            im = Image.open(stick_path)
+            im.save(img_path, "PNG")
+            await client.send_file(event.chat_id, img_path)
+            await event.delete()
+        except Exception as e: await event.edit(f"**• فشل: {str(e)[:100]}**")
+        finally:
+            for p in [stick_path, img_path]:
+                if os.path.exists(p): os.remove(p)
+
+    # ── تحميل صوت (يوت) ──
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.يوت (.+)'))
     async def youtube_audio(event):
         query = event.pattern_match.group(1).strip()
-        await event.edit("**• جاري البحث عن الفيديو...**")
-
+        await event.edit("**• 🎵 جاري البحث والتحميل...**")
+        loop = asyncio.get_event_loop()
         try:
-            import yt_dlp
-        except ImportError:
-            await event.edit("**• مكتبة yt-dlp غير مثبتة**")
-            return
-
-        final_filepath = None
-        def hook(d):
-            nonlocal final_filepath
-            if d['status'] == 'finished':
-                final_filepath = d.get('info_dict', {}).get('filepath') or d.get('postprocessor_result', {}).get('filepath')
-
-        search_query = f"ytsearch1:{query}" if not query.startswith("http") else query
-        ydl_opts = {
-            'outtmpl': f'{TEMP_DIR}/%(title)s.%(ext)s',
-            'quiet': True,
-            'format': 'bestaudio/best',
-            'extractor_args': {'youtube': {'player_client': ['android']}},
-            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
-            'postprocessor_hooks': [hook],
-        }
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(search_query, download=True)
-                await asyncio.sleep(1)
-
-            if final_filepath and os.path.exists(final_filepath):
-                filepath = final_filepath
-            else:
-                base = ydl.prepare_filename(info)
-                base_no_ext = os.path.splitext(base)[0]
-                for ext in ['.mp3', '.m4a', '.webm', '.opus', '.ogg']:
-                    candidate = base_no_ext + ext
-                    if os.path.exists(candidate):
-                        filepath = candidate
-                        break
-                else:
-                    await event.edit("**• فشل في العثور على الملف بعد التحميل**")
-                    return
-
-            duration_str = format_duration(info.get('duration', 0))
-            caption = f"᥉᥆ᥙɾᥴꫀ Ϙƚһ᥆ꪀ\n• {duration_str} | ᥲᥙძᎥ᥆"
-
-            await client.send_file(
-                event.chat_id,
-                filepath,
-                caption=caption,
-                attributes=[DocumentAttributeAudio(
-                    duration=info.get('duration', 0),
-                    title=info.get('title', ''),
-                    performer=info.get('uploader', '')
-                )]
-            )
-            await event.delete()
-            os.remove(filepath)
-
+            info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_audio, query, TEMP_DIR)
+        except FileNotFoundError as e:
+            await event.edit(f"**• {e}**"); return
         except Exception as e:
-            await event.edit(f"**• فشل التحميل:**\n{str(e)[:200]}")
+            await event.edit(f"**• فشل التحميل:**\n{str(e)[:200]}"); return
+        try:
+            dur = format_duration(info.get('duration', 0))
+            caption = f"᥉᥆ᥙɾᥴꫀ Ϙƚһ᥆ꪀ\n• {dur} | ᥲᥙძᎥ᥆"
+            await client.send_file(event.chat_id, filepath, caption=caption,
+                                   attributes=[DocumentAttributeAudio(duration=info.get('duration',0), title=info.get('title',''), performer=info.get('uploader',''))])
+            await event.delete()
+        except Exception as e:
+            await event.edit(f"**• فشل الإرسال:**\n{str(e)[:200]}")
+        finally:
+            try: os.remove(filepath)
+            except: pass
 
-    # --------------------- تحميل الفيديو (فيد) ---------------------
+    # ── تحميل فيديو (فيد) ──
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فيد (.+)'))
     async def video_download(event):
         query = event.pattern_match.group(1).strip()
-        await event.edit("**• جاري تحميل الفيديو...**")
-
+        await event.edit("**• 🎬 جاري تحميل الفيديو...**")
+        loop = asyncio.get_event_loop()
         try:
-            import yt_dlp
-        except ImportError:
-            await event.edit("**• مكتبة yt-dlp غير مثبتة**")
-            return
-
-        final_filepath = None
-        def hook(d):
-            nonlocal final_filepath
-            if d['status'] == 'finished':
-                final_filepath = d.get('info_dict', {}).get('filepath') or d.get('postprocessor_result', {}).get('filepath')
-
-        search_query = f"ytsearch1:{query}" if not query.startswith("http") else query
-        ydl_opts = {
-            'outtmpl': f'{TEMP_DIR}/%(title)s.%(ext)s',
-            'quiet': True,
-            'format': 'best[height<=720]',
-            'merge_output_format': 'mp4',
-            'extractor_args': {'youtube': {'player_client': ['android']}},
-            'postprocessor_hooks': [hook],
-        }
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(search_query, download=True)
-                await asyncio.sleep(1)
-
-            if final_filepath and os.path.exists(final_filepath):
-                filepath = final_filepath
-            else:
-                base = ydl.prepare_filename(info)
-                base_no_ext = os.path.splitext(base)[0]
-                for ext in ['.mp4', '.webm', '.mkv']:
-                    candidate = base_no_ext + ext
-                    if os.path.exists(candidate):
-                        filepath = candidate
-                        break
-                else:
-                    await event.edit("**• فشل في العثور على ملف الفيديو**")
-                    return
-
-            duration_str = format_duration(info.get('duration', 0))
-            caption = f"᥉᥆ᥙɾᥴꫀ Ϙƚһ᥆ꪀ\n• {duration_str} | ᥎Ꭵძꫀ᥆"
-
-            await client.send_file(
-                event.chat_id,
-                filepath,
-                caption=caption,
-                attributes=[DocumentAttributeVideo(
-                    duration=info.get('duration', 0),
-                    w=info.get('width', 0),
-                    h=info.get('height', 0),
-                    supports_streaming=True
-                )]
-            )
-            await event.delete()
-            os.remove(filepath)
-
+            info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_video, query, TEMP_DIR)
+        except FileNotFoundError as e:
+            await event.edit(f"**• {e}**"); return
         except Exception as e:
-            await event.edit(f"**• فشل تحميل الفيديو:**\n{str(e)[:200]}")
+            await event.edit(f"**• فشل تحميل الفيديو:**\n{str(e)[:200]}"); return
+        try:
+            dur = format_duration(info.get('duration', 0))
+            caption = f"᥉᥆ᥙɾᥴꫀ Ϙƚһ᥆ꪀ\n• {dur} | ᥎Ꭵძꫀ᥆"
+            await client.send_file(event.chat_id, filepath, caption=caption,
+                                   attributes=[DocumentAttributeVideo(duration=info.get('duration',0), w=info.get('width',0), h=info.get('height',0), supports_streaming=True)])
+            await event.delete()
+        except Exception as e:
+            await event.edit(f"**• فشل الإرسال:**\n{str(e)[:200]}")
+        finally:
+            try: os.remove(filepath)
+            except: pass
 
-    # --------------------- تحميل بنترست (بين) ---------------------
+    # ── تحميل بنترست (بين) ──
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بين (.+)'))
     async def pinterest_download(event):
         url = event.pattern_match.group(1).strip()
         if "pinterest.com" not in url and "pin.it" not in url:
-            await event.edit("**• الرجاء إدخال رابط بنترست صالح**")
-            return
-        await event.edit("**• جاري التحميل من بنترست...**")
-
+            await event.edit("**• الرجاء إدخال رابط بنترست صالح**"); return
+        await event.edit("**• 📌 جاري التحميل من بنترست...**")
+        loop = asyncio.get_event_loop()
         try:
-            import yt_dlp
-        except ImportError:
-            await event.edit("**• مكتبة yt-dlp غير مثبتة**")
-            return
-
-        final_filepath = None
-        def hook(d):
-            nonlocal final_filepath
-            if d['status'] == 'finished':
-                final_filepath = d.get('info_dict', {}).get('filepath') or d.get('postprocessor_result', {}).get('filepath')
-
-        ydl_opts = {
-            'outtmpl': f'{TEMP_DIR}/%(title)s.%(ext)s',
-            'quiet': True,
-            'format': 'best',
-            'merge_output_format': 'mp4',
-            'extractor_args': {'youtube': {'player_client': ['android']}},
-            'postprocessor_hooks': [hook],
-        }
+            info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_general, url, TEMP_DIR)
+        except FileNotFoundError as e:
+            await event.edit(f"**• {e}**"); return
+        except Exception as e:
+            await event.edit(f"**• فشل تحميل بنترست:**\n{str(e)[:200]}"); return
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                await asyncio.sleep(1)
-
-            if final_filepath and os.path.exists(final_filepath):
-                filepath = final_filepath
-            else:
-                base = ydl.prepare_filename(info)
-                base_no_ext = os.path.splitext(base)[0]
-                for ext in ['.mp4', '.webm', '.jpg', '.jpeg', '.png', '.gif']:
-                    candidate = base_no_ext + ext
-                    if os.path.exists(candidate):
-                        filepath = candidate
-                        break
-                else:
-                    await event.edit("**• فشل في العثور على الملف**")
-                    return
-
-            if filepath.lower().endswith(('.mp4', '.webm')):
-                duration_str = format_duration(info.get('duration', 0))
-                caption = f"᥉᥆ᥙɾᥴꫀ Ϙƚһ᥆ꪀ\n• {duration_str} | ρᎥꪀƚɾꫀ᥉ꫀƚ"
+            if filepath.lower().endswith(('.mp4','.webm')):
+                dur = format_duration(info.get('duration', 0))
+                caption = f"᥉᥆ᥙɾᥴꫀ Ϙƚһ᥆ꪀ\n• {dur} | ρᎥꪀƚɾꫀ᥉ꫀƚ"
                 await client.send_file(event.chat_id, filepath, caption=caption,
-                                       attributes=[DocumentAttributeVideo(
-                                           duration=info.get('duration', 0),
-                                           w=info.get('width', 0),
-                                           h=info.get('height', 0),
-                                           supports_streaming=True)])
+                                       attributes=[DocumentAttributeVideo(duration=info.get('duration',0), w=info.get('width',0), h=info.get('height',0), supports_streaming=True)])
             else:
                 caption = f"᥉᥆ᥙɾᥴꫀ Ϙƚһ᥆ꪀ\n• Pin | ρᎥꪀƚɾꫀ᥉ꫀƚ"
                 await client.send_file(event.chat_id, filepath, caption=caption)
-
             await event.delete()
-            os.remove(filepath)
-
         except Exception as e:
-            await event.edit(f"**• فشل تحميل بنترست:**\n{str(e)[:200]}")
+            await event.edit(f"**• فشل الإرسال:**\n{str(e)[:200]}")
+        finally:
+            try: os.remove(filepath)
+            except: pass
+
+    # ── مراقبة الخاص (تعديل/حذف) ──
+    message_cache = {}
+    @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private and not e.out))
+    async def cache_private_message(event):
+        if event.sender_id == (await client.get_me()).id: return
+        message_cache.setdefault(event.chat_id, {})[event.id] = event.text or "<وسائط>"
+
+    @client.on(events.MessageEdited(incoming=True, func=lambda e: e.is_private and not e.out))
+    async def notify_edit(event):
+        if event.sender_id == (await client.get_me()).id: return
+        user = await event.get_sender()
+        name = user.first_name or ""
+        if user.last_name: name += f" {user.last_name}"
+        old_text = message_cache.get(event.chat_id, {}).get(event.id, "نص غير معروف")
+        new_text = event.text or "<وسائط>"
+        await client.send_message("me", f"**قام المستخدم {name} بتعديل الرسالة**\n**من:** {old_text}\n**إلى:** {new_text}")
+        message_cache.setdefault(event.chat_id, {})[event.id] = new_text
+
+    @client.on(events.MessageDeleted(incoming=True, func=lambda e: e.is_private and not e.out))
+    async def notify_delete(event):
+        for chat_id, msg_ids in event.deleted_ids.items():
+            for msg_id in msg_ids:
+                old_text = message_cache.get(chat_id, {}).get(msg_id, "نص غير معروف")
+                user_name = "مستخدم"
+                try:
+                    chat = await client.get_entity(chat_id)
+                    user_name = chat.first_name or "مستخدم"
+                except: pass
+                await client.send_message("me", f"**قام المستخدم {user_name} بحذف الرسالة**\n**{old_text}**")
+                if chat_id in message_cache and msg_id in message_cache[chat_id]:
+                    del message_cache[chat_id][msg_id]
 
     logger.info(f"All handlers ready for {phone}")
