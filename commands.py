@@ -4,7 +4,7 @@ import os
 import logging
 import subprocess
 import shutil
-import random
+import requests
 from concurrent.futures import ThreadPoolExecutor
 from telethon import events
 from telethon.errors import FloodWaitError, ChatAdminRequiredError
@@ -21,15 +21,23 @@ from shared import (
     client_me, track_command, logger, TEMP_DIR
 )
 
-# ────────────── مساعدات التحميل السريع ──────────────
+# ────────────── مساعدات التحميل ──────────────
 _DOWNLOAD_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="yt_dl")
+_COOKIES_FILE = "cookies.txt"   # اختياري: لو موجود سيُستخدم
+
+# قائمة بنقاط Invidious عامة (مرتبة)
+_INVIDIOUS_INSTANCES = [
+    "https://invidious.tiekoetter.com",
+    "https://invidi.link",
+    "https://yewtu.be",
+    "https://invidious.snopyta.org",
+    "https://vid.puffyan.us",
+]
 
 def _check_aria2c() -> bool:
     return shutil.which("aria2c") is not None
 
-def _build_base_opts(out_dir: str) -> dict:
-    # نختار عشوائياً بين iOS و web لتقليل الحظر
-    client = random.choice(['ios', 'web'])
+def _build_base_opts(out_dir: str, client_type: str = 'web') -> dict:
     opts = {
         'outtmpl': f'{out_dir}/%(title).80s.%(ext)s',
         'quiet': True,
@@ -39,20 +47,22 @@ def _build_base_opts(out_dir: str) -> dict:
         'concurrent_fragment_downloads': 8,
         'http_chunk_size': 10 * 1024 * 1024,
         'socket_timeout': 60,
-        'retries': 3,
-        'fragment_retries': 3,
+        'retries': 5,
+        'fragment_retries': 5,
         'geo_bypass': True,
         'extractor_args': {
             'youtube': {
-                'player_client': [client],
+                'player_client': [client_type],
                 'skip': ['dash', 'hls'],
             }
         },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
         },
     }
+    if os.path.exists(_COOKIES_FILE):
+        opts['cookiefile'] = _COOKIES_FILE
     if _check_aria2c():
         opts.update({
             'external_downloader': 'aria2c',
@@ -75,27 +85,54 @@ def format_duration(seconds):
     mins, secs = divmod(int(seconds), 60)
     return f"{mins}:{secs:02d}"
 
-# ────────────── دوال yt-dlp ──────────────
-def _run_ytdlp_audio(query: str, out_dir: str) -> tuple:
+# ────────────── Invidious Search (خارج الصندوق) ──────────────
+def _search_invidious(query: str) -> str:
+    """تبحث في Invidious وتُعيد رابط الفيديو الأول، أو تُثير خطأ"""
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:120.0) Gecko/20100101 Firefox/120.0"}
+    for instance in _INVIDIOUS_INSTANCES:
+        try:
+            resp = requests.get(
+                f"{instance}/api/v1/search",
+                params={"q": query, "type": "video", "sort": "relevance"},
+                headers=headers,
+                timeout=10
+            )
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            if not data:
+                continue
+            video_id = data[0].get("videoId")
+            if video_id:
+                return f"https://www.youtube.com/watch?v={video_id}"
+        except Exception:
+            continue
+    raise ValueError("لم يتم العثور على فيديو عبر Invidious")
+
+# ────────────── دوال التحميل (مع محاولات متعددة) ──────────────
+def _run_ytdlp_audio(query: str, out_dir: str, client_type: str = 'web') -> tuple:
     import yt_dlp
     final_path = {}
     def hook(d):
         if d['status'] == 'finished':
             fp = d.get('info_dict', {}).get('filepath') or d.get('postprocessor_result', {}).get('filepath')
             if fp: final_path['v'] = fp
-    opts = _build_base_opts(out_dir)
+
+    opts = _build_base_opts(out_dir, client_type)
     opts.update({
         'format': 'bestaudio[abr>=128]/bestaudio/best',
         'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
         'postprocessor_hooks': [hook],
     })
+
     search = f"ytsearch1:{query}" if not query.startswith("http") else query
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(search, download=True)
         if isinstance(info, dict) and 'entries' in info:
-            if not info['entries']: raise ValueError("yt-dlp: لا نتائج")
+            if not info['entries']: raise ValueError("لم يتم العثور على أي نتيجة")
             info = info['entries'][0]
-        elif not info: raise ValueError("yt-dlp: فشل")
+        elif not info: raise ValueError("لم يتم العثور على فيديو")
+
     filepath = final_path.get('v')
     if not filepath or not os.path.exists(filepath):
         base = ydl.prepare_filename(info)
@@ -106,26 +143,29 @@ def _run_ytdlp_audio(query: str, out_dir: str) -> tuple:
         else: raise FileNotFoundError("لم يُعثر على ملف الصوت بعد التحميل")
     return info, filepath
 
-def _run_ytdlp_video(query: str, out_dir: str) -> tuple:
+def _run_ytdlp_video(query: str, out_dir: str, client_type: str = 'web') -> tuple:
     import yt_dlp
     final_path = {}
     def hook(d):
         if d['status'] == 'finished':
             fp = d.get('info_dict', {}).get('filepath') or d.get('postprocessor_result', {}).get('filepath')
             if fp: final_path['v'] = fp
-    opts = _build_base_opts(out_dir)
+
+    opts = _build_base_opts(out_dir, client_type)
     opts.update({
         'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best',
         'merge_output_format': 'mp4',
         'postprocessor_hooks': [hook],
     })
+
     search = f"ytsearch1:{query}" if not query.startswith("http") else query
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(search, download=True)
         if isinstance(info, dict) and 'entries' in info:
-            if not info['entries']: raise ValueError("yt-dlp: لا نتائج")
+            if not info['entries']: raise ValueError("لم يتم العثور على أي فيديو")
             info = info['entries'][0]
-        elif not info: raise ValueError("yt-dlp: فشل")
+        elif not info: raise ValueError("لم يتم العثور على فيديو")
+
     filepath = final_path.get('v')
     if not filepath or not os.path.exists(filepath):
         base = ydl.prepare_filename(info)
@@ -136,21 +176,23 @@ def _run_ytdlp_video(query: str, out_dir: str) -> tuple:
         else: raise FileNotFoundError("لم يُعثر على ملف الفيديو بعد التحميل")
     return info, filepath
 
-def _run_ytdlp_general(url: str, out_dir: str) -> tuple:
+def _run_ytdlp_general(url: str, out_dir: str, client_type: str = 'web') -> tuple:
     import yt_dlp
     final_path = {}
     def hook(d):
         if d['status'] == 'finished':
             fp = d.get('info_dict', {}).get('filepath') or d.get('postprocessor_result', {}).get('filepath')
             if fp: final_path['v'] = fp
-    opts = _build_base_opts(out_dir)
+
+    opts = _build_base_opts(out_dir, client_type)
     opts.update({'format': 'best', 'merge_output_format': 'mp4', 'postprocessor_hooks': [hook]})
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
         if isinstance(info, dict) and 'entries' in info:
-            if not info['entries']: raise ValueError("yt-dlp: لا محتوى")
+            if not info['entries']: raise ValueError("لم يتم العثور على المحتوى")
             info = info['entries'][0]
-        elif not info: raise ValueError("yt-dlp: فشل")
+        elif not info: raise ValueError("فشل التحميل")
+
     filepath = final_path.get('v')
     if not filepath or not os.path.exists(filepath):
         base = ydl.prepare_filename(info)
@@ -160,62 +202,6 @@ def _run_ytdlp_general(url: str, out_dir: str) -> tuple:
             if os.path.exists(c): filepath = c; break
         else: raise FileNotFoundError("لم يُعثر على الملف بعد التحميل")
     return info, filepath
-
-# ────────────── دوال pytube (احتياطية) ──────────────
-def _pytube_audio(query: str, out_dir: str) -> tuple:
-    from pytube import Search, YouTube
-    from pytube.exceptions import AgeRestrictedError, VideoUnavailable
-    try:
-        if query.startswith("http"):
-            yt = YouTube(query)
-        else:
-            search = Search(query)
-            if not search.results:
-                raise ValueError("pytube: لا نتائج")
-            yt = search.results[0]
-        stream = yt.streams.filter(only_audio=True).order_by('abr').desc().first()
-        if not stream:
-            raise ValueError("لا يوجد تدفق صوتي")
-        # تحميل الصوت
-        out_file = stream.download(output_path=out_dir, filename_prefix='pytube_')
-        # تحويل إلى mp3 باستخدام ffmpeg
-        base, _ = os.path.splitext(out_file)
-        mp3_path = base + '.mp3'
-        subprocess.run(['ffmpeg', '-i', out_file, '-vn', '-ab', '192k', mp3_path], check=True, capture_output=True)
-        os.remove(out_file)
-        return {
-            'title': yt.title,
-            'duration': yt.length,
-            'uploader': yt.author
-        }, mp3_path
-    except Exception as e:
-        raise RuntimeError(f"pytube: {e}")
-
-def _pytube_video(query: str, out_dir: str) -> tuple:
-    from pytube import Search, YouTube
-    from pytube.exceptions import AgeRestrictedError, VideoUnavailable
-    try:
-        if query.startswith("http"):
-            yt = YouTube(query)
-        else:
-            search = Search(query)
-            if not search.results:
-                raise ValueError("pytube: لا نتائج")
-            yt = search.results[0]
-        stream = yt.streams.filter(progressive=True, file_extension='mp4', resolution='720p').first()
-        if not stream:
-            stream = yt.streams.filter(progressive=True).order_by('resolution').desc().first()
-        if not stream:
-            raise ValueError("لا يوجد تدفق فيديو")
-        out_file = stream.download(output_path=out_dir, filename_prefix='pytube_')
-        return {
-            'title': yt.title,
-            'duration': yt.length,
-            'width': stream.resolution.split('x')[0] if stream.resolution else 0,
-            'height': stream.resolution.split('x')[1] if stream.resolution else 0,
-        }, out_file
-    except Exception as e:
-        raise RuntimeError(f"pytube: {e}")
 
 # ────────────── دوال الانتحال (بدون تغيير) ──────────────
 async def get_user_info_full(client, user_id):
@@ -421,7 +407,7 @@ async def setup_handlers(client, phone):
             for p in [voice_path, wav_path]:
                 if os.path.exists(p): os.remove(p)
 
-    # ─ـ استيكر من صورة ─ـ
+    # ─ـ استيكر / صورة ─ـ
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.استيك$'))
     async def photo_to_sticker(event):
         if not event.is_reply: await event.edit("**• يرجى الرد على صورة**"); return
@@ -444,7 +430,6 @@ async def setup_handlers(client, phone):
             for p in [img_path, stick_path]:
                 if os.path.exists(p): os.remove(p)
 
-    # ─ـ صورة من استيكر ─ـ
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بيك$'))
     async def sticker_to_photo(event):
         if not event.is_reply: await event.edit("**• يرجى الرد على استيكر**"); return
@@ -472,13 +457,19 @@ async def setup_handlers(client, phone):
         query = event.pattern_match.group(1).strip()
         await event.edit("**• 🎵 جاري البحث والتحميل...**")
         loop = asyncio.get_event_loop()
-        # محاولة 1: yt-dlp
-        try:
-            info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_audio, query, TEMP_DIR)
-        except Exception:
-            # محاولة 2: pytube
+        info = filepath = None
+        # المحاولة 1: yt-dlp مباشر
+        for client_type in ('web', 'android'):
             try:
-                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _pytube_audio, query, TEMP_DIR)
+                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_audio, query, TEMP_DIR, client_type)
+                break
+            except Exception:
+                continue
+        # المحاولة 2: البحث عبر Invidious
+        if not info:
+            try:
+                invidious_url = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _search_invidious, query)
+                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_audio, invidious_url, TEMP_DIR, 'web')
             except Exception as e:
                 await event.edit(f"**• فشل التحميل:**\n{str(e)[:200]}"); return
         try:
@@ -501,11 +492,17 @@ async def setup_handlers(client, phone):
         query = event.pattern_match.group(1).strip()
         await event.edit("**• 🎬 جاري تحميل الفيديو...**")
         loop = asyncio.get_event_loop()
-        try:
-            info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_video, query, TEMP_DIR)
-        except Exception:
+        info = filepath = None
+        for client_type in ('web', 'android'):
             try:
-                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _pytube_video, query, TEMP_DIR)
+                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_video, query, TEMP_DIR, client_type)
+                break
+            except Exception:
+                continue
+        if not info:
+            try:
+                invidious_url = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _search_invidious, query)
+                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_video, invidious_url, TEMP_DIR, 'web')
             except Exception as e:
                 await event.edit(f"**• فشل تحميل الفيديو:**\n{str(e)[:200]}"); return
         try:
@@ -522,7 +519,7 @@ async def setup_handlers(client, phone):
             try: os.remove(filepath)
             except: pass
 
-    # ─ـ تحميل بنترست (بين) ─ـ (يستخدم yt-dlp فقط)
+    # ─ـ بنترست (بين) ─ـ
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بين (.+)'))
     async def pinterest_download(event):
         url = event.pattern_match.group(1).strip()
@@ -530,7 +527,7 @@ async def setup_handlers(client, phone):
         await event.edit("**• 📌 جاري التحميل من بنترست...**")
         loop = asyncio.get_event_loop()
         try:
-            info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_general, url, TEMP_DIR)
+            info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_general, url, TEMP_DIR, 'web')
         except Exception as e:
             await event.edit(f"**• فشل تحميل بنترست:**\n{str(e)[:200]}"); return
         try:
