@@ -11,3 +11,4 @@ aiohttp
 aiofiles
 httpx[http2]
 pytube
+duckduckgo_search
