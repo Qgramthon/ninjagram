@@ -9,6 +9,7 @@ import re
 import time
 import hashlib
 import tempfile
+import json
 from concurrent.futures import ThreadPoolExecutor
 from telethon import events
 from telethon.errors import FloodWaitError, ChatAdminRequiredError
@@ -134,7 +135,263 @@ def clean_filename(name):
     name = re.sub(r'\s+', ' ', name).strip()
     return name[:100]
 
-# ============== دوال التحميل من يوتيوب - المعدلة ==============
+# ============== دوال البحث عن الصور - المحسنة ==============
+def search_images_google_direct(query: str, limit: int = 10) -> list:
+    """البحث عن صور في جوجل مباشرة"""
+    images = []
+    
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'ar,en-US;q=0.7,en;q=0.3',
+        }
+        
+        url = f"https://www.google.com/search?q={requests.utils.quote(query)}&tbm=isch&hl=ar&safe=active"
+        resp = requests.get(url, headers=headers, timeout=15)
+        
+        if resp.status_code == 200:
+            # طريقة 1: استخراج من data-src
+            urls = re.findall(r'data-src="(https?://[^"]+)"', resp.text)
+            if not urls:
+                # طريقة 2: استخراج روابط الصور العادية
+                urls = re.findall(r'"(https?://[^"]+\.(?:jpg|jpeg|png|webp|gif|bmp)[^"]*)"', resp.text, re.I)
+            
+            # تصفية الروابط
+            for url in urls:
+                if url.startswith('http') and 'google' not in url.lower() and 'gstatic' not in url.lower():
+                    # التحقق من أن الرابط صورة فعلاً
+                    if any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']):
+                        images.append(url)
+                        if len(images) >= limit:
+                            break
+            
+            logger.info(f"Google Images: تم العثور على {len(images)} صورة")
+            
+    except Exception as e:
+        logger.error(f"خطأ في البحث عن صور جوجل: {e}")
+    
+    return images
+
+def search_images_bing(query: str, limit: int = 10) -> list:
+    """البحث عن صور في Bing"""
+    images = []
+    
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        }
+        
+        url = f"https://www.bing.com/images/search?q={requests.utils.quote(query)}&first=1&count={limit}"
+        resp = requests.get(url, headers=headers, timeout=15)
+        
+        if resp.status_code == 200:
+            # استخراج روابط الصور من Bing
+            urls = re.findall(r'<img[^>]+src="([^"]+)"', resp.text)
+            
+            for url in urls:
+                if url.startswith('http') and 'bing.com' not in url.lower():
+                    images.append(url)
+                    if len(images) >= limit:
+                        break
+            
+            logger.info(f"Bing Images: تم العثور على {len(images)} صورة")
+            
+    except Exception as e:
+        logger.error(f"خطأ في البحث عن صور Bing: {e}")
+    
+    return images
+
+def search_images_ddg(query: str, limit: int = 10) -> list:
+    """البحث عن صور في DuckDuckGo"""
+    images = []
+    
+    try:
+        from duckduckgo_search import DDGS
+        with DDGS() as ddgs:
+            results = list(ddgs.images(query, max_results=limit))
+            images = [img["image"] for img in results if img.get("image")]
+        logger.info(f"DuckDuckGo: تم العثور على {len(images)} صورة")
+    except ImportError:
+        logger.warning("مكتبة duckduckgo_search غير مثبتة")
+    except Exception as e:
+        logger.error(f"خطأ في البحث عن صور DuckDuckGo: {e}")
+    
+    return images
+
+def search_images_pixabay(query: str, limit: int = 10) -> list:
+    """البحث عن صور في Pixabay"""
+    images = []
+    
+    try:
+        # مفتاح API مجاني من Pixabay
+        api_key = "25564984-2e3f8b5f6b6f6e5e5e5e5e5e"
+        
+        url = "https://pixabay.com/api/"
+        params = {
+            "key": api_key,
+            "q": query,
+            "image_type": "photo",
+            "per_page": limit,
+            "safesearch": "true",
+            "orientation": "all",
+        }
+        
+        resp = requests.get(url, params=params, timeout=15)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            for hit in data.get("hits", []):
+                if "webformatURL" in hit:
+                    images.append(hit["webformatURL"])
+            
+            logger.info(f"Pixabay: تم العثور على {len(images)} صورة")
+            
+    except Exception as e:
+        logger.error(f"خطأ في البحث عن صور Pixabay: {e}")
+    
+    return images
+
+def search_images_unsplash(query: str, limit: int = 10) -> list:
+    """البحث عن صور في Unsplash"""
+    images = []
+    
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+        }
+        
+        url = f"https://unsplash.com/napi/search/photos?query={requests.utils.quote(query)}&per_page={limit}"
+        resp = requests.get(url, headers=headers, timeout=15)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            for result in data.get("results", []):
+                if "urls" in result and "regular" in result["urls"]:
+                    images.append(result["urls"]["regular"])
+            
+            logger.info(f"Unsplash: تم العثور على {len(images)} صورة")
+            
+    except Exception as e:
+        logger.error(f"خطأ في البحث عن صور Unsplash: {e}")
+    
+    return images
+
+def search_all_images(query: str, limit: int = 5) -> list:
+    """البحث عن صور من جميع المصادر"""
+    all_images = []
+    
+    # قائمة محركات البحث مرتبة حسب الأولوية
+    search_engines = [
+        ("Google", search_images_google_direct),
+        ("Bing", search_images_bing),
+        ("DuckDuckGo", search_images_ddg),
+        ("Pixabay", search_images_pixabay),
+        ("Unsplash", search_images_unsplash),
+    ]
+    
+    for engine_name, search_func in search_engines:
+        try:
+            logger.info(f"جاري البحث في {engine_name}...")
+            images = search_func(query, limit=10)
+            
+            if images:
+                all_images.extend(images)
+                logger.info(f"✅ {engine_name}: {len(images)} صورة")
+                
+                # إذا وجدنا عدد كافي من الصور، نكتفي
+                if len(all_images) >= limit:
+                    break
+                    
+        except Exception as e:
+            logger.error(f"❌ فشل البحث في {engine_name}: {e}")
+            continue
+    
+    # إزالة التكرار
+    seen = set()
+    unique_images = []
+    for url in all_images:
+        if url not in seen:
+            seen.add(url)
+            unique_images.append(url)
+    
+    logger.info(f"إجمالي الصور الفريدة: {len(unique_images)}")
+    
+    return unique_images[:limit]
+
+# ============== دوال تحميل الصور - المحسنة ==============
+def download_image_direct(url: str, out_dir: str) -> str:
+    """تحميل صورة مباشرة مع معالجة محسنة"""
+    has_space, free_mb = check_disk_space(10)
+    if not has_space:
+        clean_temp_files()
+        has_space, free_mb = check_disk_space(10)
+        if not has_space:
+            return None
+    
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'image/webp,image/*,*/*;q=0.8',
+            'Referer': 'https://www.google.com/',
+        }
+        
+        resp = requests.get(url, headers=headers, stream=True, timeout=30, allow_redirects=True)
+        
+        if resp.status_code != 200:
+            logger.warning(f"فشل تحميل الصورة: {url} - Status: {resp.status_code}")
+            return None
+        
+        # تحديد الامتداد
+        content_type = resp.headers.get('content-type', '').lower()
+        ext = '.jpg'
+        if 'png' in content_type:
+            ext = '.png'
+        elif 'webp' in content_type:
+            ext = '.webp'
+        elif 'gif' in content_type:
+            ext = '.gif'
+        elif 'jpeg' in content_type or 'jpg' in content_type:
+            ext = '.jpg'
+        else:
+            # محاولة تحديد الامتداد من الرابط
+            url_ext = os.path.splitext(url.split('?')[0])[1].lower()
+            if url_ext in ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']:
+                ext = url_ext
+        
+        timestamp = int(time.time() * 1000)
+        filename = f"img_{timestamp}_{hashlib.md5(url.encode()).hexdigest()[:8]}{ext}"
+        filepath = os.path.join(out_dir, filename)
+        
+        total_size = 0
+        with open(filepath, 'wb') as f:
+            for chunk in resp.iter_content(8192):
+                if chunk:
+                    f.write(chunk)
+                    total_size += len(chunk)
+                    if total_size > 10 * 1024 * 1024:  # 10MB حد أقصى
+                        safe_remove(filepath)
+                        logger.warning(f"الصورة كبيرة جداً: {url}")
+                        return None
+        
+        if total_size < 512:  # أقل من 512 بايت = تالفة
+            safe_remove(filepath)
+            logger.warning(f"الصورة صغيرة جداً: {url}")
+            return None
+        
+        logger.info(f"✅ تم تحميل الصورة: {filename} ({format_size(total_size)})")
+        return filepath
+        
+    except requests.Timeout:
+        logger.warning(f"انتهت مهلة تحميل الصورة: {url}")
+        return None
+    except Exception as e:
+        logger.error(f"فشل تحميل الصورة: {e}")
+        return None
+
+# ============== دوال التحميل من يوتيوب ==============
 def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
     """تحميل من يوتيوب مع استخراج المعلومات الصحيحة"""
     if not YTDLP_AVAILABLE:
@@ -161,7 +418,7 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
             'quiet': True,
             'no_warnings': True,
             'max_filesize': 50 * 1024 * 1024,
-            'extract_flat': False,  # مهم: استخراج المعلومات الكاملة
+            'extract_flat': False,
         }
     else:
         ydl_opts = {
@@ -171,29 +428,26 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
             'no_warnings': True,
             'max_filesize': 100 * 1024 * 1024,
             'merge_output_format': 'mp4',
-            'extract_flat': False,  # مهم: استخراج المعلومات الكاملة
+            'extract_flat': False,
         }
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # الخطوة 1: استخراج المعلومات أولاً بدون تحميل
+            # استخراج المعلومات أولاً بدون تحميل
             info_dict = ydl.extract_info(query, download=False)
             
-            # التعامل مع قوائم التشغيل والبحث
             if 'entries' in info_dict:
                 info_dict = info_dict['entries'][0]
             
-            # استخراج المعلومات الصحيحة
             title = info_dict.get('title', 'بدون عنوان')
             uploader = info_dict.get('uploader', 'غير معروف')
             duration = info_dict.get('duration', 0)
             
             logger.info(f"تم استخراج المعلومات: {title} - {uploader} - {duration}s")
             
-            # الخطوة 2: التحميل الفعلي
+            # التحميل الفعلي
             info_dict = ydl.extract_info(query, download=True)
             
-            # البحث عن الملف المحمل
             prefix = 'audio_' if audio_only else 'video_'
             files = [f for f in os.listdir(out_dir) if f.startswith(f'{prefix}{timestamp}')]
             
@@ -205,7 +459,6 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
             if not os.path.exists(filepath) or os.path.getsize(filepath) < 1024:
                 raise ValueError("الملف تالف")
             
-            # التأكد من القيم
             if duration == 0 and 'duration' in info_dict:
                 duration = info_dict.get('duration', 0)
             
@@ -225,89 +478,70 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
                 safe_remove(os.path.join(out_dir, f))
         raise ValueError(f"فشل التحميل: {str(e)[:200]}")
 
-# ============== دوال تحميل الصور ==============
-def download_image_direct(url: str, out_dir: str):
-    has_space, free_mb = check_disk_space(10)
+# ============== دالة تحويل الفيديو إلى صوت ==============
+def convert_video_to_audio(video_path: str, out_dir: str):
+    """تحويل ملف فيديو إلى صوت MP3"""
+    if not os.path.exists(video_path):
+        raise ValueError("ملف الفيديو غير موجود")
+    
+    has_space, free_mb = check_disk_space(30)
     if not has_space:
         raise ValueError(f"المساحة غير كافية. المتاح: {free_mb:.1f}MB")
     
+    timestamp = int(time.time())
+    audio_filename = f"audio_conv_{timestamp}.mp3"
+    audio_path = os.path.join(out_dir, audio_filename)
+    
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        resp = requests.get(url, headers=headers, stream=True, timeout=30)
+        cmd = [
+            'ffmpeg',
+            '-i', video_path,
+            '-vn',
+            '-acodec', 'libmp3lame',
+            '-ab', '192k',
+            '-ar', '44100',
+            '-y',
+            audio_path
+        ]
         
-        if resp.status_code != 200:
-            raise ValueError(f"خطأ في التحميل: {resp.status_code}")
+        result = subprocess.run(cmd, capture_output=True, timeout=120)
         
-        content_type = resp.headers.get('content-type', '')
-        ext = '.jpg'
-        if 'png' in content_type:
-            ext = '.png'
-        elif 'webp' in content_type:
-            ext = '.webp'
-        elif 'gif' in content_type:
-            ext = '.gif'
+        if result.returncode != 0:
+            error_msg = result.stderr.decode()[:200] if result.stderr else "خطأ غير معروف"
+            raise ValueError(f"فشل تحويل الفيديو إلى صوت: {error_msg}")
         
-        timestamp = int(time.time() * 1000)
-        filepath = os.path.join(out_dir, f"img_{timestamp}{ext}")
+        if not os.path.exists(audio_path) or os.path.getsize(audio_path) < 1024:
+            raise ValueError("الملف الصوتي الناتج تالف")
         
-        total_size = 0
-        with open(filepath, 'wb') as f:
-            for chunk in resp.iter_content(8192):
-                if chunk:
-                    f.write(chunk)
-                    total_size += len(chunk)
-                    if total_size > 10 * 1024 * 1024:
-                        safe_remove(filepath)
-                        raise ValueError("الصورة كبيرة جداً")
+        duration = 0
+        try:
+            probe_cmd = [
+                'ffprobe',
+                '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                video_path
+            ]
+            probe_result = subprocess.run(probe_cmd, capture_output=True, timeout=10)
+            if probe_result.returncode == 0:
+                duration = float(probe_result.stdout.decode().strip())
+        except:
+            pass
         
-        if total_size < 1024:
-            safe_remove(filepath)
-            raise ValueError("الملف تالف")
+        return {
+            'path': audio_path,
+            'duration': duration,
+            'duration_str': format_duration(duration),
+            'size': os.path.getsize(audio_path),
+            'size_str': format_size(os.path.getsize(audio_path)),
+        }
         
-        return filepath
-        
+    except subprocess.TimeoutExpired:
+        safe_remove(audio_path)
+        raise ValueError("انتهت مهلة تحويل الفيديو")
     except Exception as e:
-        raise ValueError(f"فشل التحميل: {str(e)[:150]}")
-
-def search_images(query: str, limit: int = 5):
-    images = []
-    try:
-        from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
-            results = list(ddgs.images(query, max_results=limit))
-        images = [img["image"] for img in results if img.get("image")]
-    except:
-        pass
-    
-    if not images:
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            url = f"https://www.google.com/search?q={requests.utils.quote(query)}&tbm=isch&hl=ar"
-            resp = requests.get(url, headers=headers, timeout=15)
-            if resp.status_code == 200:
-                urls = re.findall(r'"(https?://[^"]+\.(?:jpg|jpeg|png|webp))"', resp.text, re.I)
-                images = urls[:limit]
-        except:
-            pass
-    
-    if not images:
-        try:
-            resp = requests.get(
-                "https://pixabay.com/api/",
-                params={
-                    "key": "25564984-2e3f8b5f6b6f6e5e5e5e5e5e",
-                    "q": query,
-                    "image_type": "photo",
-                    "per_page": limit
-                },
-                timeout=15
-            )
-            if resp.status_code == 200:
-                images = [img["webformatURL"] for img in resp.json().get("hits", [])][:limit]
-        except:
-            pass
-    
-    return images
+        safe_remove(audio_path)
+        raise ValueError(f"فشل تحويل الفيديو: {str(e)[:200]}")
 
 # ============== دوال الانتحال ==============
 async def get_user_info_full(client, user_id):
@@ -425,7 +659,7 @@ async def setup_handlers(client, phone):
         
         await event.edit(msg)
 
-    # ============== أمر .يوت (تحميل صوت) - المعدل ==============
+    # ============== أمر .يوت (تحميل صوت) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.يوت (.+)'))
     async def youtube_audio(event):
         if not YTDLP_AVAILABLE:
@@ -448,11 +682,10 @@ async def setup_handlers(client, phone):
                 _DOWNLOAD_EXECUTOR, download_youtube_media, query, TEMP_DIR, True
             )
             
-            # استخدام الاسم الأصلي والمدة الصحيحة
             title = info['title']
             if len(title) > 55:
                 title = title[:52] + '...'
-            dur = info['duration_str']  # المدة الصحيحة
+            dur = info['duration_str']
             caption = f"{title}\n• {dur} | ᥲᥙძᎥ᥆"
             
             await client.send_file(
@@ -461,9 +694,9 @@ async def setup_handlers(client, phone):
                 caption=caption,
                 attributes=[
                     DocumentAttributeAudio(
-                        duration=info['duration'],  # المدة الصحيحة بالثواني
-                        title=info['title'],  # الاسم الأصلي
-                        performer=info['uploader']  # اسم القناة
+                        duration=info['duration'],
+                        title=info['title'],
+                        performer=info['uploader']
                     )
                 ],
                 supports_streaming=True
@@ -477,7 +710,7 @@ async def setup_handlers(client, phone):
             safe_remove(filepath)
             clean_temp_files()
 
-    # ============== أمر .فيد (تحميل فيديو) - المعدل ==============
+    # ============== أمر .فيد (تحميل فيديو) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فيد (.+)'))
     async def video_download(event):
         if not YTDLP_AVAILABLE:
@@ -500,11 +733,10 @@ async def setup_handlers(client, phone):
                 _DOWNLOAD_EXECUTOR, download_youtube_media, query, TEMP_DIR, False
             )
             
-            # استخدام الاسم الأصلي والمدة الصحيحة
             title = info['title']
             if len(title) > 55:
                 title = title[:52] + '...'
-            dur = info['duration_str']  # المدة الصحيحة
+            dur = info['duration_str']
             caption = f"{title}\n• {dur} | ᥎Ꭵძꫀ᥆"
             
             await client.send_file(
@@ -513,7 +745,7 @@ async def setup_handlers(client, phone):
                 caption=caption,
                 attributes=[
                     DocumentAttributeVideo(
-                        duration=info['duration'],  # المدة الصحيحة بالثواني
+                        duration=info['duration'],
                         w=0,
                         h=0,
                         supports_streaming=True
@@ -528,6 +760,94 @@ async def setup_handlers(client, phone):
             await event.edit(f"**• ❌ {str(e)[:200]}**")
         finally:
             safe_remove(filepath)
+            clean_temp_files()
+
+    # ============== أمر .صوت (تحويل فيديو إلى صوت) ==============
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.صوت$'))
+    async def video_to_audio(event):
+        """تحويل الفيديو المردود عليه إلى صوت"""
+        if not event.is_reply:
+            await event.edit("**• ❌ يرجى الرد على فيديو**")
+            return
+        
+        reply = await event.get_reply_message()
+        
+        if not (reply.video or reply.document):
+            await event.edit("**• ❌ يرجى الرد على فيديو فقط**")
+            return
+        
+        if reply.document:
+            mime_type = reply.document.mime_type or ''
+            if not mime_type.startswith('video/'):
+                await event.edit("**• ❌ الملف المردود عليه ليس فيديو**")
+                return
+        
+        has_space, free_mb = check_disk_space(30)
+        if not has_space:
+            await event.edit(f"**• ❌ المساحة غير كافية ({free_mb:.1f}MB)**\n**• استخدم .تنظيف**")
+            return
+        
+        await event.edit("**• 🎵 جاري تحويل الفيديو إلى صوت...**")
+        
+        video_path = None
+        audio_path = None
+        
+        try:
+            video_filename = f"video_conv_{phone}_{int(time.time())}"
+            if reply.video:
+                video_filename += ".mp4"
+            else:
+                ext = os.path.splitext(reply.document.attributes[0].file_name or '')[-1] or '.mp4'
+                video_filename += ext
+            
+            video_path = os.path.join(TEMP_DIR, video_filename)
+            await client.download_media(reply, video_path)
+            
+            if not os.path.exists(video_path) or os.path.getsize(video_path) < 1024:
+                raise ValueError("فشل تحميل الفيديو")
+            
+            original_name = "فيديو"
+            if reply.video and hasattr(reply, 'message') and reply.message:
+                original_name = reply.message[:100]
+            elif reply.document:
+                for attr in reply.document.attributes:
+                    if hasattr(attr, 'file_name') and attr.file_name:
+                        original_name = os.path.splitext(attr.file_name)[0]
+                        break
+            
+            audio_info = await asyncio.get_event_loop().run_in_executor(
+                _DOWNLOAD_EXECUTOR, convert_video_to_audio, video_path, TEMP_DIR
+            )
+            
+            audio_path = audio_info['path']
+            
+            title = clean_filename(original_name)
+            if len(title) > 55:
+                title = title[:52] + '...'
+            dur = audio_info['duration_str']
+            caption = f"{title}\n• {dur} | 🎵 ᥲᥙძᎥ᥆ (محول من فيديو)"
+            
+            await client.send_file(
+                event.chat_id,
+                audio_path,
+                caption=caption,
+                attributes=[
+                    DocumentAttributeAudio(
+                        duration=int(audio_info['duration']),
+                        title=title,
+                        performer='محول من فيديو'
+                    )
+                ],
+                supports_streaming=True
+            )
+            
+            await event.delete()
+            
+        except Exception as e:
+            await event.edit(f"**• ❌ {str(e)[:200]}**")
+        finally:
+            safe_remove(video_path)
+            safe_remove(audio_path)
             clean_temp_files()
 
     # ============== أمر .نسخ (تحويل صوت لنص) ==============
@@ -703,7 +1023,7 @@ async def setup_handlers(client, phone):
             safe_remove(stick_path)
             safe_remove(img_path)
 
-    # ============== أمر .بن (تحميل صور) ==============
+    # ============== أمر .بن (تحميل صور) - المحسن ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بن (.+)'))
     async def image_search_download(event):
         query = event.pattern_match.group(1).strip()
@@ -713,6 +1033,7 @@ async def setup_handlers(client, phone):
             await event.edit(f"**• ❌ المساحة غير كافية ({free_mb:.1f}MB)**\n**• استخدم .تنظيف**")
             return
         
+        # إذا كان رابط مباشر
         if query.startswith('http'):
             await event.edit("**• 📷 جاري تحميل الصورة...**")
             
@@ -726,46 +1047,67 @@ async def setup_handlers(client, phone):
                     await event.delete()
                     safe_remove(filepath)
                 else:
-                    await event.edit("**• ❌ فشل تحميل الصورة**")
+                    await event.edit("**• ❌ فشل تحميل الصورة - تأكد من الرابط**")
                     
             except Exception as e:
                 await event.edit(f"**• ❌ {str(e)[:150]}**")
             return
         
-        await event.edit("**• 🔍 جاري البحث...**")
+        # البحث عن صور
+        await event.edit("**• 🔍 جاري البحث في محركات البحث...**")
         
         urls = await asyncio.get_event_loop().run_in_executor(
-            _DOWNLOAD_EXECUTOR, search_images, query, 5
+            _DOWNLOAD_EXECUTOR, search_all_images, query, 5
         )
         
         if not urls:
-            await event.edit("**• ❌ لم يتم العثور على صور**")
+            await event.edit("**• ❌ لم يتم العثور على صور**\n**• جرب كلمات بحث مختلفة**")
             return
         
+        await event.edit(f"**• ✅ تم العثور على {len(urls)} صورة**\n**• 📥 جاري التحميل...**")
+        
         success = 0
-        for i, url in enumerate(urls[:3]):
+        downloaded_paths = []
+        
+        # تحميل الصور
+        for i, url in enumerate(urls, 1):
             try:
-                await event.edit(f"**• 📥 جاري تحميل {i+1}/{min(len(urls), 3)}...**")
+                await event.edit(f"**• 📥 جاري تحميل الصورة {i}/{len(urls)}...**")
                 
                 filepath = await asyncio.get_event_loop().run_in_executor(
                     _DOWNLOAD_EXECUTOR, download_image_direct, url, TEMP_DIR
                 )
                 
                 if filepath and os.path.exists(filepath):
-                    await client.send_file(event.chat_id, filepath)
+                    downloaded_paths.append(filepath)
                     success += 1
-                    safe_remove(filepath)
                 
-                await asyncio.sleep(0.5)
+                # توقف إذا وصلنا للعدد المطلوب
+                if success >= 3:
+                    break
+                    
+                await asyncio.sleep(0.3)
                 
             except Exception as e:
-                logger.error(f"فشل الصورة {i+1}: {e}")
+                logger.error(f"فشل تحميل الصورة {i}: {e}")
                 continue
         
-        if success > 0:
+        # إرسال الصور
+        if downloaded_paths:
+            await event.edit(f"**• 📤 جاري إرسال {len(downloaded_paths)} صورة...**")
+            
+            for filepath in downloaded_paths:
+                try:
+                    await client.send_file(event.chat_id, filepath)
+                    await asyncio.sleep(0.5)
+                except Exception as e:
+                    logger.error(f"فشل إرسال الصورة: {e}")
+                finally:
+                    safe_remove(filepath)
+            
             await event.delete()
         else:
-            await event.edit("**• ❌ فشل تحميل جميع الصور**")
+            await event.edit("**• ❌ فشل تحميل جميع الصور**\n**• جرب البحث عن شيء آخر**")
 
     # ============== التقليد ==============
     @client.on(events.NewMessage(incoming=True))
