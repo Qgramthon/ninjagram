@@ -4,6 +4,7 @@ import os
 import logging
 import subprocess
 import shutil
+import random
 from concurrent.futures import ThreadPoolExecutor
 from telethon import events
 from telethon.errors import FloodWaitError, ChatAdminRequiredError
@@ -27,6 +28,8 @@ def _check_aria2c() -> bool:
     return shutil.which("aria2c") is not None
 
 def _build_base_opts(out_dir: str) -> dict:
+    # نختار عشوائياً بين iOS و web لتقليل الحظر
+    client = random.choice(['ios', 'web'])
     opts = {
         'outtmpl': f'{out_dir}/%(title).80s.%(ext)s',
         'quiet': True,
@@ -36,12 +39,12 @@ def _build_base_opts(out_dir: str) -> dict:
         'concurrent_fragment_downloads': 8,
         'http_chunk_size': 10 * 1024 * 1024,
         'socket_timeout': 60,
-        'retries': 5,
-        'fragment_retries': 5,
+        'retries': 3,
+        'fragment_retries': 3,
         'geo_bypass': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['ios'],
+                'player_client': [client],
                 'skip': ['dash', 'hls'],
             }
         },
@@ -68,53 +71,39 @@ def _build_base_opts(out_dir: str) -> dict:
     return opts
 
 def format_duration(seconds):
-    if not seconds:
-        return "0:00"
+    if not seconds: return "0:00"
     mins, secs = divmod(int(seconds), 60)
     return f"{mins}:{secs:02d}"
 
-# ────────────── دوال التحميل الخلفية ──────────────
+# ────────────── دوال yt-dlp ──────────────
 def _run_ytdlp_audio(query: str, out_dir: str) -> tuple:
     import yt_dlp
     final_path = {}
     def hook(d):
         if d['status'] == 'finished':
             fp = d.get('info_dict', {}).get('filepath') or d.get('postprocessor_result', {}).get('filepath')
-            if fp:
-                final_path['v'] = fp
-
+            if fp: final_path['v'] = fp
     opts = _build_base_opts(out_dir)
     opts.update({
         'format': 'bestaudio[abr>=128]/bestaudio/best',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
+        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
         'postprocessor_hooks': [hook],
     })
-
     search = f"ytsearch1:{query}" if not query.startswith("http") else query
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(search, download=True)
         if isinstance(info, dict) and 'entries' in info:
-            if not info['entries']:
-                raise ValueError("لم يتم العثور على أي نتيجة")
+            if not info['entries']: raise ValueError("yt-dlp: لا نتائج")
             info = info['entries'][0]
-        elif not info:
-            raise ValueError("لم يتم العثور على فيديو")
-
+        elif not info: raise ValueError("yt-dlp: فشل")
     filepath = final_path.get('v')
     if not filepath or not os.path.exists(filepath):
         base = ydl.prepare_filename(info)
         base_no_ext = os.path.splitext(base)[0]
         for ext in ('.mp3', '.m4a', '.opus', '.ogg', '.webm'):
             c = base_no_ext + ext
-            if os.path.exists(c):
-                filepath = c
-                break
-        else:
-            raise FileNotFoundError("لم يُعثر على ملف الصوت بعد التحميل")
+            if os.path.exists(c): filepath = c; break
+        else: raise FileNotFoundError("لم يُعثر على ملف الصوت بعد التحميل")
     return info, filepath
 
 def _run_ytdlp_video(query: str, out_dir: str) -> tuple:
@@ -123,37 +112,28 @@ def _run_ytdlp_video(query: str, out_dir: str) -> tuple:
     def hook(d):
         if d['status'] == 'finished':
             fp = d.get('info_dict', {}).get('filepath') or d.get('postprocessor_result', {}).get('filepath')
-            if fp:
-                final_path['v'] = fp
-
+            if fp: final_path['v'] = fp
     opts = _build_base_opts(out_dir)
     opts.update({
         'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best',
         'merge_output_format': 'mp4',
         'postprocessor_hooks': [hook],
     })
-
     search = f"ytsearch1:{query}" if not query.startswith("http") else query
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(search, download=True)
         if isinstance(info, dict) and 'entries' in info:
-            if not info['entries']:
-                raise ValueError("لم يتم العثور على أي فيديو")
+            if not info['entries']: raise ValueError("yt-dlp: لا نتائج")
             info = info['entries'][0]
-        elif not info:
-            raise ValueError("لم يتم العثور على فيديو")
-
+        elif not info: raise ValueError("yt-dlp: فشل")
     filepath = final_path.get('v')
     if not filepath or not os.path.exists(filepath):
         base = ydl.prepare_filename(info)
         base_no_ext = os.path.splitext(base)[0]
         for ext in ('.mp4', '.webm', '.mkv'):
             c = base_no_ext + ext
-            if os.path.exists(c):
-                filepath = c
-                break
-        else:
-            raise FileNotFoundError("لم يُعثر على ملف الفيديو بعد التحميل")
+            if os.path.exists(c): filepath = c; break
+        else: raise FileNotFoundError("لم يُعثر على ملف الفيديو بعد التحميل")
     return info, filepath
 
 def _run_ytdlp_general(url: str, out_dir: str) -> tuple:
@@ -162,61 +142,94 @@ def _run_ytdlp_general(url: str, out_dir: str) -> tuple:
     def hook(d):
         if d['status'] == 'finished':
             fp = d.get('info_dict', {}).get('filepath') or d.get('postprocessor_result', {}).get('filepath')
-            if fp:
-                final_path['v'] = fp
-
+            if fp: final_path['v'] = fp
     opts = _build_base_opts(out_dir)
-    opts.update({
-        'format': 'best',
-        'merge_output_format': 'mp4',
-        'postprocessor_hooks': [hook],
-    })
-
+    opts.update({'format': 'best', 'merge_output_format': 'mp4', 'postprocessor_hooks': [hook]})
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
         if isinstance(info, dict) and 'entries' in info:
-            if not info['entries']:
-                raise ValueError("لم يتم العثور على المحتوى")
+            if not info['entries']: raise ValueError("yt-dlp: لا محتوى")
             info = info['entries'][0]
-        elif not info:
-            raise ValueError("فشل التحميل")
-
+        elif not info: raise ValueError("yt-dlp: فشل")
     filepath = final_path.get('v')
     if not filepath or not os.path.exists(filepath):
         base = ydl.prepare_filename(info)
         base_no_ext = os.path.splitext(base)[0]
         for ext in ('.mp4', '.webm', '.mkv', '.jpg', '.jpeg', '.png', '.gif'):
             c = base_no_ext + ext
-            if os.path.exists(c):
-                filepath = c
-                break
-        else:
-            raise FileNotFoundError("لم يُعثر على الملف بعد التحميل")
+            if os.path.exists(c): filepath = c; break
+        else: raise FileNotFoundError("لم يُعثر على الملف بعد التحميل")
     return info, filepath
 
-# ────────────── دوال الانتحال ──────────────
+# ────────────── دوال pytube (احتياطية) ──────────────
+def _pytube_audio(query: str, out_dir: str) -> tuple:
+    from pytube import Search, YouTube
+    from pytube.exceptions import AgeRestrictedError, VideoUnavailable
+    try:
+        if query.startswith("http"):
+            yt = YouTube(query)
+        else:
+            search = Search(query)
+            if not search.results:
+                raise ValueError("pytube: لا نتائج")
+            yt = search.results[0]
+        stream = yt.streams.filter(only_audio=True).order_by('abr').desc().first()
+        if not stream:
+            raise ValueError("لا يوجد تدفق صوتي")
+        # تحميل الصوت
+        out_file = stream.download(output_path=out_dir, filename_prefix='pytube_')
+        # تحويل إلى mp3 باستخدام ffmpeg
+        base, _ = os.path.splitext(out_file)
+        mp3_path = base + '.mp3'
+        subprocess.run(['ffmpeg', '-i', out_file, '-vn', '-ab', '192k', mp3_path], check=True, capture_output=True)
+        os.remove(out_file)
+        return {
+            'title': yt.title,
+            'duration': yt.length,
+            'uploader': yt.author
+        }, mp3_path
+    except Exception as e:
+        raise RuntimeError(f"pytube: {e}")
+
+def _pytube_video(query: str, out_dir: str) -> tuple:
+    from pytube import Search, YouTube
+    from pytube.exceptions import AgeRestrictedError, VideoUnavailable
+    try:
+        if query.startswith("http"):
+            yt = YouTube(query)
+        else:
+            search = Search(query)
+            if not search.results:
+                raise ValueError("pytube: لا نتائج")
+            yt = search.results[0]
+        stream = yt.streams.filter(progressive=True, file_extension='mp4', resolution='720p').first()
+        if not stream:
+            stream = yt.streams.filter(progressive=True).order_by('resolution').desc().first()
+        if not stream:
+            raise ValueError("لا يوجد تدفق فيديو")
+        out_file = stream.download(output_path=out_dir, filename_prefix='pytube_')
+        return {
+            'title': yt.title,
+            'duration': yt.length,
+            'width': stream.resolution.split('x')[0] if stream.resolution else 0,
+            'height': stream.resolution.split('x')[1] if stream.resolution else 0,
+        }, out_file
+    except Exception as e:
+        raise RuntimeError(f"pytube: {e}")
+
+# ────────────── دوال الانتحال (بدون تغيير) ──────────────
 async def get_user_info_full(client, user_id):
     try:
         user = await client.get_entity(user_id)
         name = user.first_name or ""
-        if user.last_name:
-            name += f" {user.last_name}"
+        if user.last_name: name += f" {user.last_name}"
         bio = ""
         try:
             full = await client(GetFullUserRequest(user_id))
-            if full.full_user.about:
-                bio = full.full_user.about
-        except:
-            pass
-        return {
-            'name': name.strip() or "غير معروف",
-            'first_name': user.first_name or '',
-            'last_name': user.last_name or '',
-            'bio': bio,
-            'id': user.id
-        }
-    except:
-        return None
+            if full.full_user.about: bio = full.full_user.about
+        except: pass
+        return {'name': name.strip() or "غير معروف", 'first_name': user.first_name or '', 'last_name': user.last_name or '', 'bio': bio, 'id': user.id}
+    except: return None
 
 async def change_profile_photo(client, user_id, phone):
     try:
@@ -226,339 +239,184 @@ async def change_profile_photo(client, user_id, phone):
         uploaded = await client.upload_file(bio, file_name="photo.jpg")
         result = await client(UploadProfilePhotoRequest(file=uploaded))
         await asyncio.sleep(2)
-        if hasattr(result, 'photo') and hasattr(result.photo, 'id'):
-            return True, result.photo.id
+        if hasattr(result, 'photo') and hasattr(result.photo, 'id'): return True, result.photo.id
         return True, None
     except FloodWaitError as e:
-        logger.warning(f"Flood wait {e.seconds}s during photo change for {phone}")
+        logger.warning(f"Flood wait {e.seconds}s")
         await asyncio.sleep(e.seconds)
         try:
-            bio = io.BytesIO()
-            await client.download_profile_photo(user_id, file=bio)
-            bio.seek(0)
+            bio = io.BytesIO(); await client.download_profile_photo(user_id, file=bio); bio.seek(0)
             uploaded = await client.upload_file(bio, file_name="photo.jpg")
             result = await client(UploadProfilePhotoRequest(file=uploaded))
             await asyncio.sleep(2)
-            if hasattr(result, 'photo') and hasattr(result.photo, 'id'):
-                return True, result.photo.id
+            if hasattr(result, 'photo') and hasattr(result.photo, 'id'): return True, result.photo.id
             return True, None
-        except:
-            return False, None
+        except: return False, None
     except Exception as e:
-        logger.error(f"Photo change failed for {phone}: {e}")
+        logger.error(f"Photo change failed: {e}")
         return False, None
 
 # ────────────── المعالجات ──────────────
 async def setup_handlers(client, phone):
-    if phone not in muted_users:
-        muted_users[phone] = {}
-    if phone not in taqleed_users:
-        taqleed_users[phone] = {}
-    if phone not in ent7al_users:
-        ent7al_users[phone] = False
-    if phone not in ent7al_original:
-        ent7al_original[phone] = {}
+    if phone not in muted_users: muted_users[phone] = {}
+    if phone not in taqleed_users: taqleed_users[phone] = {}
+    if phone not in ent7al_users: ent7al_users[phone] = False
+    if phone not in ent7al_original: ent7al_original[phone] = {}
 
-    # ── التقليد ──
+    # ─ـ التقليد ─ـ
     @client.on(events.NewMessage(incoming=True))
     async def auto_taqleed(event):
-        sender_id = event.sender_id
-        if sender_id and sender_id in taqleed_users.get(phone, {}):
-            if event.text and not event.text.startswith('.'):
-                await asyncio.sleep(0.3)
-                try: await event.reply(event.text)
-                except: pass
+        if event.sender_id in taqleed_users.get(phone, {}) and event.text and not event.text.startswith('.'):
+            await asyncio.sleep(0.3)
+            try: await event.reply(event.text)
+            except: pass
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تقليد$'))
     async def taq(event):
-        target = None
-        if event.is_reply: target = (await event.get_reply_message()).sender_id
-        elif event.is_private: target = event.chat_id
-        if target:
-            taqleed_users[phone][target] = True
-            await event.edit("**• يتم التقليد**")
+        target = (await event.get_reply_message()).sender_id if event.is_reply else event.chat_id if event.is_private else None
+        if target: taqleed_users[phone][target] = True; await event.edit("**• يتم التقليد**")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ تقليد$'))
     async def notaq(event):
-        target = None
-        if event.is_reply: target = (await event.get_reply_message()).sender_id
-        elif event.is_private: target = event.chat_id
-        if target and target in taqleed_users.get(phone, {}):
-            del taqleed_users[phone][target]
+        target = (await event.get_reply_message()).sender_id if event.is_reply else event.chat_id if event.is_private else None
+        if target and target in taqleed_users.get(phone, {}): del taqleed_users[phone][target]
         await event.edit("**• تم فك التقليد**")
 
-    # ── الانتحال ──
+    # ─ـ الانتحال ─ـ
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.انتحال$'))
     async def ent7al(event):
         track_command(phone, ".انتحال")
         await event.edit("**• جاري الانتحال...**")
-
         target_user = None
         if event.is_reply:
-            reply = await event.get_reply_message()
-            try: target_user = await client.get_entity(reply.sender_id)
+            try: target_user = await client.get_entity((await event.get_reply_message()).sender_id)
             except: pass
         elif event.is_private:
             try: target_user = await client.get_entity(event.chat_id)
             except: pass
-
-        if not target_user:
-            await event.edit("**• فشل الانتحال**")
-            return
-
+        if not target_user: await event.edit("**• فشل الانتحال**"); return
         target_info = await get_user_info_full(client, target_user.id)
-        if not target_info:
-            await event.edit("**• فشل الانتحال**")
-            return
-
-        me = await client.get_me()
-        client_me[phone] = me
-
-        original = {
-            'first_name': me.first_name or '',
-            'last_name': me.last_name if me.last_name is not None else '',
-            'photo_bytes': None,
-            'added_photo_id': None,
-            'about': ''
-        }
-
+        if not target_info: await event.edit("**• فشل الانتحال**"); return
+        me = await client.get_me(); client_me[phone] = me
+        original = {'first_name': me.first_name or '', 'last_name': me.last_name if me.last_name is not None else '', 'photo_bytes': None, 'added_photo_id': None, 'about': ''}
         try:
             fu = await client(GetFullUserRequest('me'))
-            if fu.full_user.about:
-                original['about'] = fu.full_user.about
+            if fu.full_user.about: original['about'] = fu.full_user.about
         except: pass
-
         name_ok = False
         try:
-            await client(UpdateProfileRequest(
-                first_name=target_info['first_name'],
-                last_name=target_info['last_name']
-            ))
-            await asyncio.sleep(1)
-            name_ok = True
+            await client(UpdateProfileRequest(first_name=target_info['first_name'], last_name=target_info['last_name']))
+            await asyncio.sleep(1); name_ok = True
         except FloodWaitError as e:
             await asyncio.sleep(e.seconds)
-            try:
-                await client(UpdateProfileRequest(
-                    first_name=target_info['first_name'],
-                    last_name=target_info['last_name']
-                ))
-                name_ok = True
+            try: await client(UpdateProfileRequest(first_name=target_info['first_name'], last_name=target_info['last_name'])); name_ok = True
             except: pass
         except: pass
-
         bio_ok = False
-        target_bio = target_info['bio']
         try:
-            await client(UpdateProfileRequest(about=target_bio[:70] if target_bio else ''))
-            await asyncio.sleep(0.5)
-            bio_ok = True
+            await client(UpdateProfileRequest(about=target_info['bio'][:70] if target_info['bio'] else ''))
+            await asyncio.sleep(0.5); bio_ok = True
         except FloodWaitError as e:
             await asyncio.sleep(e.seconds)
-            try:
-                await client(UpdateProfileRequest(about=target_bio[:70] if target_bio else ''))
-                bio_ok = True
+            try: await client(UpdateProfileRequest(about=target_info['bio'][:70] if target_info['bio'] else '')); bio_ok = True
             except: pass
         except: pass
-
         photo_ok, added_id = await change_profile_photo(client, target_user.id, phone)
-        if photo_ok and added_id:
-            original['added_photo_id'] = added_id
-
-        ent7al_original[phone] = original
-        ent7al_users[phone] = True
-
-        if name_ok and bio_ok and photo_ok:
-            await event.edit("**• تم الانتحال**")
-        elif not name_ok and not bio_ok and not photo_ok:
-            await event.edit("**• فشل الانتحال**")
-        else:
-            await event.edit("**• تم الانتحال جزئياً**")
+        if photo_ok and added_id: original['added_photo_id'] = added_id
+        ent7al_original[phone] = original; ent7al_users[phone] = True
+        if name_ok and bio_ok and photo_ok: await event.edit("**• تم الانتحال**")
+        elif not name_ok and not bio_ok and not photo_ok: await event.edit("**• فشل الانتحال**")
+        else: await event.edit("**• تم الانتحال جزئياً**")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.الغاء انتحال$'))
     async def unent7al(event):
         track_command(phone, ".الغاء انتحال")
         await event.edit("**• جاري إلغاء الانتحال...**")
-
-        if not ent7al_users.get(phone) or not ent7al_original.get(phone):
-            await event.edit("**• لا يوجد انتحال**")
-            return
-
+        if not ent7al_users.get(phone) or not ent7al_original.get(phone): await event.edit("**• لا يوجد انتحال**"); return
         original = ent7al_original[phone]
-
+        first, last = original.get('first_name', ''), original.get('last_name', '')
         restored_name = False
-        first = original.get('first_name', '')
-        last = original.get('last_name', '')
         for attempt in range(3):
             try:
-                await client(UpdateProfileRequest(
-                    first_name=first,
-                    last_name=last
-                ))
-                await asyncio.sleep(1.5)
-                me_now = await client.get_me()
-                if me_now.first_name == first and (me_now.last_name or '') == last:
-                    restored_name = True
-                    break
-            except FloodWaitError as e:
-                await asyncio.sleep(e.seconds)
-            except Exception as e:
-                logger.error(f"Restore name attempt {attempt+1}: {e}")
-                await asyncio.sleep(1)
-
-        if not restored_name:
-            logger.error(f"Could not fully restore name for {phone}")
-
+                await client(UpdateProfileRequest(first_name=first, last_name=last))
+                await asyncio.sleep(1.5); me_now = await client.get_me()
+                if me_now.first_name == first and (me_now.last_name or '') == last: restored_name = True; break
+            except FloodWaitError as e: await asyncio.sleep(e.seconds)
+            except Exception as e: logger.error(f"Restore name attempt {attempt+1}: {e}"); await asyncio.sleep(1)
+        if not restored_name: logger.error(f"Could not fully restore name for {phone}")
         if original.get('added_photo_id'):
-            try:
-                await client(DeletePhotosRequest(id=[InputPhoto(
-                    id=original['added_photo_id'],
-                    access_hash=0,
-                    file_reference=b''
-                )]))
-                await asyncio.sleep(2)
-                logger.info(f"Deleted impersonated photo ID {original['added_photo_id']}")
-            except FloodWaitError as e:
-                await asyncio.sleep(e.seconds)
-                try:
-                    await client(DeletePhotosRequest(id=[InputPhoto(
-                        id=original['added_photo_id'],
-                        access_hash=0,
-                        file_reference=b''
-                    )]))
-                except: pass
-            except Exception as e:
-                logger.error(f"Failed to delete added photo: {e}")
+            try: await client(DeletePhotosRequest(id=[InputPhoto(id=original['added_photo_id'], access_hash=0, file_reference=b'')])); await asyncio.sleep(2)
+            except FloodWaitError as e: await asyncio.sleep(e.seconds)
+            except Exception as e: logger.error(f"Failed to delete added photo: {e}")
         else:
             try:
                 current_photos = await client.get_profile_photos('me', limit=1)
-                if current_photos:
-                    p = current_photos[0]
-                    await client(DeletePhotosRequest(id=[InputPhoto(
-                        id=p.id,
-                        access_hash=p.access_hash,
-                        file_reference=p.file_reference
-                    )]))
-                    await asyncio.sleep(2)
-                    logger.info("Deleted most recent photo as fallback")
-            except Exception as e:
-                logger.error(f"Fallback photo deletion failed: {e}")
-
-        try:
-            await client(UpdateProfileRequest(about=original.get('about', '')))
-        except FloodWaitError as e:
-            await asyncio.sleep(e.seconds)
-            try:
-                await client(UpdateProfileRequest(about=original.get('about', '')))
-            except: pass
-        except Exception as e:
-            logger.error(f"Restore bio failed: {e}")
-
-        ent7al_users[phone] = False
-        ent7al_original[phone] = {}
+                if current_photos: await client(DeletePhotosRequest(id=[InputPhoto(id=current_photos[0].id, access_hash=current_photos[0].access_hash, file_reference=current_photos[0].file_reference)]))
+                await asyncio.sleep(2)
+            except Exception as e: logger.error(f"Fallback photo deletion failed: {e}")
+        try: await client(UpdateProfileRequest(about=original.get('about', '')))
+        except FloodWaitError as e: await asyncio.sleep(e.seconds)
+        except Exception as e: logger.error(f"Restore bio failed: {e}")
+        ent7al_users[phone] = False; ent7al_original[phone] = {}
         await event.edit("**• تم إلغاء الانتحال**")
 
-    # ── إضافة أعضاء ──
+    # ─ـ إضافة أعضاء ─ـ
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اضافة (\d+) (@?\w+)$'))
     async def add_members_from_group(event):
-        if not event.is_group:
-            await event.edit("**• الأمر يعمل في المجموعات فقط**")
-            return
-
-        count = int(event.pattern_match.group(1))
-        target_username = event.pattern_match.group(2).strip()
+        if not event.is_group: await event.edit("**• الأمر يعمل في المجموعات فقط**"); return
+        count, target_username = int(event.pattern_match.group(1)), event.pattern_match.group(2).strip()
         await event.edit(f"**• جاري سحب {count} عضو من {target_username} وإضافتهم هنا...**")
-
+        try: source_group = await client.get_entity(target_username)
+        except Exception: await event.edit(f"**• لم يتم العثور على الجروب {target_username}**"); return
+        try: await client.join_channel(source_group); await asyncio.sleep(3)
+        except: pass
+        added = failed = 0
         try:
-            source_group = await client.get_entity(target_username)
-        except Exception as e:
-            await event.edit(f"**• لم يتم العثور على الجروب {target_username}**")
-            return
-
-        try:
-            await client.join_channel(source_group)
-            await asyncio.sleep(3)
-        except:
-            pass
-
-        added = 0
-        failed = 0
-        try:
-            participants_iter = client.iter_participants(source_group, limit=count)
-            async for user in participants_iter:
-                if user.bot or user.deleted:
-                    continue
+            async for user in client.iter_participants(source_group, limit=count):
+                if user.bot or user.deleted: continue
                 try:
-                    if hasattr(event.chat, 'megagroup') and event.chat.megagroup:
-                        await client(InviteToChannelRequest(channel=event.chat_id, users=[user.id]))
-                    else:
-                        await client(AddChatUserRequest(chat_id=event.chat_id, user_id=user.id, fwd_limit=10))
-                    added += 1
-                    await asyncio.sleep(1.5)
+                    if hasattr(event.chat, 'megagroup') and event.chat.megagroup: await client(InviteToChannelRequest(channel=event.chat_id, users=[user.id]))
+                    else: await client(AddChatUserRequest(chat_id=event.chat_id, user_id=user.id, fwd_limit=10))
+                    added += 1; await asyncio.sleep(1.5)
                 except FloodWaitError as e:
-                    logger.info(f"Flood wait {e.seconds}s")
                     await asyncio.sleep(e.seconds)
                     try:
-                        if hasattr(event.chat, 'megagroup') and event.chat.megagroup:
-                            await client(InviteToChannelRequest(channel=event.chat_id, users=[user.id]))
-                        else:
-                            await client(AddChatUserRequest(chat_id=event.chat_id, user_id=user.id, fwd_limit=10))
+                        if hasattr(event.chat, 'megagroup') and event.chat.megagroup: await client(InviteToChannelRequest(channel=event.chat_id, users=[user.id]))
+                        else: await client(AddChatUserRequest(chat_id=event.chat_id, user_id=user.id, fwd_limit=10))
                         added += 1
-                    except:
-                        failed += 1
-                except ChatAdminRequiredError:
-                    await event.edit("**• الصلاحيات غير كافية - يجب أن تكون مشرفًا في هذا الجروب**")
-                    return
+                    except: failed += 1
+                except ChatAdminRequiredError: await event.edit("**• الصلاحيات غير كافية - يجب أن تكون مشرفًا**"); return
                 except Exception as e:
-                    logger.warning(f"Failed to add {user.id}: {e}")
                     failed += 1
-                    if "PEER_FLOOD" in str(e) or "USER_PRIVACY_RESTRICTED" in str(e):
-                        break
+                    if "PEER_FLOOD" in str(e) or "USER_PRIVACY_RESTRICTED" in str(e): break
+            msg = f"**• تمت إضافة {added} عضو بنجاح**"
+            if failed: msg += f"\n• فشل في إضافة {failed} عضو"
+            await event.edit(msg)
+        except ChatAdminRequiredError: await event.edit("**• لا تملك صلاحيات لسحب الأعضاء**")
+        except Exception as e: await event.edit(f"**• فشل: {str(e)[:50]}**")
 
-            result_msg = f"**• تمت إضافة {added} عضو بنجاح**"
-            if failed > 0:
-                result_msg += f"\n• فشل في إضافة {failed} عضو (بسبب الخصوصية أو الحظر)"
-            await event.edit(result_msg)
-
-        except ChatAdminRequiredError:
-            await event.edit("**• لا تملك صلاحيات لسحب الأعضاء من الجروب المصدر**")
-        except Exception as e:
-            await event.edit(f"**• فشل في جلب الأعضاء: {str(e)[:50]}**")
-
-    # ── نسخ الصوت والفيديو ─ـ
+    # ─ـ نسخ الصوت والفيديو ─ـ
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.نسخ$'))
     async def transcribe_voice(event):
-        if not event.is_reply:
-            await event.edit("**• يرجى الرد على رسالة صوتية أو فيديو**")
-            return
+        if not event.is_reply: await event.edit("**• يرجى الرد على رسالة صوتية أو فيديو**"); return
         reply = await event.get_reply_message()
-        if not reply.voice and not reply.audio and not reply.video:
-            await event.edit("**• الرد على رسالة صوتية أو فيديو فقط**")
-            return
+        if not reply.voice and not reply.audio and not reply.video: await event.edit("**• الرد على رسالة صوتية أو فيديو فقط**"); return
         await event.edit("**• جاري تحويل المقطع إلى نص...**")
-        try:
-            import speech_recognition as sr
-        except ImportError:
-            await event.edit("**• مكتبة SpeechRecognition غير مثبتة**")
-            return
+        try: import speech_recognition as sr
+        except ImportError: await event.edit("**• مكتبة SpeechRecognition غير مثبتة**"); return
         voice_path = os.path.join(TEMP_DIR, f"voice_{phone}_{reply.id}.ogg")
         await client.download_media(reply, voice_path)
         wav_path = voice_path.replace(".ogg", ".wav")
         try:
             subprocess.run(["ffmpeg", "-i", voice_path, "-ac", "1", "-ar", "16000", wav_path], check=True, capture_output=True, timeout=30)
             recognizer = sr.Recognizer()
-            with sr.AudioFile(wav_path) as source:
-                audio_data = recognizer.record(source)
+            with sr.AudioFile(wav_path) as source: audio_data = recognizer.record(source)
             text = recognizer.recognize_google(audio_data, language="ar-AR")
             await event.edit(f"**النص:**\n{text}")
-        except subprocess.CalledProcessError as e:
-            await event.edit(f"**• فشل تحويل الصوت: {e.stderr.decode()[:100]}**")
-        except sr.UnknownValueError:
-            await event.edit("**• لم يتم التعرف على أي كلام**")
-        except sr.RequestError as e:
-            await event.edit(f"**• خطأ في خدمة التعرف: {e}**")
-        except Exception as e:
-            await event.edit(f"**• فشل: {str(e)[:100]}**")
+        except subprocess.CalledProcessError as e: await event.edit(f"**• فشل تحويل الصوت: {e.stderr.decode()[:100]}**")
+        except sr.UnknownValueError: await event.edit("**• لم يتم التعرف على أي كلام**")
+        except sr.RequestError as e: await event.edit(f"**• خطأ في خدمة التعرف: {e}**")
+        except Exception as e: await event.edit(f"**• فشل: {str(e)[:100]}**")
         finally:
             for p in [voice_path, wav_path]:
                 if os.path.exists(p): os.remove(p)
@@ -614,18 +472,18 @@ async def setup_handlers(client, phone):
         query = event.pattern_match.group(1).strip()
         await event.edit("**• 🎵 جاري البحث والتحميل...**")
         loop = asyncio.get_event_loop()
+        # محاولة 1: yt-dlp
         try:
             info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_audio, query, TEMP_DIR)
-        except ValueError as e:
-            await event.edit(f"**• {e}**"); return
-        except FileNotFoundError as e:
-            await event.edit(f"**• {e}**"); return
-        except Exception as e:
-            await event.edit(f"**• فشل التحميل:**\n{str(e)[:200]}"); return
+        except Exception:
+            # محاولة 2: pytube
+            try:
+                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _pytube_audio, query, TEMP_DIR)
+            except Exception as e:
+                await event.edit(f"**• فشل التحميل:**\n{str(e)[:200]}"); return
         try:
             title = info.get('title', 'بدون عنوان')
-            if len(title) > 55:
-                title = title[:52] + '...'
+            if len(title) > 55: title = title[:52] + '...'
             dur = format_duration(info.get('duration', 0))
             caption = f"{title}\n• {dur} | ᥲᥙძᎥ᥆"
             await client.send_file(event.chat_id, filepath, caption=caption,
@@ -645,16 +503,14 @@ async def setup_handlers(client, phone):
         loop = asyncio.get_event_loop()
         try:
             info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_video, query, TEMP_DIR)
-        except ValueError as e:
-            await event.edit(f"**• {e}**"); return
-        except FileNotFoundError as e:
-            await event.edit(f"**• {e}**"); return
-        except Exception as e:
-            await event.edit(f"**• فشل تحميل الفيديو:**\n{str(e)[:200]}"); return
+        except Exception:
+            try:
+                info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _pytube_video, query, TEMP_DIR)
+            except Exception as e:
+                await event.edit(f"**• فشل تحميل الفيديو:**\n{str(e)[:200]}"); return
         try:
             title = info.get('title', 'بدون عنوان')
-            if len(title) > 55:
-                title = title[:52] + '...'
+            if len(title) > 55: title = title[:52] + '...'
             dur = format_duration(info.get('duration', 0))
             caption = f"{title}\n• {dur} | ᥎Ꭵძꫀ᥆"
             await client.send_file(event.chat_id, filepath, caption=caption,
@@ -666,26 +522,20 @@ async def setup_handlers(client, phone):
             try: os.remove(filepath)
             except: pass
 
-    # ─ـ تحميل بنترست (بين) ─ـ
+    # ─ـ تحميل بنترست (بين) ─ـ (يستخدم yt-dlp فقط)
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بين (.+)'))
     async def pinterest_download(event):
         url = event.pattern_match.group(1).strip()
-        if "pinterest.com" not in url and "pin.it" not in url:
-            await event.edit("**• الرجاء إدخال رابط بنترست صالح**"); return
+        if "pinterest.com" not in url and "pin.it" not in url: await event.edit("**• الرجاء إدخال رابط بنترست صالح**"); return
         await event.edit("**• 📌 جاري التحميل من بنترست...**")
         loop = asyncio.get_event_loop()
         try:
             info, filepath = await loop.run_in_executor(_DOWNLOAD_EXECUTOR, _run_ytdlp_general, url, TEMP_DIR)
-        except ValueError as e:
-            await event.edit(f"**• {e}**"); return
-        except FileNotFoundError as e:
-            await event.edit(f"**• {e}**"); return
         except Exception as e:
             await event.edit(f"**• فشل تحميل بنترست:**\n{str(e)[:200]}"); return
         try:
             title = info.get('title', 'بدون عنوان')
-            if len(title) > 55:
-                title = title[:52] + '...'
+            if len(title) > 55: title = title[:52] + '...'
             if filepath.lower().endswith(('.mp4','.webm')):
                 dur = format_duration(info.get('duration', 0))
                 caption = f"{title}\n• {dur} | ρᎥꪀƚɾꫀ᥉ꫀƚ"
@@ -701,7 +551,7 @@ async def setup_handlers(client, phone):
             try: os.remove(filepath)
             except: pass
 
-    # ─ـ مراقبة الخاص (تعديل/حذف) ─ـ
+    # ─ـ مراقبة الخاص ─ـ
     message_cache = {}
     @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private and not e.out))
     async def cache_private_message(event):
