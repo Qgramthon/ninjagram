@@ -116,18 +116,9 @@ def safe_remove(filepath):
 
 # ============== دوال التنسيق ==============
 def format_duration(seconds):
-    """تنسيق المدة: دقائق:ثواني"""
-    if not seconds or seconds == 0:
-        return "0:00"
-    try:
-        seconds = int(float(seconds))
-        mins, secs = divmod(seconds, 60)
-        hours, mins = divmod(mins, 60)
-        if hours > 0:
-            return f"{hours}:{mins:02d}:{secs:02d}"
-        return f"{mins}:{secs:02d}"
-    except:
-        return "0:00"
+    if not seconds: return "0:00"
+    mins, secs = divmod(int(seconds), 60)
+    return f"{mins}:{secs:02d}"
 
 def format_size(bytes_size):
     if bytes_size == 0:
@@ -139,14 +130,12 @@ def format_size(bytes_size):
     return f"{bytes_size:.1f} TB"
 
 def clean_filename(name):
-    """تنظيف الاسم"""
     name = re.sub(r'[<>:"/\\|?*]', '', name)
     name = re.sub(r'\s+', ' ', name).strip()
     return name[:100]
 
 # ============== دوال التحميل من يوتيوب ==============
 def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
-    """تحميل من يوتيوب"""
     if not YTDLP_AVAILABLE:
         raise ValueError("مكتبة yt-dlp غير مثبتة")
     
@@ -219,7 +208,6 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
 
 # ============== دوال تحميل الصور ==============
 def download_image_direct(url: str, out_dir: str):
-    """تحميل صورة"""
     has_space, free_mb = check_disk_space(10)
     if not has_space:
         raise ValueError(f"المساحة غير كافية. المتاح: {free_mb:.1f}MB")
@@ -263,7 +251,6 @@ def download_image_direct(url: str, out_dir: str):
         raise ValueError(f"فشل التحميل: {str(e)[:150]}")
 
 def search_images(query: str, limit: int = 5):
-    """البحث عن صور"""
     images = []
     try:
         from duckduckgo_search import DDGS
@@ -305,7 +292,6 @@ def search_images(query: str, limit: int = 5):
 
 # ============== دوال الانتحال ==============
 async def get_user_info_full(client, user_id):
-    """جلب معلومات المستخدم"""
     try:
         user = await client.get_entity(user_id)
         name = user.first_name or ""
@@ -332,7 +318,6 @@ async def get_user_info_full(client, user_id):
         return None
 
 async def change_profile_photo(client, user_id, phone):
-    """تغيير صورة البروفايل"""
     try:
         bio = io.BytesIO()
         await client.download_profile_photo(user_id, file=bio)
@@ -367,7 +352,6 @@ async def change_profile_photo(client, user_id, phone):
 
 # ============== إعداد المعالجات ==============
 async def setup_handlers(client, phone):
-    """إعداد جميع الأوامر"""
     
     # تهيئة المتغيرات
     if phone not in muted_users:
@@ -382,7 +366,6 @@ async def setup_handlers(client, phone):
     # ============== أمر .المساحة ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.المساحة$'))
     async def space_check(event):
-        """فحص المساحة"""
         await event.edit("**• 📊 جاري فحص المساحة...**")
         
         free_mb = get_free_space_mb()
@@ -406,7 +389,6 @@ async def setup_handlers(client, phone):
     # ============== أمر .تنظيف ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تنظيف$'))
     async def force_clean(event):
-        """تنظيف الملفات"""
         await event.edit("**• 🧹 جاري التنظيف...**")
         
         c1, s1 = clean_temp_files()
@@ -427,7 +409,6 @@ async def setup_handlers(client, phone):
     # ============== أمر .يوت (تحميل صوت) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.يوت (.+)'))
     async def youtube_audio(event):
-        """تحميل صوت من يوتيوب - النظام القديم"""
         if not YTDLP_AVAILABLE:
             await event.edit("**• ❌ مكتبة yt-dlp غير مثبتة**\n**• استخدم: `pip install yt-dlp`**")
             return
@@ -448,12 +429,11 @@ async def setup_handlers(client, phone):
                 _DOWNLOAD_EXECUTOR, download_youtube_media, query, TEMP_DIR, True
             )
             
-            # النظام القديم للعرض: الاسم وفوقه الوقت وكلمة اوديو
             title = info['title']
             if len(title) > 55:
                 title = title[:52] + '...'
-            
-            caption = f"{title}\n• {info['duration_str']} | ᥲᥙძᎥ᥆"
+            dur = format_duration(info['duration'])
+            caption = f"{title}\n• {dur} | ᥲᥙძᎥ᥆"
             
             await client.send_file(
                 event.chat_id,
@@ -480,7 +460,6 @@ async def setup_handlers(client, phone):
     # ============== أمر .فيد (تحميل فيديو) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فيد (.+)'))
     async def video_download(event):
-        """تحميل فيديو من يوتيوب - النظام القديم"""
         if not YTDLP_AVAILABLE:
             await event.edit("**• ❌ مكتبة yt-dlp غير مثبتة**\n**• استخدم: `pip install yt-dlp`**")
             return
@@ -501,12 +480,11 @@ async def setup_handlers(client, phone):
                 _DOWNLOAD_EXECUTOR, download_youtube_media, query, TEMP_DIR, False
             )
             
-            # النظام القديم للعرض: الاسم وفوقه الوقت وكلمة فيديو
             title = info['title']
             if len(title) > 55:
                 title = title[:52] + '...'
-            
-            caption = f"{title}\n• {info['duration_str']} | ᥎Ꭵძꫀ᥆"
+            dur = format_duration(info['duration'])
+            caption = f"{title}\n• {dur} | ᥎Ꭵძꫀ᥆"
             
             await client.send_file(
                 event.chat_id,
@@ -534,7 +512,6 @@ async def setup_handlers(client, phone):
     # ============== أمر .نسخ (تحويل صوت لنص) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.نسخ$'))
     async def transcribe_voice(event):
-        """تحويل الصوت إلى نص"""
         if not event.is_reply:
             await event.edit("**• ❌ يرجى الرد على رسالة صوتية**")
             return
@@ -607,7 +584,6 @@ async def setup_handlers(client, phone):
     # ============== أمر .استيك (صورة إلى استيكر) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.استيك$'))
     async def photo_to_sticker(event):
-        """تحويل صورة إلى استيكر"""
         if not event.is_reply:
             await event.edit("**• ❌ يرجى الرد على صورة**")
             return
@@ -659,7 +635,6 @@ async def setup_handlers(client, phone):
     # ============== أمر .بيك (استيكر إلى صورة) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بيك$'))
     async def sticker_to_photo(event):
-        """تحويل استيكر إلى صورة"""
         if not event.is_reply:
             await event.edit("**• ❌ يرجى الرد على استيكر**")
             return
@@ -710,7 +685,6 @@ async def setup_handlers(client, phone):
     # ============== أمر .بن (تحميل صور) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بن (.+)'))
     async def image_search_download(event):
-        """تحميل الصور"""
         query = event.pattern_match.group(1).strip()
         
         has_space, free_mb = check_disk_space(20)
@@ -775,7 +749,6 @@ async def setup_handlers(client, phone):
     # ============== التقليد ==============
     @client.on(events.NewMessage(incoming=True))
     async def auto_taqleed(event):
-        """تقليد تلقائي"""
         if event.sender_id in taqleed_users.get(phone, {}) and event.text and not event.text.startswith('.'):
             await asyncio.sleep(0.5)
             try:
@@ -785,7 +758,6 @@ async def setup_handlers(client, phone):
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تقليد$'))
     async def taq(event):
-        """تفعيل التقليد"""
         target = None
         if event.is_reply:
             reply = await event.get_reply_message()
@@ -801,7 +773,6 @@ async def setup_handlers(client, phone):
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ تقليد$'))
     async def notaq(event):
-        """إلغاء التقليد"""
         target = None
         if event.is_reply:
             reply = await event.get_reply_message()
@@ -818,7 +789,6 @@ async def setup_handlers(client, phone):
     # ============== الانتحال ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.انتحال$'))
     async def ent7al(event):
-        """انتحال شخصية"""
         track_command(phone, ".انتحال")
         await event.edit("**• 🔄 جاري الانتحال...**")
         
@@ -913,7 +883,6 @@ async def setup_handlers(client, phone):
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.الغاء انتحال$'))
     async def unent7al(event):
-        """إلغاء الانتحال"""
         track_command(phone, ".الغاء انتحال")
         await event.edit("**• 🔄 جاري إلغاء الانتحال...**")
         
@@ -961,7 +930,6 @@ async def setup_handlers(client, phone):
     # ============== مراقبة الخاص ==============
     @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private and not e.out))
     async def cache_message(event):
-        """تخزين رسائل الخاص"""
         try:
             me = await client.get_me()
             if event.sender_id == me.id:
@@ -979,7 +947,6 @@ async def setup_handlers(client, phone):
 
     @client.on(events.MessageEdited(incoming=True, func=lambda e: e.is_private and not e.out))
     async def notify_edit(event):
-        """إشعار بتعديل رسالة"""
         try:
             me = await client.get_me()
             if event.sender_id == me.id:
@@ -1007,7 +974,6 @@ async def setup_handlers(client, phone):
 
     @client.on(events.MessageDeleted(incoming=True, func=lambda e: e.is_private and not e.out))
     async def notify_delete(event):
-        """إشعار بحذف رسالة"""
         try:
             for chat_id, msg_ids in event.deleted_ids.items():
                 for msg_id in msg_ids:
@@ -1029,7 +995,6 @@ async def setup_handlers(client, phone):
 
     # ============== تنظيف دوري ==============
     async def auto_cleanup():
-        """تنظيف تلقائي كل 30 دقيقة"""
         while True:
             await asyncio.sleep(1800)
             free_mb = get_free_space_mb()
