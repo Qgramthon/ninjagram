@@ -54,6 +54,9 @@ _DOWNLOAD_EXECUTOR = ThreadPoolExecutor(max_workers=3, thread_name_prefix="dl")
 # متغيرات مراقبة الخاص
 message_cache = {}
 
+# متغيرات التحكم في الأنميات
+active_animations = {}
+
 # الحد الأدنى للمساحة
 MIN_FREE_SPACE_MB = 50
 
@@ -135,6 +138,74 @@ def clean_filename(name):
     name = re.sub(r'\s+', ' ', name).strip()
     return name[:100]
 
+# ============== دوال الأنيمشن المتحركة ==============
+def create_animation_pattern(emoji_list):
+    """إنشاء نمط الأنيمشن من قائمة الإيموجي"""
+    patterns = []
+    for i in range(len(emoji_list)):
+        shifted = emoji_list[i:] + emoji_list[:i]
+        patterns.append(''.join(shifted))
+    return patterns
+
+# تعريف أنماط الإيموجي لكل أمر
+ANIMATION_PATTERNS = {
+    'ضحك': create_animation_pattern(['😂', '🤣', '😂', '🤣']),
+    'قلب': create_animation_pattern(['❤️', '💛', '💚', '💜']),
+    'غيمة': create_animation_pattern(['☁️', '🌧️', '⛅', '🌩️']),
+    'ورد': create_animation_pattern(['🌸', '🌹', '🌻', '🌺']),
+    'كوكب': create_animation_pattern(['✨', '🌍', '🪐', '🌙']),
+    'شتاء': create_animation_pattern(['⛄', '❄️', '☂️', '🌙']),
+    'قمر': create_animation_pattern(['🌕', '🌖', '🌗', '🌘']),
+}
+
+async def run_animation(event, animation_name, duration=5):
+    """تشغيل الأنيمشن لمدة محددة"""
+    if animation_name not in ANIMATION_PATTERNS:
+        return
+    
+    patterns = ANIMATION_PATTERNS[animation_name]
+    chat_id = event.chat_id
+    message = await event.get_reply_message() if event.is_reply else None
+    
+    # علامة للتحكم في الإيقاف
+    anim_key = f"{chat_id}_{animation_name}"
+    active_animations[anim_key] = True
+    
+    start_time = time.time()
+    
+    try:
+        while active_animations.get(anim_key, False):
+            for pattern in patterns:
+                if not active_animations.get(anim_key, False):
+                    break
+                
+                try:
+                    if message:
+                        await message.edit(pattern)
+                    else:
+                        await event.edit(pattern)
+                    
+                    await asyncio.sleep(0.5)
+                    
+                    # التوقف بعد المدة المحددة
+                    if time.time() - start_time >= duration:
+                        active_animations[anim_key] = False
+                        break
+                        
+                except FloodWaitError as e:
+                    await asyncio.sleep(e.seconds)
+                except Exception as e:
+                    logger.error(f"خطأ في الأنيمشن: {e}")
+                    active_animations[anim_key] = False
+                    break
+                    
+    except Exception as e:
+        logger.error(f"خطأ في تشغيل الأنيمشن {animation_name}: {e}")
+    finally:
+        # تنظيف
+        if anim_key in active_animations:
+            del active_animations[anim_key]
+
 # ============== دوال البحث عن الصور - المحسنة ==============
 def search_images_google_direct(query: str, limit: int = 10) -> list:
     """البحث عن صور في جوجل مباشرة"""
@@ -151,16 +222,12 @@ def search_images_google_direct(query: str, limit: int = 10) -> list:
         resp = requests.get(url, headers=headers, timeout=15)
         
         if resp.status_code == 200:
-            # طريقة 1: استخراج من data-src
             urls = re.findall(r'data-src="(https?://[^"]+)"', resp.text)
             if not urls:
-                # طريقة 2: استخراج روابط الصور العادية
                 urls = re.findall(r'"(https?://[^"]+\.(?:jpg|jpeg|png|webp|gif|bmp)[^"]*)"', resp.text, re.I)
             
-            # تصفية الروابط
             for url in urls:
                 if url.startswith('http') and 'google' not in url.lower() and 'gstatic' not in url.lower():
-                    # التحقق من أن الرابط صورة فعلاً
                     if any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']):
                         images.append(url)
                         if len(images) >= limit:
@@ -187,7 +254,6 @@ def search_images_bing(query: str, limit: int = 10) -> list:
         resp = requests.get(url, headers=headers, timeout=15)
         
         if resp.status_code == 200:
-            # استخراج روابط الصور من Bing
             urls = re.findall(r'<img[^>]+src="([^"]+)"', resp.text)
             
             for url in urls:
@@ -225,7 +291,6 @@ def search_images_pixabay(query: str, limit: int = 10) -> list:
     images = []
     
     try:
-        # مفتاح API مجاني من Pixabay
         api_key = "25564984-2e3f8b5f6b6f6e5e5e5e5e5e"
         
         url = "https://pixabay.com/api/"
@@ -283,7 +348,6 @@ def search_all_images(query: str, limit: int = 5) -> list:
     """البحث عن صور من جميع المصادر"""
     all_images = []
     
-    # قائمة محركات البحث مرتبة حسب الأولوية
     search_engines = [
         ("Google", search_images_google_direct),
         ("Bing", search_images_bing),
@@ -301,7 +365,6 @@ def search_all_images(query: str, limit: int = 5) -> list:
                 all_images.extend(images)
                 logger.info(f"✅ {engine_name}: {len(images)} صورة")
                 
-                # إذا وجدنا عدد كافي من الصور، نكتفي
                 if len(all_images) >= limit:
                     break
                     
@@ -309,7 +372,6 @@ def search_all_images(query: str, limit: int = 5) -> list:
             logger.error(f"❌ فشل البحث في {engine_name}: {e}")
             continue
     
-    # إزالة التكرار
     seen = set()
     unique_images = []
     for url in all_images:
@@ -321,9 +383,9 @@ def search_all_images(query: str, limit: int = 5) -> list:
     
     return unique_images[:limit]
 
-# ============== دوال تحميل الصور - المحسنة ==============
+# ============== دوال تحميل الصور ==============
 def download_image_direct(url: str, out_dir: str) -> str:
-    """تحميل صورة مباشرة مع معالجة محسنة"""
+    """تحميل صورة مباشرة"""
     has_space, free_mb = check_disk_space(10)
     if not has_space:
         clean_temp_files()
@@ -344,7 +406,6 @@ def download_image_direct(url: str, out_dir: str) -> str:
             logger.warning(f"فشل تحميل الصورة: {url} - Status: {resp.status_code}")
             return None
         
-        # تحديد الامتداد
         content_type = resp.headers.get('content-type', '').lower()
         ext = '.jpg'
         if 'png' in content_type:
@@ -356,7 +417,6 @@ def download_image_direct(url: str, out_dir: str) -> str:
         elif 'jpeg' in content_type or 'jpg' in content_type:
             ext = '.jpg'
         else:
-            # محاولة تحديد الامتداد من الرابط
             url_ext = os.path.splitext(url.split('?')[0])[1].lower()
             if url_ext in ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']:
                 ext = url_ext
@@ -371,12 +431,12 @@ def download_image_direct(url: str, out_dir: str) -> str:
                 if chunk:
                     f.write(chunk)
                     total_size += len(chunk)
-                    if total_size > 10 * 1024 * 1024:  # 10MB حد أقصى
+                    if total_size > 10 * 1024 * 1024:
                         safe_remove(filepath)
                         logger.warning(f"الصورة كبيرة جداً: {url}")
                         return None
         
-        if total_size < 512:  # أقل من 512 بايت = تالفة
+        if total_size < 512:
             safe_remove(filepath)
             logger.warning(f"الصورة صغيرة جداً: {url}")
             return None
@@ -433,7 +493,6 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # استخراج المعلومات أولاً بدون تحميل
             info_dict = ydl.extract_info(query, download=False)
             
             if 'entries' in info_dict:
@@ -445,7 +504,6 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
             
             logger.info(f"تم استخراج المعلومات: {title} - {uploader} - {duration}s")
             
-            # التحميل الفعلي
             info_dict = ydl.extract_info(query, download=True)
             
             prefix = 'audio_' if audio_only else 'video_'
@@ -616,6 +674,65 @@ async def setup_handlers(client, phone):
     if phone not in ent7al_original:
         ent7al_original[phone] = {}
 
+    # ============== أوامر الأنيمشن ==============
+    
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ضحك$'))
+    async def laugh_animation(event):
+        """أنيمشن الضحك"""
+        await event.edit("**• 😂 جاري تشغيل أنيمشن الضحك...**")
+        asyncio.create_task(run_animation(event, 'ضحك', duration=5))
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.قلب$'))
+    async def heart_animation(event):
+        """أنيمشن القلب"""
+        await event.edit("**• ❤️ جاري تشغيل أنيمشن القلب...**")
+        asyncio.create_task(run_animation(event, 'قلب', duration=5))
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غيمة$'))
+    async def cloud_animation(event):
+        """أنيمشن الغيمة"""
+        await event.edit("**• ☁️ جاري تشغيل أنيمشن الغيمة...**")
+        asyncio.create_task(run_animation(event, 'غيمة', duration=5))
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ورد$'))
+    async def flower_animation(event):
+        """أنيمشن الورد"""
+        await event.edit("**• 🌸 جاري تشغيل أنيمشن الورد...**")
+        asyncio.create_task(run_animation(event, 'ورد', duration=5))
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.كوكب$'))
+    async def planet_animation(event):
+        """أنيمشن الكوكب"""
+        await event.edit("**• ✨ جاري تشغيل أنيمشن الكوكب...**")
+        asyncio.create_task(run_animation(event, 'كوكب', duration=5))
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.شتاء$'))
+    async def winter_animation(event):
+        """أنيمشن الشتاء"""
+        await event.edit("**• ⛄ جاري تشغيل أنيمشن الشتاء...**")
+        asyncio.create_task(run_animation(event, 'شتاء', duration=5))
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.قمر$'))
+    async def moon_animation(event):
+        """أنيمشن القمر"""
+        await event.edit("**• 🌕 جاري تشغيل أنيمشن القمر...**")
+        asyncio.create_task(run_animation(event, 'قمر', duration=5))
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.وقف$'))
+    async def stop_animation(event):
+        """إيقاف جميع الأنيمشن"""
+        # إيقاف كل الأنيمشن النشطة
+        stopped = 0
+        for key in list(active_animations.keys()):
+            if key.startswith(str(event.chat_id)):
+                active_animations[key] = False
+                stopped += 1
+        
+        if stopped > 0:
+            await event.edit(f"**• ⏹️ تم إيقاف {stopped} أنيمشن**")
+        else:
+            await event.edit("**• ❌ لا يوجد أنيمشن نشط**")
+
     # ============== أمر .المساحة ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.المساحة$'))
     async def space_check(event):
@@ -765,7 +882,6 @@ async def setup_handlers(client, phone):
     # ============== أمر .صوت (تحويل فيديو إلى صوت) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.صوت$'))
     async def video_to_audio(event):
-        """تحويل الفيديو المردود عليه إلى صوت"""
         if not event.is_reply:
             await event.edit("**• ❌ يرجى الرد على فيديو**")
             return
@@ -1033,7 +1149,6 @@ async def setup_handlers(client, phone):
             await event.edit(f"**• ❌ المساحة غير كافية ({free_mb:.1f}MB)**\n**• استخدم .تنظيف**")
             return
         
-        # إذا كان رابط مباشر
         if query.startswith('http'):
             await event.edit("**• 📷 جاري تحميل الصورة...**")
             
@@ -1053,7 +1168,6 @@ async def setup_handlers(client, phone):
                 await event.edit(f"**• ❌ {str(e)[:150]}**")
             return
         
-        # البحث عن صور
         await event.edit("**• 🔍 جاري البحث في محركات البحث...**")
         
         urls = await asyncio.get_event_loop().run_in_executor(
@@ -1069,7 +1183,6 @@ async def setup_handlers(client, phone):
         success = 0
         downloaded_paths = []
         
-        # تحميل الصور
         for i, url in enumerate(urls, 1):
             try:
                 await event.edit(f"**• 📥 جاري تحميل الصورة {i}/{len(urls)}...**")
@@ -1082,7 +1195,6 @@ async def setup_handlers(client, phone):
                     downloaded_paths.append(filepath)
                     success += 1
                 
-                # توقف إذا وصلنا للعدد المطلوب
                 if success >= 3:
                     break
                     
@@ -1092,7 +1204,6 @@ async def setup_handlers(client, phone):
                 logger.error(f"فشل تحميل الصورة {i}: {e}")
                 continue
         
-        # إرسال الصور
         if downloaded_paths:
             await event.edit(f"**• 📤 جاري إرسال {len(downloaded_paths)} صورة...**")
             
