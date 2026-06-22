@@ -138,7 +138,7 @@ def apply_telegram_format(text, format_type):
     elif format_type == 'strike': return f"~~{text}~~"
     return text
 
-# ============== دوال الزخرفة المتكاملة ==============
+# ============== دوال الزخرفة ==============
 DECORATION_STYLES = {
     'style1': {
         'A':'𝗔','B':'𝗕','C':'𝗖','D':'𝗗','E':'𝗘','F':'𝗙','G':'𝗚','H':'𝗛','I':'𝗜','J':'𝗝','K':'𝗞','L':'𝗟','M':'𝗠',
@@ -189,10 +189,8 @@ DECORATION_STYLES = {
 }
 
 def apply_decoration(text, style_name):
-    """تطبيق الزخرفة على النص الإنجليزي فقط"""
     if style_name not in DECORATION_STYLES:
         return text
-    
     style_map = DECORATION_STYLES[style_name]
     result = ''
     for char in text:
@@ -204,13 +202,11 @@ def apply_decoration(text, style_name):
 
 # ============== دوال الترجمة ==============
 def translate_text(text: str) -> str:
-    """ترجمة النص بين العربية والإنجليزية"""
     try:
         if re.search(r'[\u0600-\u06FF]', text):
             source, target = 'ar', 'en'
         else:
             source, target = 'en', 'ar'
-        
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={source}&tl={target}&dt=t&q={quote(text)}"
         resp = requests.get(url, timeout=15)
         if resp.status_code == 200:
@@ -324,9 +320,8 @@ def search_images_google_serpapi(query: str, limit: int = 10) -> list:
                 if len(images) >= limit: break
             if images: return images
     except: pass
-    
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        headers = {'User-Agent': 'Mozilla/5.0'}
         search_url = f"https://www.google.com/search?q={quote(query)}&tbm=isch&hl=en&safe=off"
         resp = requests.get(search_url, headers=headers, timeout=15)
         if resp.status_code == 200:
@@ -365,17 +360,12 @@ def search_images_ddg(query: str, limit: int = 10) -> list:
 
 def search_all_images(query: str, limit: int = 5) -> list:
     all_images = []
-    engines = [
-        ("DuckDuckGo", search_images_ddg),
-        ("Google", search_images_google_serpapi),
-        ("Bing", search_images_bing_api),
-    ]
+    engines = [("DuckDuckGo", search_images_ddg), ("Google", search_images_google_serpapi), ("Bing", search_images_bing_api)]
     for name, func in engines:
         try:
             results = func(query, limit=10)
             if results: all_images.extend(results)
         except: continue
-    
     seen = set()
     unique = []
     blocked = ['icon', 'favicon', 'avatar', 'logo', 'thumb/32', 'thumb/64', 'gstatic.com']
@@ -387,12 +377,10 @@ def search_all_images(query: str, limit: int = 5) -> list:
             seen.add(url)
             unique.append(url)
             if len(unique) >= limit: break
-    
     if not unique and ' ' in query:
         parts = query.split()
         if len(parts) >= 2:
             return search_all_images(' '.join(parts[:2]), limit)
-    
     return unique[:limit]
 
 def download_image_direct(url: str, out_dir: str) -> str:
@@ -405,7 +393,6 @@ def download_image_direct(url: str, out_dir: str) -> str:
         if 'png' in content_type: ext = '.png'
         elif 'webp' in content_type: ext = '.webp'
         elif 'gif' in content_type: ext = '.gif'
-        
         filename = f"img_{int(time.time()*1000)}_{hashlib.md5(url.encode()).hexdigest()[:8]}{ext}"
         filepath = os.path.join(out_dir, filename)
         size = 0
@@ -423,48 +410,103 @@ def download_image_direct(url: str, out_dir: str) -> str:
         return filepath
     except: return None
 
-# ============== دوال يوتيوب ==============
+# ============== دوال يوتيوب - الحل النهائي ==============
 def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
-    if not YTDLP_AVAILABLE: raise ValueError("مكتبة yt-dlp غير مثبتة")
+    """تحميل من يوتيوب - يعمل بدون كوكيز على الأندرويد"""
+    if not YTDLP_AVAILABLE: raise ValueError("مكتبة yt-dlp غير مثبتة. استخدم: pip install yt-dlp")
     if not query.startswith("http"): query = f"ytsearch:{query}"
+    
     timestamp = int(time.time())
     
+    # الإعدادات الأساسية
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': False,
+        'no_color': True,
+        'user_agent': 'com.google.android.youtube/19.01.34 (Linux; U; Android 14; en_US; Pixel 8 Pro) gzip',
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'],
+                'skip': ['hls', 'dash'],
+            }
+        },
+        'http_headers': {
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'ar,en-US;q=0.7,en;q=0.3',
+        },
+        'socket_timeout': 30,
+        'retries': 5,
+        'fragment_retries': 5,
+        'max_filesize': 50*1024*1024 if audio_only else 100*1024*1024,
+    }
+    
     if audio_only:
-        ydl_opts = {
+        ydl_opts.update({
             'format': 'bestaudio/best',
             'outtmpl': os.path.join(out_dir, f'audio_{timestamp}.%(ext)s'),
-            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
-            'quiet': True, 'no_warnings': True, 'max_filesize': 50*1024*1024, 'extract_flat': False,
-        }
+            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '128'}],
+        })
     else:
-        ydl_opts = {
-            'format': 'best[height<=720]/best',
+        ydl_opts.update({
+            'format': 'best[height<=480]/best',
             'outtmpl': os.path.join(out_dir, f'video_{timestamp}.%(ext)s'),
-            'quiet': True, 'no_warnings': True, 'max_filesize': 100*1024*1024,
-            'merge_output_format': 'mp4', 'extract_flat': False,
-        }
+            'merge_output_format': 'mp4',
+        })
     
+    # المحاولة الأولى: android client
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(query, download=False)
-            if 'entries' in info_dict: info_dict = info_dict['entries'][0]
-            title = info_dict.get('title', 'بدون عنوان')
-            uploader = info_dict.get('uploader', 'غير معروف')
-            duration = info_dict.get('duration', 0)
-            info_dict = ydl.extract_info(query, download=True)
-            prefix = 'audio_' if audio_only else 'video_'
-            files = [f for f in os.listdir(out_dir) if f.startswith(f'{prefix}{timestamp}')]
-            if not files: raise ValueError("لم يتم العثور على الملف")
-            filepath = os.path.join(out_dir, files[0])
-            if duration == 0: duration = info_dict.get('duration', 0)
-            return {
-                'title': title, 'uploader': uploader, 'duration': duration,
-                'duration_str': format_duration(duration),
-            }, filepath
-    except Exception as e:
-        for f in os.listdir(out_dir):
-            if f.startswith(f'{prefix}{timestamp}'): safe_remove(os.path.join(out_dir, f))
-        raise ValueError(f"فشل: {str(e)[:200]}")
+        return _try_download(ydl_opts, query, out_dir, timestamp, audio_only)
+    except Exception as e1:
+        logger.warning(f"المحاولة الأولى فشلت: {e1}")
+        
+        # المحاولة الثانية: web client مع user-agent مختلف
+        ydl_opts['user_agent'] = 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36'
+        ydl_opts['extractor_args']['youtube']['player_client'] = ['web', 'android']
+        try:
+            return _try_download(ydl_opts, query, out_dir, timestamp, audio_only)
+        except Exception as e2:
+            logger.warning(f"المحاولة الثانية فشلت: {e2}")
+            
+            # المحاولة الثالثة: android_vr client
+            ydl_opts['extractor_args']['youtube']['player_client'] = ['android_vr', 'android']
+            try:
+                return _try_download(ydl_opts, query, out_dir, timestamp, audio_only)
+            except Exception as e3:
+                # تنظيف الملفات المؤقتة
+                prefix = 'audio_' if audio_only else 'video_'
+                for f in os.listdir(out_dir):
+                    if f.startswith(f'{prefix}{timestamp}'): safe_remove(os.path.join(out_dir, f))
+                
+                error_msg = str(e3)
+                if 'Sign in to confirm' in error_msg or 'bot' in error_msg.lower():
+                    raise ValueError(
+                        "❌ يوتيوب يطلب تأكيد المتصفح\n\n"
+                        "📱 الحلول:\n"
+                        "1. حدث yt-dlp: pip install --upgrade yt-dlp\n"
+                        "2. استخدم رابط مباشر: .يوت https://youtube.com/watch?v=XXXX\n"
+                        "3. استخدم Kiwi Browser وسجل دخول يوتيوب"
+                    )
+                raise ValueError(f"فشل التحميل: {error_msg[:200]}")
+
+def _try_download(ydl_opts, query, out_dir, timestamp, audio_only):
+    """محاولة تحميل واحدة"""
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info_dict = ydl.extract_info(query, download=False)
+        if 'entries' in info_dict: info_dict = info_dict['entries'][0]
+        title = info_dict.get('title', 'بدون عنوان')
+        uploader = info_dict.get('uploader', 'غير معروف')
+        duration = info_dict.get('duration', 0)
+        info_dict = ydl.extract_info(query, download=True)
+        prefix = 'audio_' if audio_only else 'video_'
+        files = [f for f in os.listdir(out_dir) if f.startswith(f'{prefix}{timestamp}')]
+        if not files: raise ValueError("لم يتم العثور على الملف المحمل")
+        filepath = os.path.join(out_dir, files[0])
+        if duration == 0: duration = info_dict.get('duration', 0)
+        return {
+            'title': title, 'uploader': uploader, 'duration': duration,
+            'duration_str': format_duration(duration),
+        }, filepath
 
 def convert_video_to_audio(video_path: str, out_dir: str):
     if not os.path.exists(video_path): raise ValueError("الملف غير موجود")
@@ -472,7 +514,7 @@ def convert_video_to_audio(video_path: str, out_dir: str):
     try:
         result = subprocess.run([
             'ffmpeg', '-i', video_path, '-vn', '-acodec', 'libmp3lame',
-            '-ab', '192k', '-ar', '44100', '-y', audio_path
+            '-ab', '128k', '-ar', '44100', '-y', audio_path
         ], capture_output=True, timeout=120)
         if result.returncode != 0: raise ValueError("فشل التحويل")
         duration = 0
@@ -530,35 +572,20 @@ async def resolve_user(event, client):
         except: pass
     return None
 
-# ============== دالة قياس السرعة المحسنة ==============
 async def measure_speed():
-    """قياس سرعة النت بطريقة دقيقة"""
     try:
-        # قياس البنق
         start = time.time()
         resp = requests.get("https://api.telegram.org", timeout=10)
         ping = int((time.time() - start) * 1000)
-        
-        # قياس سرعة التحميل باستخدام ملف صغير
         start = time.time()
         resp = requests.get("http://ipv4.download.thinkbroadband.com/5MB.zip", stream=True, timeout=30)
         size = 0
         for chunk in resp.iter_content(8192):
             size += len(chunk)
             elapsed = time.time() - start
-            if elapsed > 8 or size > 5 * 1024 * 1024:
-                break
-        
-        if elapsed > 0:
-            speed_mbps = (size * 8) / (elapsed * 1000000)
-        else:
-            speed_mbps = 0
-        
-        return {
-            'ping': ping,
-            'speed': speed_mbps,
-            'success': True
-        }
+            if elapsed > 8 or size > 5 * 1024 * 1024: break
+        speed_mbps = (size * 8) / (elapsed * 1000000) if elapsed > 0 else 0
+        return {'ping': ping, 'speed': speed_mbps, 'success': True}
     except:
         return {'success': False}
 
@@ -669,14 +696,13 @@ async def setup_handlers(client, phone):
         result = f"🤥 **نسبة كذب {name}:**\n{'█' * (p // 10)}{'░' * (10 - p // 10)} **{p}%**\n\n**{get_lying_comment(p)}**"
         await event.edit(result, parse_mode='markdown')
 
-    # ============== أوامر المزاح - المحسنة ==============
+    # ============== أوامر المزاح ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تهكير$'))
     async def fake_hack(event):
         if not event.is_reply: await event.edit("**• ❌ يرجى الرد على شخص**", parse_mode='markdown'); return
         reply = await event.get_reply_message()
         user = await client.get_entity(reply.sender_id)
         name = user.first_name or "المستخدم"
-        
         for msg in HACK_MESSAGES:
             await event.edit(msg, parse_mode='markdown')
             await asyncio.sleep(1.2)
@@ -688,10 +714,7 @@ async def setup_handlers(client, phone):
         reply = await event.get_reply_message()
         user = await client.get_entity(reply.sender_id)
         name = user.first_name or "المستخدم"
-        
-        # اختيار طريقة قتل عشوائية
         method = random.choice(KILL_METHODS)
-        
         for msg in method:
             await event.edit(f"**{msg}**", parse_mode='markdown')
             await asyncio.sleep(1.5)
@@ -740,37 +763,57 @@ async def setup_handlers(client, phone):
     # ============== أوامر التحميل ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.يوت (.+)'))
     async def youtube_audio(event):
-        if not YTDLP_AVAILABLE: await event.edit("**• ❌ مكتبة yt-dlp غير مثبتة**", parse_mode='markdown'); return
+        if not YTDLP_AVAILABLE:
+            await event.edit("**• ❌ مكتبة yt-dlp غير مثبتة**\n**• للتثبيت:** `pip install yt-dlp`\n**• للتحديث:** `pip install --upgrade yt-dlp`", parse_mode='markdown')
+            return
         query = event.pattern_match.group(1).strip()
-        await event.edit("**• 🎵 جاري التحميل...**", parse_mode='markdown')
+        
+        try:
+            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+        except:
+            await event.edit("**• ❌ ffmpeg غير مثبت**\n**• في Termux:** `pkg install ffmpeg`", parse_mode='markdown')
+            return
+        
+        await event.edit("**• 🎵 جاري تحميل الصوت...**", parse_mode='markdown')
         filepath = None
         try:
-            info, filepath = await asyncio.get_event_loop().run_in_executor(_DOWNLOAD_EXECUTOR, download_youtube_media, query, TEMP_DIR, True)
+            info, filepath = await asyncio.get_event_loop().run_in_executor(
+                _DOWNLOAD_EXECUTOR, download_youtube_media, query, TEMP_DIR, True
+            )
             title = info['title'][:52] + '...' if len(info['title']) > 55 else info['title']
             await client.send_file(event.chat_id, filepath,
                                    caption=f"{title}\n• {info['duration_str']} | ᥲᥙძᎥ᥆",
                                    attributes=[DocumentAttributeAudio(duration=info['duration'], title=info['title'], performer=info['uploader'])],
                                    supports_streaming=True)
             await event.delete()
-        except Exception as e: await event.edit(f"**• ❌ {str(e)[:200]}**", parse_mode='markdown')
-        finally: safe_remove(filepath)
+        except Exception as e:
+            error_msg = str(e)[:400]
+            await event.edit(f"**• ❌ {error_msg}**", parse_mode='markdown')
+        finally:
+            safe_remove(filepath)
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فيد (.+)'))
     async def video_download(event):
-        if not YTDLP_AVAILABLE: await event.edit("**• ❌ مكتبة yt-dlp غير مثبتة**", parse_mode='markdown'); return
+        if not YTDLP_AVAILABLE:
+            await event.edit("**• ❌ مكتبة yt-dlp غير مثبتة**\n**• للتثبيت:** `pip install yt-dlp`", parse_mode='markdown')
+            return
         query = event.pattern_match.group(1).strip()
-        await event.edit("**• 🎬 جاري التحميل...**", parse_mode='markdown')
+        await event.edit("**• 🎬 جاري تحميل الفيديو...**", parse_mode='markdown')
         filepath = None
         try:
-            info, filepath = await asyncio.get_event_loop().run_in_executor(_DOWNLOAD_EXECUTOR, download_youtube_media, query, TEMP_DIR, False)
+            info, filepath = await asyncio.get_event_loop().run_in_executor(
+                _DOWNLOAD_EXECUTOR, download_youtube_media, query, TEMP_DIR, False
+            )
             title = info['title'][:52] + '...' if len(info['title']) > 55 else info['title']
             await client.send_file(event.chat_id, filepath,
                                    caption=f"{title}\n• {info['duration_str']} | ᥎Ꭵძꫀ᥆",
                                    attributes=[DocumentAttributeVideo(duration=info['duration'], w=0, h=0, supports_streaming=True)],
                                    supports_streaming=True)
             await event.delete()
-        except Exception as e: await event.edit(f"**• ❌ {str(e)[:200]}**", parse_mode='markdown')
-        finally: safe_remove(filepath)
+        except Exception as e:
+            await event.edit(f"**• ❌ {str(e)[:400]}**", parse_mode='markdown')
+        finally:
+            safe_remove(filepath)
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.صوت$'))
     async def video_to_audio(event):
@@ -876,26 +919,23 @@ async def setup_handlers(client, phone):
         if success > 0: await event.delete()
         else: await event.edit("**• ❌ فشل تحميل الصور**", parse_mode='markdown')
 
-    # ============== أمر .ترجم - يدعم الربلاي ==============
+    # ============== أمر .ترجم ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ترجم(?: (.+))?$'))
     async def translate_cmd(event):
         text = None
         if event.is_reply:
             reply = await event.get_reply_message()
             text = reply.text if reply.text else None
-        
         if not text and event.pattern_match.group(1):
             text = event.pattern_match.group(1).strip()
-        
         if not text:
             await event.edit("**• ❌ يرجى الرد على رسالة أو كتابة نص للترجمة**")
             return
-        
         await event.edit("**• 🔄 جاري الترجمة...**")
         translated = await asyncio.get_event_loop().run_in_executor(_DOWNLOAD_EXECUTOR, translate_text, text)
         await event.edit(f"**• الترجمة:**\n{translated}")
 
-    # ============== أمر .نت - المحسن ==============
+    # ============== أمر .نت ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.نت$'))
     async def speed_test(event):
         await event.edit("**• 📶 جاري قياس سرعة النت...**")
@@ -905,19 +945,16 @@ async def setup_handlers(client, phone):
         else:
             await event.edit("**• ❌ فشل قياس سرعة النت - تأكد من اتصالك**")
 
-    # ============== أمر .خرفة - الزخارف الإنجليزية ==============
+    # ============== أمر .خرفة ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.خرفة (.+)'))
     async def decorate_text(event):
         text = event.pattern_match.group(1).strip()
         if not text: await event.edit("**• ❌ اكتب نص للزخرفة**"); return
-        
         style_names = list(DECORATION_STYLES.keys())
         results = [f"**🎨 زخرفة '{text}':**\n"]
-        
         for i, style_name in enumerate(style_names, 1):
             decorated = apply_decoration(text, style_name)
             results.append(f"**{i}.** `{decorated}`")
-        
         await event.edit('\n'.join(results), parse_mode='markdown')
 
     # ============== أوامر الإدارة ==============
@@ -1009,7 +1046,7 @@ async def setup_handlers(client, phone):
             await event.edit(f"**• 👢 تم طرد {target.first_name or 'المستخدم'}**")
         except: await event.edit("**• ❌ فشل**")
 
-    # ============== أوامر المحظورين والمكتومين ==============
+    # ============== باقي الأوامر كما هي ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.محظورين$'))
     async def banned_list(event):
         if not event.is_group: await event.edit("**• ❌ الأمر يعمل في الجروبات فقط**"); return
@@ -1087,21 +1124,18 @@ async def setup_handlers(client, phone):
             await event.edit("**• ✅ تم فك تقييد الجميع**")
         except: await event.edit("**• ❌ فشل**")
 
-    # ============== أوامر المعرفات ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ايدي$'))
     async def get_id(event):
         target = await resolve_user(event, client)
         if not target:
             if event.is_group: target = await client.get_entity(event.chat_id)
             else: target = await client.get_me()
-        
         info = f"**🆔 المعرفات:**\n**• الاسم:** {target.first_name or ''}"
         if target.last_name: info += f" {target.last_name}"
         info += f"\n**• اليوزر:** @{target.username}" if target.username else "\n**• اليوزر:** لا يوجد"
         info += f"\n**• ID:** `{target.id}`"
         await event.edit(info, parse_mode='markdown')
 
-    # ============== أمر .انشاء - المحسن ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.انشاء$'))
     async def creation_date(event):
         target = None
@@ -1115,24 +1149,17 @@ async def setup_handlers(client, phone):
         elif event.is_group or event.is_channel:
             try: target = await client.get_entity(event.chat_id)
             except: pass
-        
-        if not target:
-            await event.edit("**• ❌ لا يمكن تحديد تاريخ الإنشاء**")
-            return
-        
+        if not target: await event.edit("**• ❌ لا يمكن تحديد تاريخ الإنشاء**"); return
         if hasattr(target, 'date') and target.date:
             date = target.date.strftime('%Y-%m-%d %H:%M:%S')
             entity_type = "الحساب" if hasattr(target, 'username') and not target.broadcast else "القناة" if hasattr(target, 'broadcast') and target.broadcast else "الجروب"
             await event.edit(f"**📅 تاريخ إنشاء {entity_type}:**\n{date}")
-        else:
-            await event.edit("**• ❌ لا يمكن تحديد تاريخ الإنشاء لهذا النوع**")
+        else: await event.edit("**• ❌ لا يمكن تحديد تاريخ الإنشاء لهذا النوع**")
 
-    # ============== أمر .عدد - يعمل في جميع المحادثات ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.عدد$'))
     async def message_count(event):
         target = None
         chat = event.chat_id
-        
         if event.is_reply:
             reply = await event.get_reply_message()
             try: target = await client.get_entity(reply.sender_id)
@@ -1140,11 +1167,7 @@ async def setup_handlers(client, phone):
         else:
             try: target = await client.get_me()
             except: pass
-        
-        if not target:
-            await event.edit("**• ❌ يرجى الرد على شخص أو استخدام الأمر مباشرة**")
-            return
-        
+        if not target: await event.edit("**• ❌ يرجى الرد على شخص أو استخدام الأمر مباشرة**"); return
         count = 0
         try:
             async for msg in client.iter_messages(chat, from_user=target.id):
@@ -1157,7 +1180,6 @@ async def setup_handlers(client, phone):
                         count += 1
                         if count >= 10000: break
             except: pass
-        
         name = target.first_name or 'المستخدم'
         await event.edit(f"**📊 عدد رسائل {name}:** {count}")
 
@@ -1173,7 +1195,6 @@ async def setup_handlers(client, phone):
         except:
             await event.edit(f"**🏅 رتبة {target.first_name or 'المستخدم'}:** عضو")
 
-    # ============== أوامر الحذف ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.حذف(?: (\d+))?$'))
     async def delete_messages(event):
         count = int(event.pattern_match.group(1)) if event.pattern_match.group(1) else 1
@@ -1195,7 +1216,6 @@ async def setup_handlers(client, phone):
             await event.edit("**• ✅ تم حذف المحادثة من الطرفين**")
         except: await event.edit("**• ❌ فشل**")
 
-    # ============== أوامر الجروب ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فتح$'))
     async def open_group(event):
         if not event.is_group: await event.edit("**• ❌ الأمر يعمل في الجروبات فقط**"); return
@@ -1213,7 +1233,6 @@ async def setup_handlers(client, phone):
             await event.edit("**• 🔒 تم قفل الجروب**")
         except: await event.edit("**• ❌ فشل**")
 
-    # ============== أوامر الرفع والتنزيل ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.مش$'))
     async def promote_mod(event):
         if not event.is_group: await event.edit("**• ❌ الأمر يعمل في الجروبات فقط**"); return
@@ -1257,7 +1276,6 @@ async def setup_handlers(client, phone):
             await event.edit(f"**• ⬇️ تم تنزيل {target.first_name or 'المستخدم'}**")
         except: await event.edit("**• ❌ فشل**")
 
-    # ============== أوامر الإضافة والتسجيل ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ضيف (\d+)$'))
     async def smart_add(event):
         if not event.is_group: await event.edit("**• ❌ الأمر يعمل في الجروبات فقط**"); return
@@ -1314,12 +1332,10 @@ async def setup_handlers(client, phone):
         except: pass
         await event.edit(f"**• ✅ تم تسجيل {added} عضو في {username}**")
 
-    # ============== أوامر متفرقة ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اطردني$'))
     async def leave_group(event):
         if not event.is_group: await event.edit("**• ❌ الأمر يعمل في الجروبات فقط**"); return
-        try:
-            await client.delete_dialog(event.chat_id)
+        try: await client.delete_dialog(event.chat_id)
         except: pass
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ادمنز$'))
