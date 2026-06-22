@@ -32,12 +32,12 @@ from telethon.tl.functions.messages import (
     AddChatUserRequest, GetDialogsRequest, DeleteChatUserRequest,
     DeleteHistoryRequest, EditChatDefaultBannedRightsRequest
 )
-from telethon.tl.functions.contacts import AddContactRequest, DeleteContactsRequest, BlockRequest, UnblockRequest, GetBlockedRequest
+from telethon.tl.functions.contacts import AddContactRequest, BlockRequest, UnblockRequest, GetBlockedRequest
 from telethon.tl.types import (
     InputPhoto, DocumentAttributeAudio, DocumentAttributeVideo,
     InputPeerUser, InputPeerChat, InputPeerChannel, InputPeerEmpty,
     ChatBannedRights, ChatAdminRights, ChannelParticipantsAdmins,
-    ChannelParticipantsSearch, UserStatusOnline, UserStatusOffline,
+    UserStatusOnline, UserStatusOffline,
     ChannelParticipantCreator, ChannelParticipantAdmin
 )
 from telethon.tl.functions.phone import CreateGroupCallRequest
@@ -77,7 +77,6 @@ YOUTUBE_COOKIES = """# Netscape HTTP Cookie File
 .youtube.com	TRUE	/	TRUE	0	GPS	1
 .youtube.com	TRUE	/	TRUE	0	YSC	2ZqkBhu97kI
 .youtube.com	TRUE	/	TRUE	0	VISITOR_INFO1_LIVE	5LStVsyOd1g
-.youtube.com	TRUE	/	TRUE	0	VISITOR_PRIVACY_METADATA	CgJFRxIEGgAgXg%3D%3D
 .youtube.com	TRUE	/	TRUE	0	PREF	f6=40000000&tz=Africa.Cairo
 .youtube.com	TRUE	/	TRUE	0	__Secure-1PSIDTS	sidts-CjUByojQUx58ERvSDskWSihIxkWc2Q5-rTs-CVVAgIG1OG7ZeeC5L71HNU63M1x9ftH9i_Rt-RAA
 .youtube.com	TRUE	/	TRUE	0	__Secure-3PSIDTS	sidts-CjUByojQUx58ERvSDskWSihIxkWc2Q5-rTs-CVVAgIG1OG7ZeeC5L71HNU63M1x9ftH9i_Rt-RAA
@@ -145,8 +144,7 @@ def apply_decoration(text, style_name):
 def translate_text(text: str) -> str:
     try:
         source, target = ('ar', 'en') if re.search(r'[\u0600-\u06FF]', text) else ('en', 'ar')
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={source}&tl={target}&dt=t&q={quote(text)}"
-        resp = requests.get(url, timeout=15)
+        resp = requests.get(f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={source}&tl={target}&dt=t&q={quote(text)}", timeout=15)
         if resp.status_code == 200: return ''.join([s[0] for s in json.loads(resp.text)[0] if s[0]])
     except: pass
     return text
@@ -252,44 +250,48 @@ def save_cookies():
     except: return None
 
 def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
-    if not YTDLP_AVAILABLE: raise ValueError("مكتبة yt-dlp غير مثبتة")
+    if not YTDLP_AVAILABLE: raise ValueError("مكتبة yt-dlp غير مثبتة. استخدم: pip install yt-dlp")
+    query = query.strip()
     if not query.startswith("http"): query = f"ytsearch:{query}"
     
     timestamp = int(time.time())
     prefix = 'audio_' if audio_only else 'video_'
     cookies_path = save_cookies()
-    format_str = 'bestaudio/best' if audio_only else 'best[height<=720]/best[height<=480]/best[height<=360]/best'
     
     ydl_opts = {
-        'quiet': True, 'no_warnings': True, 'extract_flat': False, 'no_color': True,
-        'format': format_str, 'outtmpl': os.path.join(out_dir, f'{prefix}{timestamp}.%(ext)s'),
-        'max_filesize': 50*1024*1024 if audio_only else 100*1024*1024,
-        'socket_timeout': 30, 'retries': 3, 'ignoreerrors': True,
+        'quiet': True, 'no_warnings': True, 'no_color': True, 'noprogress': True,
+        'format_sort': ['res:720', 'codec:h264:m4a'],
+        'outtmpl': os.path.join(out_dir, f'{prefix}{timestamp}.%(ext)s'),
+        'user_agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+        'referer': 'https://www.youtube.com/',
+        'extractor_args': {'youtube': {'player_client': ['android', 'web', 'tvhtml5'], 'player_skip': ['configs', 'webpage']}},
+        'ignoreerrors': True, 'nooverwrites': True, 'continuedl': True,
+        'retries': 10, 'fragment_retries': 10, 'skip_unavailable_fragments': True,
+        'max_filesize': 100 * 1024 * 1024, 'socket_timeout': 60, 'extractor_retries': 5,
     }
     if cookies_path and os.path.exists(cookies_path): ydl_opts['cookiefile'] = cookies_path
     if audio_only: ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}]
-    else: ydl_opts['merge_output_format'] = 'mp4'
-    
-    title, uploader, duration = 'بدون عنوان', 'غير معروف', 0
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(query, download=False)
-            if info is None: raise ValueError("لم يتم العثور على الفيديو")
-            if 'entries' in info and info['entries']: info = info['entries'][0]
-            if info:
-                title = info.get('title') or 'بدون عنوان'
-                uploader = info.get('uploader') or 'غير معروف'
-                duration = info.get('duration') or 0
-            
             info = ydl.extract_info(query, download=True)
-            if info and 'entries' in info and info['entries']: info = info['entries'][0]
-            if info and duration == 0: duration = info.get('duration') or 0
+            if info and 'entries' in info:
+                entries = [e for e in info['entries'] if e]
+                if entries: info = entries[0]
+            if not info: raise ValueError("لم يتم العثور على الفيديو")
             
-            files = [f for f in os.listdir(out_dir) if f.startswith(f'{prefix}{timestamp}')]
-            if not files: raise ValueError("لم يتم العثور على الملف - جرب فيديو آخر")
+            title = info.get('title') or 'بدون عنوان'
+            uploader = info.get('uploader') or 'غير معروف'
+            duration = info.get('duration') or 0
             
-            return {'title': title, 'uploader': uploader, 'duration': duration, 'duration_str': format_duration(duration)}, os.path.join(out_dir, files[0])
+            files = sorted([f for f in os.listdir(out_dir) if f.startswith(f'{prefix}{timestamp}')],
+                          key=lambda x: os.path.getsize(os.path.join(out_dir, x)), reverse=True)
+            if not files: raise ValueError("لم يتم العثور على الملف المحمل")
+            
+            filepath = os.path.join(out_dir, files[0])
+            if os.path.getsize(filepath) < 1024: safe_remove(filepath); raise ValueError("الملف تالف")
+            
+            return {'title': title, 'uploader': uploader, 'duration': duration, 'duration_str': format_duration(duration)}, filepath
     except Exception as e:
         for f in os.listdir(out_dir):
             if f.startswith(f'{prefix}{timestamp}'): safe_remove(os.path.join(out_dir, f))
@@ -692,6 +694,76 @@ async def setup_handlers(client, phone):
         try: await client.kick_participant(event.chat_id, t.id); await event.edit(f"**• 👢 تم طرد {t.first_name or ''}**")
         except: await event.edit("**• ❌ فشل**")
 
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.محظورين$'))
+    async def banned_list(event):
+        if not event.is_group: await event.edit("**• ❌ للجروبات فقط**"); return
+        await event.edit("**• 📋 جاري الجلب...**")
+        try:
+            banned = await client(GetParticipantsRequest(event.chat_id, types.ChannelParticipantsKicked(), 0, 100, 0))
+            if not banned.users: await event.edit("**• 📋 لا يوجد محظورين**"); return
+            result = "**📋 المحظورين:**\n"
+            for user in banned.users[:20]: result += f"• [{user.first_name or ''}](tg://user?id={user.id})\n"
+            await event.edit(result)
+        except: await event.edit("**• ❌ فشل**")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فك محظور$'))
+    async def unban_user(event):
+        if not event.is_group: await event.edit("**• ❌ للجروبات فقط**"); return
+        t = await resolve_user(event, client)
+        if not t: await event.edit("**• ❌ يرجى الرد**"); return
+        try: await client(EditBannedRequest(event.chat_id, t.id, ChatBannedRights(until_date=None))); await event.edit(f"**• ✅ تم فك حظر {t.first_name or ''}**")
+        except: await event.edit("**• ❌ فشل**")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فك محظورين$'))
+    async def unban_all(event):
+        if not event.is_group: await event.edit("**• ❌ للجروبات فقط**"); return
+        await event.edit("**• 🔄 جاري فك حظر الجميع...**")
+        try:
+            banned = await client(GetParticipantsRequest(event.chat_id, types.ChannelParticipantsKicked(), 0, 200, 0))
+            for user in banned.users:
+                try: await client(EditBannedRequest(event.chat_id, user.id, ChatBannedRights(until_date=None))); await asyncio.sleep(0.5)
+                except: continue
+            await event.edit("**• ✅ تم فك حظر الجميع**")
+        except: await event.edit("**• ❌ فشل**")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فك كتم$'))
+    async def unmute_user(event):
+        if not event.is_group: await event.edit("**• ❌ للجروبات فقط**"); return
+        t = await resolve_user(event, client)
+        if not t: await event.edit("**• ❌ يرجى الرد**"); return
+        try: await client(EditBannedRequest(event.chat_id, t.id, ChatBannedRights(until_date=None))); await event.edit(f"**• ✅ تم فك كتم {t.first_name or ''}**")
+        except: await event.edit("**• ❌ فشل**")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فك مكتومين$'))
+    async def unmute_all(event):
+        if not event.is_group: await event.edit("**• ❌ للجروبات فقط**"); return
+        await event.edit("**• 🔄 جاري فك كتم الجميع...**")
+        try:
+            async for user in client.iter_participants(event.chat_id):
+                try: await client(EditBannedRequest(event.chat_id, user.id, ChatBannedRights(until_date=None)))
+                except: continue
+            await event.edit("**• ✅ تم فك كتم الجميع**")
+        except: await event.edit("**• ❌ فشل**")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فك تقيد$'))
+    async def unrestrict_user(event):
+        if not event.is_group: await event.edit("**• ❌ للجروبات فقط**"); return
+        t = await resolve_user(event, client)
+        if not t: await event.edit("**• ❌ يرجى الرد**"); return
+        try: await client(EditBannedRequest(event.chat_id, t.id, ChatBannedRights(until_date=None))); await event.edit(f"**• ✅ تم فك تقييد {t.first_name or ''}**")
+        except: await event.edit("**• ❌ فشل**")
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فك مقيدين$'))
+    async def unrestrict_all(event):
+        if not event.is_group: await event.edit("**• ❌ للجروبات فقط**"); return
+        await event.edit("**• 🔄 جاري فك تقييد الجميع...**")
+        try:
+            async for user in client.iter_participants(event.chat_id):
+                try: await client(EditBannedRequest(event.chat_id, user.id, ChatBannedRights(until_date=None)))
+                except: continue
+            await event.edit("**• ✅ تم فك تقييد الجميع**")
+        except: await event.edit("**• ❌ فشل**")
+
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ايدي$'))
     async def get_id(event):
         t = await resolve_user(event, client)
@@ -734,6 +806,17 @@ async def setup_handlers(client, phone):
             except: pass
         await event.edit(f"**📊 عدد رسائل {t.first_name or 'المستخدم'}:** {c}")
 
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.رتبة$'))
+    async def user_rank(event):
+        if not event.is_group: await event.edit("**• ❌ للجروبات فقط**"); return
+        t = await resolve_user(event, client)
+        if not t: await event.edit("**• ❌ يرجى الرد على شخص**"); return
+        try:
+            participant = await client(functions.channels.GetParticipantRequest(event.chat_id, t.id))
+            rank = "مالك" if isinstance(participant.participant, ChannelParticipantCreator) else "مشرف" if isinstance(participant.participant, ChannelParticipantAdmin) else "عضو"
+            await event.edit(f"**🏅 رتبة {t.first_name or 'المستخدم'}:** {rank}")
+        except: await event.edit(f"**🏅 رتبة {t.first_name or 'المستخدم'}:** عضو")
+
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.حذف(?: (\d+))?$'))
     async def delete_msgs(event):
         c = int(event.pattern_match.group(1)) if event.pattern_match.group(1) else 1
@@ -765,14 +848,6 @@ async def setup_handlers(client, phone):
         if not event.is_group: await event.edit("**• ❌ للجروبات**"); return
         try: await client(EditChatDefaultBannedRightsRequest(event.chat_id, ChatBannedRights(until_date=None, send_messages=True))); await event.edit("**• 🔒 تم القفل**")
         except: await event.edit("**• ❌ فشل**")
-
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ادمنز$'))
-    async def admin_list(event):
-        if not event.is_group: await event.edit("**• ❌ للجروبات**"); return
-        admins = []
-        async for a in client.iter_participants(event.chat_id, filter=ChannelParticipantsAdmins):
-            admins.append(f"• {a.first_name or ''} {'@'+a.username if a.username else ''}")
-        await event.edit("**👑 الأدمنز:**\n"+'\n'.join(admins[:20]) if admins else "**• ❌ لا يوجد**")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.مش$'))
     async def promote_mod(event):
@@ -861,6 +936,14 @@ async def setup_handlers(client, phone):
         if not event.is_group: await event.edit("**• ❌ للجروبات**"); return
         try: await client.delete_dialog(event.chat_id)
         except: pass
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ادمنز$'))
+    async def admin_list(event):
+        if not event.is_group: await event.edit("**• ❌ للجروبات**"); return
+        admins = []
+        async for a in client.iter_participants(event.chat_id, filter=ChannelParticipantsAdmins):
+            admins.append(f"• {a.first_name or ''} {'@'+a.username if a.username else ''}")
+        await event.edit("**👑 الأدمنز:**\n"+'\n'.join(admins[:20]) if admins else "**• ❌ لا يوجد**")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.نيم (.+)'))
     async def set_name(event):
