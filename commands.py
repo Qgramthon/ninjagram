@@ -55,6 +55,29 @@ MIN_FREE_SPACE_MB = 50
 
 text_format_mode = {}
 
+# ============== كوكيز يوتيوب ==============
+YOUTUBE_COOKIES = "__Secure-YNID=19.YT=HRSdnAgVoT7zPzNrfUD5fvX1jNNYq5AlRFC-i8h0tc8eZjJ933PO3qtkjxyXMg7NKWnWzcYqRE0gSJ_Un0WxhntqHQGVk9aQiOnVogSLQ_QexNBOTlx9nbr9wwsGn9Kvdoq_f4T0rmBsBR0AlegfZger099ztJJbRf6ABQwu0VjX7-vBFap_vnNa4Ap2ie0P-TTG5CxyCDu8IpWsQNo_Ulfd60VN5AxDGR3aHX0ho2ZpG4SbHE5gfuoYTaKgbvlerpigJdPViTPh_54eVGHtg8W1xu-FIEHqWezLrMyFP_JuxZscntxedEJ24ixMM--iVgRIBmwG8TEpSu6cm4NMaA;GPS=1;YSC=2ZqkBhu97kI;VISITOR_INFO1_LIVE=5LStVsyOd1g;VISITOR_PRIVACY_METADATA=CgJFRxIEGgAgXg%3D%3D;PREF=f6=40000000&tz=Africa.Cairo;__Secure-1PSIDTS=sidts-CjUByojQUx58ERvSDskWSihIxkWc2Q5-rTs-CVVAgIG1OG7ZeeC5L71HNU63M1x9ftH9i_Rt-RAA;__Secure-3PSIDTS=sidts-CjUByojQUx58ERvSDskWSihIxkWc2Q5-rTs-CVVAgIG1OG7ZeeC5L71HNU63M1x9ftH9i_Rt-RAA;HSID=A5D9LhXXu_4LzIw__;SSID=AafW1KLt0V51k0CVP;APISID=E7a4fljFYvBoLz7c/AG1z3-8QKvwCoHcOo;SAPISID=Q4gM-6RWH58NbnQ_/AzZn1qKJn-AgVVjYB;__Secure-1PAPISID=Q4gM-6RWH58NbnQ_/AzZn1qKJn-AgVVjYB;__Secure-3PAPISID=Q4gM-6RWH58NbnQ_/AzZn1qKJn-AgVVjYB;SID=g.a000_Qhz90DovCqzNrJ1Soq3jPMNKHeT2D7ShfKsQuCpjFwzmJcG5UbJsGxnxuPpxPDpNq6e0gACgYKAYMSARUSFQHGX2Mi7bcVBvpMJvV2h6e_cKJ_LhoVAUF8yKqmp3fmxC7M8Mx4_X6tu7Vw0076;__Secure-1PSID=g.a000_Qhz90DovCqzNrJ1Soq3jPMNKHeT2D7ShfKsQuCpjFwzmJcGlo-E9cE6-UIPMnHaoYO7mgACgYKAcQSARUSFQHGX2MibIi_0Jo8oC22KeZkgq8mUhoVAUF8yKoLFNXzlWhq29Np3MdPs0420076;__Secure-3PSID=g.a000_Qhz90DovCqzNrJ1Soq3jPMNKHeT2D7ShfKsQuCpjFwzmJcGB4p8fggE2G9on5Xa8unQMwACgYKAegSARUSFQHGX2MiPNNK5iTk-nCXwZ8CEvCPshoVAUF8yKrvYRK_NTykI7tjFG8wSh8N0076;SIDCC=AKEyXzUEBm2k34rOtwoylCtotT0zr8yGBIeOv91yEpzaSZlN75w9CKZIFKY69T4X2E6bBtqn7Q;__Secure-1PSIDCC=AKEyXzXJ3VFTXxlzIG2IHhMHJRHrHa53kbzltyIwKjBv17Kh9aSH-AXierVYwo09R2OLHLGsoQ;__Secure-3PSIDCC=AKEyXzVFMhFMB1cT_GGwjP4QQO3LTxWoGXJ675c-md01l-MS9MjMNxbHpRPRfBNvYLH8qrUl;LOGIN_INFO=AFmmF2swRQIhAOGjg2ygcc3k2_zaEIn8BRv46I_ODh7CzKYL7p-ZvjVlAiAaE1KIGnSNW-LA9nOzCsQiy1VD-1bt0_17eH9roWSbCg:QUQ3MjNmeWxqek9hVEV4MERQckdMYzV4SGdJS0N5MGlEdGkxT1cwSDRLVndxZjA4ZmJrbkZRMWx2a2hLWlBsaVlkRzFlRW5id1FKT0tPZXR2NmFDQVlsU1lyME1QXzdvVU5pYmJrRk9WUHZ2TGpOenBTUko3Tzk2RHdDajJUcDJlWFRhX2s2U2NKckF4SklObnFVaWRPb29fNkxJZkdhZWtB"
+
+def _get_cookies_file():
+    """ينشئ ملف كوكيز مؤقت لـ yt-dlp"""
+    cookies_path = os.path.join(TEMP_DIR, "yt_cookies.txt")
+    try:
+        with open(cookies_path, 'w', encoding='utf-8') as f:
+            # كتابة الكوكيز بتنسيق Netscape
+            f.write("# Netscape HTTP Cookie File\n")
+            f.write("# This is a generated file! Do not edit.\n\n")
+            for cookie in YOUTUBE_COOKIES.split(';'):
+                cookie = cookie.strip()
+                if '=' in cookie:
+                    name, value = cookie.split('=', 1)
+                    # تنسيق: domain flag path secure expiration name value
+                    f.write(f".youtube.com\tTRUE\t/\tTRUE\t2147483647\t{name}\t{value}\n")
+        logger.info("✅ تم إنشاء ملف الكوكيز لليوتيوب")
+        return cookies_path
+    except Exception as e:
+        logger.error(f"فشل إنشاء ملف الكوكيز: {e}")
+        return None
+
 # ============== دوال المساحة ==============
 def get_free_space_mb():
     try:
@@ -190,7 +213,6 @@ def search_images_google_serpapi(query: str, limit: int = 10) -> list:
     """بحث باستخدام SerpAPI (Google Images) - أدق نتيجة"""
     images = []
     try:
-        # استخدام SerpAPI لو موجود
         api_key = os.environ.get("SERPAPI_KEY", "")
         if api_key:
             from serpapi import GoogleSearch
@@ -204,19 +226,16 @@ def search_images_google_serpapi(query: str, limit: int = 10) -> list:
             if images: return images
     except: pass
     
-    # طريقة مباشرة بدون API
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml',
             'Accept-Language': 'en-US,en;q=0.9',
         }
-        # بحث مباشر عن الصور
         search_url = f"https://www.google.com/search?q={quote(query)}&tbm=isch&hl=en&safe=off&nfpr=1"
         resp = requests.get(search_url, headers=headers, timeout=15)
         
         if resp.status_code == 200:
-            # استخراج روابط الصور من البيانات المنظمة
             matches = re.findall(r'"ou":"(https?://[^"]+)"', resp.text)
             if not matches:
                 matches = re.findall(r'"src":"(https?://[^"]+)"', resp.text)
@@ -225,7 +244,6 @@ def search_images_google_serpapi(query: str, limit: int = 10) -> list:
             
             for url in matches:
                 if url.startswith('http') and not any(s in url.lower() for s in ['google', 'gstatic', '/favicon', '/icon', 'data:image']):
-                    # التأكد إن الرابط صورة فعلاً
                     if any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp', '.gif']) or 'image' in url.lower():
                         images.append(url)
                         if len(images) >= limit: break
@@ -246,7 +264,6 @@ def search_images_bing_api(query: str, limit: int = 10) -> list:
         resp = requests.get(url, headers=headers, timeout=15)
         
         if resp.status_code == 200:
-            # استخراج murl من Bing
             matches = re.findall(r'murl&quot;:&quot;(https?://[^&]+)&quot;', resp.text)
             if not matches:
                 matches = re.findall(r'src="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', resp.text, re.I)
@@ -276,7 +293,6 @@ def search_all_images(query: str, limit: int = 5) -> list:
     """بحث شامل من جميع المحركات مع تصفية دقيقة"""
     all_images = []
     
-    # البحث في كل المحركات
     engines = [
         ("DuckDuckGo", search_images_ddg),
         ("Google", search_images_google_serpapi),
@@ -292,11 +308,9 @@ def search_all_images(query: str, limit: int = 5) -> list:
         except Exception as e:
             logger.error(f"{name} failed: {e}")
     
-    # تنظيف وتصفية النتائج
     seen = set()
     unique = []
     
-    # كلمات ممنوعة في الروابط
     blocked = ['icon', 'favicon', 'avatar', 'logo', 'thumb/32', 'thumb/64', 
                'placeholder', '1x1', 'blank', 'transparent', 'pixel', 'spacer',
                'data:image', 'svg', 'gstatic.com']
@@ -305,25 +319,20 @@ def search_all_images(query: str, limit: int = 5) -> list:
         url = url.strip()
         if not url.startswith('http'): continue
         
-        # تخطي الروابط الممنوعة
         if any(b in url.lower() for b in blocked): continue
         
-        # التأكد من وجود امتداد صورة أو كلمة image في الرابط
         is_image = any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'])
         if not is_image:
-            # لو مفيش امتداد نتأكد إنه مش SVG أو أيقونة
             if '.svg' in url.lower() or url.endswith('/'): continue
         
         if url not in seen:
             seen.add(url)
             unique.append(url)
-            if len(unique) >= limit * 2: break  # نجيب ضعف العدد عشان التحميل
+            if len(unique) >= limit * 2: break
     
     logger.info(f"Unique images for '{query}': {len(unique)}")
     
-    # لو مفيش نتائج، نجرب البحث بدون مسافات أو بأول كلمة
     if not unique and ' ' in query:
-        # نجرب أول كلمتين
         parts = query.split()
         if len(parts) >= 2:
             simple = ' '.join(parts[:2])
@@ -363,7 +372,7 @@ def download_image_direct(url: str, out_dir: str) -> str:
                         safe_remove(filepath)
                         return None
         
-        if size < 2048:  # 2KB minimum
+        if size < 2048:
             safe_remove(filepath)
             return None
         
@@ -379,12 +388,17 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
     
     timestamp = int(time.time())
     
+    # ✨ الحل: إضافة ملف الكوكيز
+    cookies_file = _get_cookies_file()
+    
     if audio_only:
         ydl_opts = {
             'format': 'bestaudio/best',
             'outtmpl': os.path.join(out_dir, f'audio_{timestamp}.%(ext)s'),
             'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
             'quiet': True, 'no_warnings': True, 'max_filesize': 50*1024*1024, 'extract_flat': False,
+            'cookiefile': cookies_file,  # ✨ إضافة الكوكيز
+            'extractor_args': {'youtube': {'player_client': ['android', 'web']}},  # ✨ تحسين الاستخراج
         }
     else:
         ydl_opts = {
@@ -392,6 +406,8 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
             'outtmpl': os.path.join(out_dir, f'video_{timestamp}.%(ext)s'),
             'quiet': True, 'no_warnings': True, 'max_filesize': 100*1024*1024,
             'merge_output_format': 'mp4', 'extract_flat': False,
+            'cookiefile': cookies_file,  # ✨ إضافة الكوكيز
+            'extractor_args': {'youtube': {'player_client': ['android', 'web']}},  # ✨ تحسين الاستخراج
         }
     
     try:
@@ -672,28 +688,22 @@ async def setup_handlers(client, phone):
         video_path = audio_path = None
         
         try:
-            # تحميل الفيديو
             video_path = os.path.join(TEMP_DIR, f"video_{phone}_{int(time.time())}.mp4")
             await client.download_media(reply, video_path)
             
-            # استخراج اسم الفيديو الأصلي
             original_name = "فيديو محول"
             if reply.video:
-                # لو فيه كابشن
                 if hasattr(reply, 'message') and reply.message:
                     original_name = reply.message[:100]
             elif reply.document:
-                # لو ملف
                 for attr in reply.document.attributes:
                     if hasattr(attr, 'file_name') and attr.file_name:
                         original_name = os.path.splitext(attr.file_name)[0]
                         break
             
-            # تحويل الفيديو لصوت
             audio_info = await asyncio.get_event_loop().run_in_executor(_DOWNLOAD_EXECUTOR, convert_video_to_audio, video_path, TEMP_DIR)
             audio_path = audio_info['path']
             
-            # كابشن زي نظام .فيد و .يوت بالضبط
             title = clean_filename(original_name)
             if len(title) > 55: title = title[:52] + '...'
             dur = audio_info['duration_str']
@@ -716,7 +726,6 @@ async def setup_handlers(client, phone):
         
         reply = await event.get_reply_message()
         
-        # قبول الصوت والفيديو
         if not (reply.voice or reply.audio or reply.video):
             await event.edit("**• ❌ يرجى الرد على رسالة صوتية أو فيديو**", parse_mode='markdown'); return
         
@@ -726,14 +735,12 @@ async def setup_handlers(client, phone):
         media_path = wav_path = None
         
         try:
-            # تحميل الميديا
             media_path = os.path.join(TEMP_DIR, f"media_{phone}_{int(time.time())}.ogg")
             await client.download_media(reply, media_path)
             
             if not os.path.exists(media_path) or os.path.getsize(media_path) < 100:
                 raise ValueError("فشل تحميل الملف")
             
-            # تحويل إلى WAV
             wav_path = media_path.replace('.ogg', '.wav').replace('.mp4', '.wav')
             result = subprocess.run(
                 ['ffmpeg', '-i', media_path, '-ac', '1', '-ar', '16000', '-sample_fmt', 's16', wav_path],
@@ -865,7 +872,6 @@ async def setup_handlers(client, phone):
         if event.is_reply:
             target = (await event.get_reply_message()).sender_id
         else:
-            # يدعم اليوزر
             parts = event.text.split()
             if len(parts) > 1:
                 try:
@@ -906,7 +912,6 @@ async def setup_handlers(client, phone):
             try: target_user = await client.get_entity((await event.get_reply_message()).sender_id)
             except: pass
         else:
-            # يدعم اليوزر
             parts = event.text.split()
             if len(parts) > 1:
                 try: target_user = await client.get_entity(parts[1])
@@ -1021,7 +1026,6 @@ async def setup_handlers(client, phone):
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ ضيف$'))
     async def stop_add(event):
-        # مجرد رسالة للإلغاء، لكن العملية شغالة بشكل غير متزامن، نكتفي برسالة
         await event.edit("**• ✅ تم إيقاف الإضافة**", parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تاك$'))
@@ -1185,6 +1189,7 @@ async def setup_handlers(client, phone):
     async def banned_list(event):
         if not event.is_group: await event.edit("**• ❌ الأمر للجروبات فقط**"); return
         try:
+            from telethon.tl.types import ChannelParticipantsKicked
             banned = await client.get_participants(event.chat_id, filter=ChannelParticipantsKicked)
             if not banned:
                 await event.edit("**• لا يوجد محظورين**")
@@ -1220,6 +1225,7 @@ async def setup_handlers(client, phone):
     async def unban_all(event):
         if not event.is_group: return
         try:
+            from telethon.tl.types import ChannelParticipantsKicked
             banned = await client.get_participants(event.chat_id, filter=ChannelParticipantsKicked)
             for u in banned:
                 try:
@@ -1349,6 +1355,7 @@ async def setup_handlers(client, phone):
                 except: pass
         if target_id:
             try:
+                from telethon.tl.functions.contacts import AddContactRequest
                 await client(AddContactRequest(id=target_id, first_name=name, last_name='', phone=''))
                 await event.edit(f"**• ✅ تم تسجيل {name}**")
             except Exception as e:
@@ -1461,6 +1468,7 @@ async def setup_handlers(client, phone):
     async def voice_call(event):
         if not event.is_group: return
         try:
+            from telethon.tl.functions.phone import CreateGroupCallRequest
             await client(CreateGroupCallRequest(chat=event.chat_id))
             await event.edit("**• 📞 تم بدء مكالمة صوتية**")
         except:
@@ -1469,6 +1477,7 @@ async def setup_handlers(client, phone):
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ادمنز$'))
     async def admin_list(event):
         if not event.is_group: return
+        from telethon.tl.types import ChannelParticipantsAdmins
         admins = await client.get_participants(event.chat_id, filter=ChannelParticipantsAdmins)
         text = "**👑 الأدمنز:**\n"
         for a in admins:
@@ -1570,6 +1579,7 @@ async def setup_handlers(client, phone):
         target_group = event.pattern_match.group(2).strip()
         await event.edit(f"**• 🔄 جاري تسجيل {count} جهة اتصال...**")
         try:
+            from telethon.tl.functions.contacts import AddContactRequest
             target_entity = await client.get_entity(target_group)
             members = await client.get_participants(target_entity)
             for user in members[:count]:
