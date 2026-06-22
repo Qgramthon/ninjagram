@@ -400,7 +400,7 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
         }
     else:
         ydl_opts = {
-            'format': 'best[height<=720]/best',
+            'format': 'best[height<=720]/best[height<=480]/best[height<=360]/best',
             'outtmpl': os.path.join(out_dir, f'video_{timestamp}.%(ext)s'),
             'quiet': True, 'no_warnings': True, 'max_filesize': 100*1024*1024,
             'merge_output_format': 'mp4', 'extract_flat': False,
@@ -417,7 +417,19 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
             uploader = info_dict.get('uploader', 'غير معروف')
             duration = info_dict.get('duration', 0)
             
-            info_dict = ydl.extract_info(query, download=True)
+            try:
+                info_dict = ydl.extract_info(query, download=True)
+            except Exception as e:
+                if "Requested format is not available" in str(e):
+                    logger.warning("🔄 الفورمات المطلوبة غير متاحة، جاري تجربة فورمات بديلة...")
+                    if not audio_only:
+                        ydl_opts['format'] = 'bestvideo+bestaudio/best'
+                    else:
+                        ydl_opts['format'] = 'bestaudio/best'
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl2:
+                        info_dict = ydl2.extract_info(query, download=True)
+                else:
+                    raise
             
             files = [f for f in os.listdir(out_dir) if f.startswith(f'{prefix}{timestamp}')]
             if not files: raise ValueError("لم يتم العثور على الملف")
