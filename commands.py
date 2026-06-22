@@ -77,7 +77,6 @@ stalking_active = {}
 
 # ============== الكوكيز المدمجة ليوتيوب ==============
 YOUTUBE_COOKIES = """# Netscape HTTP Cookie File
-# This is a generated file! Do not edit.
 .youtube.com	TRUE	/	TRUE	0	__Secure-YNID	19.YT=HRSdnAgVoT7zPzNrfUD5fvX1jNNYq5AlRFC-i8h0tc8eZjJ933PO3qtkjxyXMg7NKWnWzcYqRE0gSJ_Un0WxhntqHQGVk9aQiOnVogSLQ_QexNBOTlx9nbr9wwsGn9Kvdoq_f4T0rmBsBR0AlegfZger099ztJJbRf6ABQwu0VjX7-vBFap_vnNa4Ap2ie0P-TTG5CxyCDu8IpWsQNo_Ulfd60VN5AxDGR3aHX0ho2ZpG4SbHE5gfuoYTaKgbvlerpigJdPViTPh_54eVGHtg8W1xu-FIEHqWezLrMyFP_JuxZscntxedEJ24ixMM--iVgRIBmwG8TEpSu6cm4NMaA
 .youtube.com	TRUE	/	TRUE	0	GPS	1
 .youtube.com	TRUE	/	TRUE	0	YSC	2ZqkBhu97kI
@@ -231,21 +230,18 @@ def translate_text(text: str) -> str:
 
 # ============== دوال النسب والمزاح ==============
 def get_random_percentage(): return random.randint(1, 100)
-
 def get_love_comment(p):
     if p >= 90: return "💘 حب من طرف واحد ولا اتنين يا عم"
     if p >= 70: return "❤️‍🔥 فيه حب بس مش قد كده"
     if p >= 50: return "💕 نص نص يا معلم"
     if p >= 30: return "💔 الحب ضعيف شوية"
     return "💀 مفيش حب خالص يا عم"
-
 def get_stupidity_comment(p):
     if p >= 90: return "🐄 هاتوله برسيم... شكل مفيش منك امل"
     if p >= 70: return "🤪 غبي بس لسه فيه بصيص أمل"
     if p >= 50: return "🤔 نص نص... مش متأكدين"
     if p >= 30: return "🧐 لا يعم ده طلع بيفهم اهو"
     return "🧠 ده عبقري والله"
-
 def get_lying_comment(p):
     if p >= 90: return "🤥 دنت كداب اوي يلا"
     if p >= 70: return "😏 كداب ومحترف كمان"
@@ -258,7 +254,6 @@ HACK_MESSAGES = [
     "💉 **تم حقن الكود الخبيث**", "🔑 **جاري فك تشفير كلمة المرور...**", "📂 **تم الوصول لقاعدة البيانات**",
     "📊 **جاري سحب المعلومات...**", "🛡️ **تم تجاوز جدار الحماية**", "✅ **تم الاختراق بنجاح!**", "⚠️ **النظام تحت السيطرة**"
 ]
-
 KILL_METHODS = [
     ["🔪 **جاري الطعن بالسكين...**", "🩸 **تم الطعن في القلب**", "☠️ **الضحية تنزف بشدة...**"],
     ["🔫 **جاري التصويب بالمسدس...**", "💥 **تم إطلاق النار**", "🎯 **إصابة مباشرة في الرأس**"],
@@ -299,8 +294,7 @@ async def run_animation(event, animation_name, duration=5):
                     if message: await message.edit(pattern)
                     else: await event.edit(pattern)
                     await asyncio.sleep(0.5)
-                    if time.time() - start_time >= duration:
-                        active_animations[anim_key] = False; break
+                    if time.time() - start_time >= duration: active_animations[anim_key] = False; break
                 except FloodWaitError as e: await asyncio.sleep(e.seconds)
                 except: active_animations[anim_key] = False; break
     except: pass
@@ -328,9 +322,8 @@ def search_images_bing(query: str, limit: int = 10) -> list:
         resp = requests.get(f"https://www.bing.com/images/search?q={quote(query)}&first=1&count={limit}", headers=headers, timeout=15)
         if resp.status_code == 200:
             for url in re.findall(r'murl&quot;:&quot;(https?://[^&]+)&quot;', resp.text):
-                if 'bing.com' not in url.lower():
-                    images.append(url)
-                    if len(images) >= limit: break
+                if 'bing.com' not in url.lower(): images.append(url)
+                if len(images) >= limit: break
     except: pass
     return images
 
@@ -343,19 +336,17 @@ def search_images_ddg(query: str, limit: int = 10) -> list:
 
 def search_all_images(query: str, limit: int = 5) -> list:
     all_images = []
-    for name, func in [("DuckDuckGo", search_images_ddg), ("Google", search_images_google), ("Bing", search_images_bing)]:
+    for name, func in [("DDG", search_images_ddg), ("Google", search_images_google), ("Bing", search_images_bing)]:
         try:
             results = func(query, limit=10)
             if results: all_images.extend(results)
         except: continue
     seen, unique = set(), []
-    blocked = ['icon', 'favicon', 'avatar', 'logo', 'thumb/32', 'thumb/64', 'gstatic.com']
     for url in all_images:
         url = url.strip()
-        if not url.startswith('http') or any(b in url.lower() for b in blocked): continue
-        if url not in seen:
-            seen.add(url); unique.append(url)
-            if len(unique) >= limit: break
+        if not url.startswith('http') or any(b in url.lower() for b in ['icon', 'favicon', 'avatar', 'logo', 'gstatic']): continue
+        if url not in seen: seen.add(url); unique.append(url)
+        if len(unique) >= limit: break
     if not unique and ' ' in query:
         parts = query.split()
         if len(parts) >= 2: return search_all_images(' '.join(parts[:2]), limit)
@@ -375,14 +366,13 @@ def download_image_direct(url: str, out_dir: str) -> str:
         size = 0
         with open(filepath, 'wb') as f:
             for chunk in resp.iter_content(8192):
-                if chunk:
-                    f.write(chunk); size += len(chunk)
-                    if size > 15*1024*1024: safe_remove(filepath); return None
+                if chunk: f.write(chunk); size += len(chunk)
+                if size > 15*1024*1024: safe_remove(filepath); return None
         if size < 2048: safe_remove(filepath); return None
         return filepath
     except: return None
 
-# ============== دوال يوتيوب مع الكوكيز ==============
+# ============== دوال يوتيوب ==============
 def save_cookies():
     cookies_path = os.path.join(TEMP_DIR, 'yt_cookies.txt')
     try:
@@ -398,12 +388,14 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
     prefix = 'audio_' if audio_only else 'video_'
     cookies_path = save_cookies()
     
+    format_str = 'bestaudio/best' if audio_only else 'best[height<=720]/best[height<=480]/best[height<=360]/best'
+    
     ydl_opts = {
         'quiet': True, 'no_warnings': True, 'extract_flat': False, 'no_color': True,
-        'format': 'bestaudio/best' if audio_only else 'best[height<=720]/best',
+        'format': format_str,
         'outtmpl': os.path.join(out_dir, f'{prefix}{timestamp}.%(ext)s'),
         'max_filesize': 50*1024*1024 if audio_only else 100*1024*1024,
-        'socket_timeout': 30, 'retries': 3,
+        'socket_timeout': 30, 'retries': 3, 'ignoreerrors': True,
     }
     
     if cookies_path and os.path.exists(cookies_path): ydl_opts['cookiefile'] = cookies_path
@@ -416,6 +408,7 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
             if 'entries' in info_dict: info_dict = info_dict['entries'][0]
             title, uploader, duration = info_dict.get('title', 'بدون عنوان'), info_dict.get('uploader', 'غير معروف'), info_dict.get('duration', 0)
             info_dict = ydl.extract_info(query, download=True)
+            if 'entries' in info_dict: info_dict = info_dict['entries'][0]
             files = [f for f in os.listdir(out_dir) if f.startswith(f'{prefix}{timestamp}')]
             if not files: raise ValueError("لم يتم العثور على الملف")
             filepath = os.path.join(out_dir, files[0])
@@ -457,8 +450,7 @@ async def get_user_info_full(client, user_id):
 async def change_profile_photo(client, user_id, phone):
     try:
         bio = io.BytesIO(); await client.download_profile_photo(user_id, file=bio); bio.seek(0)
-        uploaded = await client.upload_file(bio, file_name="photo.jpg")
-        result = await client(UploadProfilePhotoRequest(file=uploaded))
+        result = await client(UploadProfilePhotoRequest(file=await client.upload_file(bio, file_name="photo.jpg")))
         await asyncio.sleep(2)
         return (True, result.photo.id) if hasattr(result, 'photo') and hasattr(result.photo, 'id') else (True, None)
     except FloodWaitError as e:
@@ -472,8 +464,7 @@ async def change_profile_photo(client, user_id, phone):
 
 async def resolve_user(event, client):
     if event.is_reply:
-        reply = await event.get_reply_message()
-        try: return await client.get_entity(reply.sender_id)
+        try: return await client.get_entity((await event.get_reply_message()).sender_id)
         except: pass
     text = event.text.split()
     if len(text) >= 2:
@@ -488,10 +479,7 @@ async def measure_speed():
         ping = int((time.time() - start) * 1000)
         start = time.time()
         resp = requests.get("http://ipv4.download.thinkbroadband.com/5MB.zip", stream=True, timeout=30)
-        size = 0
-        for chunk in resp.iter_content(8192):
-            size += len(chunk)
-            if time.time() - start > 8 or size > 5*1024*1024: break
+        size = sum(len(c) for c in resp.iter_content(8192) if time.time() - start < 8)
         speed = (size * 8) / ((time.time() - start) * 1000000) if time.time() > start else 0
         return {'ping': ping, 'speed': speed, 'success': True}
     except: return {'success': False}
@@ -538,7 +526,7 @@ async def setup_handlers(client, phone):
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.خفي$'))
     async def hide_name(event):
         try: await client(UpdateProfileRequest(first_name='ㅤ', last_name='')); await event.edit("**• ✅ تم إخفاء الاسم**")
-        except Exception as e: await event.edit(f"**• ❌ فشل: {str(e)[:100]}**")
+        except: await event.edit("**• ❌ فشل**")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ خفي$'))
     async def unhide_name(event):
@@ -746,9 +734,7 @@ async def setup_handlers(client, phone):
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ترجم(?: (.+))?$'))
     async def translate_cmd(event):
         text = None
-        if event.is_reply:
-            reply = await event.get_reply_message()
-            text = reply.text if reply.text else None
+        if event.is_reply: text = (await event.get_reply_message()).text
         if not text and event.pattern_match.group(1): text = event.pattern_match.group(1).strip()
         if not text: await event.edit("**• ❌ يرجى الرد على رسالة أو كتابة نص**"); return
         await event.edit("**• 🔄 جاري الترجمة...**")
@@ -771,6 +757,7 @@ async def setup_handlers(client, phone):
             results.append(f"**{i}.** `{apply_decoration(text, style_name)}`")
         await event.edit('\n'.join(results), parse_mode='markdown')
 
+    # ============== أوامر الإدارة ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تاك$'))
     async def tag_all(event):
         if not event.is_group: await event.edit("**• ❌ الأمر يعمل في الجروبات فقط**"); return
@@ -833,8 +820,7 @@ async def setup_handlers(client, phone):
         if not target: await event.edit("**• ❌ يرجى الرد على شخص**"); return
         try:
             rights = ChatBannedRights(until_date=None, send_messages=True, send_media=True, send_stickers=True, send_gifs=True, send_games=True, send_inline=True, embed_links=True)
-            await client(EditBannedRequest(event.chat_id, target.id, rights))
-            await event.edit(f"**• 🔒 تم تقييد {target.first_name or 'المستخدم'}**")
+            await client(EditBannedRequest(event.chat_id, target.id, rights)); await event.edit(f"**• 🔒 تم تقييد {target.first_name or 'المستخدم'}**")
         except: await event.edit("**• ❌ فشل**")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.طرد$'))
@@ -1166,6 +1152,7 @@ async def setup_handlers(client, phone):
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اوامر$'))
     async def show_commands(event):
         await event.edit("""**📋 قائمة الأوامر:**
+
 **🎨 التنسيق:** `.عريض` `.مائل` `.مشطوب` `.غ خط` `.خفي` `.غ خفي`
 **😂 النسب:** `.حب` `.غباء` `.كدب`
 **🎭 المزاح:** `.تهكير` `.قتل`
