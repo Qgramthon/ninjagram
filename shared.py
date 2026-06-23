@@ -39,6 +39,7 @@ client_me = {}
 verified_devs = set()
 pending_verify = {}
 dev_access_locked = False
+blocked_users = set()  # المستخدمين الموقوفين
 
 main_loop = asyncio.new_event_loop()
 
