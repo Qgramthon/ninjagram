@@ -73,8 +73,11 @@ text_format_mode = {}
 tagging_active = {}
 adding_members = {}
 stalking_active = {}
-spam_blocked = {}
+spam_blocked_global = False
+spam_allowed_users = set()
 watch_edits = {}
+
+BOLD = "**{}**"
 
 def get_free_space_mb():
     try:
@@ -227,100 +230,6 @@ async def run_animation(event, animation_name, duration=5):
     finally:
         if anim_key in active_animations: del active_animations[anim_key]
 
-def search_images_google_direct(query: str, limit: int = 10) -> list:
-    images = []
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36','Accept': 'text/html,application/xhtml+xml','Accept-Language': 'en-US,en;q=0.5'}
-        search_url = f"https://www.google.com/search?q={quote(query)}&tbm=isch&hl=en"
-        resp = requests.get(search_url, headers=headers, timeout=15)
-        if resp.status_code == 200:
-            matches = re.findall(r'\["([^"]*\.(?:jpg|jpeg|png|webp))",\s*(\d+),\s*(\d+)\]', resp.text)
-            for url, w, h in matches[:limit*3]:
-                url = url.replace('\\u0026', '&')
-                if int(w) >= 200 and int(h) >= 200 and not any(x in url.lower() for x in ['icon','avatar','logo','favicon','thumb','gstatic.com','google.com','cartoon','drawing','vector','clipart','animated','emoji','sticker','meme']):
-                    images.append(url)
-            if not images:
-                matches = re.findall(r'"ou":"(https?://[^"]+)"', resp.text)
-                for url in matches:
-                    if url.startswith('http') and not any(x in url.lower() for x in ['google','gstatic']):
-                        images.append(url)
-        return images[:limit]
-    except: return []
-
-def search_images_bing_enhanced(query: str, limit: int = 10) -> list:
-    images = []
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0','Accept': 'text/html','Accept-Language': 'en-US,en;q=0.9'}
-        url = f"https://www.bing.com/images/search?q={quote(query)}&first=1&count={limit}"
-        resp = requests.get(url, headers=headers, timeout=15)
-        if resp.status_code == 200:
-            matches = re.findall(r'"murl":"(https?://[^"]+)"', resp.text)
-            for url in matches:
-                if not any(x in url.lower() for x in ['bing.com','microsoft.com','icon','avatar','logo','favicon']):
-                    images.append(url)
-        return images[:limit]
-    except: return []
-
-def search_all_images_enhanced(query: str, limit: int = 5) -> list:
-    query = query.strip()
-    query = re.sub(r'[^\w\s\u0600-\u06FF\-]', ' ', query)
-    query = re.sub(r'\s+', ' ', query).strip()
-    all_images = []
-    engines = [("Google", search_images_google_direct), ("Bing", search_images_bing_enhanced)]
-    for name, func in engines:
-        try:
-            results = func(query, limit=15)
-            if results: all_images.extend(results)
-        except: continue
-    seen = set()
-    unique = []
-    for url in all_images:
-        base_url = url.split('?')[0]
-        if base_url not in seen:
-            seen.add(base_url)
-            unique.append(url)
-            if len(unique) >= limit: break
-    return unique
-
-def download_image_direct(url: str, out_dir: str) -> str:
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0','Referer': 'https://www.google.com/','Accept': 'image/webp,image/apng,image/*,*/*;q=0.8'}
-        resp = requests.get(url, headers=headers, stream=True, timeout=30, allow_redirects=True)
-        if resp.status_code != 200: return None
-        content_type = resp.headers.get('content-type', '').lower()
-        ext = '.jpg'
-        if 'png' in content_type: ext = '.png'
-        elif 'webp' in content_type: ext = '.webp'
-        elif 'gif' in content_type: ext = '.gif'
-        filename = f"img_{int(time.time()*1000)}_{hashlib.md5(url.encode()).hexdigest()[:8]}{ext}"
-        filepath = os.path.join(out_dir, filename)
-        size = 0
-        with open(filepath, 'wb') as f:
-            for chunk in resp.iter_content(8192):
-                if chunk:
-                    f.write(chunk)
-                    size += len(chunk)
-                    if size > 25 * 1024 * 1024:
-                        safe_remove(filepath)
-                        return None
-        if size < 2048:
-            safe_remove(filepath)
-            return None
-        if PIL_AVAILABLE:
-            try:
-                img = Image.open(filepath)
-                img.verify()
-                img = Image.open(filepath)
-                width, height = img.size
-                if width < 50 or height < 50:
-                    safe_remove(filepath)
-                    return None
-            except:
-                safe_remove(filepath)
-                return None
-        return filepath
-    except: return None
-
 def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
     if not YTDLP_AVAILABLE: raise ValueError("مكتبة yt-dlp غير مثبتة")
     query = query.strip()
@@ -443,6 +352,8 @@ async def measure_speed():
     except: return {'success': False}
 
 async def setup_handlers(client, phone):
+    global spam_blocked_global, spam_allowed_users
+    
     if phone not in muted_users: muted_users[phone] = {}
     if phone not in taqleed_users: taqleed_users[phone] = {}
     if phone not in ent7al_users: ent7al_users[phone] = False
@@ -450,7 +361,6 @@ async def setup_handlers(client, phone):
     if phone not in text_format_mode: text_format_mode[phone] = None
     if phone not in tagging_active: tagging_active[phone] = False
     if phone not in stalking_active: stalking_active[phone] = False
-    if phone not in spam_blocked: spam_blocked[phone] = {}
     if phone not in watch_edits: watch_edits[phone] = False
 
     # ============== تنسيق تلقائي ==============
@@ -467,106 +377,106 @@ async def setup_handlers(client, phone):
     # ============== أوامر التنسيق ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.عريض$'))
     async def toggle_bold(event):
-        if text_format_mode.get(phone) == 'bold': text_format_mode[phone] = None; await event.edit("• ✅ تم إلغاء الخط العريض")
-        else: text_format_mode[phone] = 'bold'; await event.edit("• ✅ تم تفعيل الخط العريض")
+        if text_format_mode.get(phone) == 'bold': text_format_mode[phone] = None; await event.edit(BOLD.format("• ✅ تم إلغاء الخط العريض"), parse_mode='markdown')
+        else: text_format_mode[phone] = 'bold'; await event.edit(BOLD.format("• ✅ تم تفعيل الخط العريض"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.مائل$'))
     async def toggle_italic(event):
-        if text_format_mode.get(phone) == 'italic': text_format_mode[phone] = None; await event.edit("• ✅ تم إلغاء الخط المائل")
-        else: text_format_mode[phone] = 'italic'; await event.edit("• ✅ تم تفعيل الخط المائل")
+        if text_format_mode.get(phone) == 'italic': text_format_mode[phone] = None; await event.edit(BOLD.format("• ✅ تم إلغاء الخط المائل"), parse_mode='markdown')
+        else: text_format_mode[phone] = 'italic'; await event.edit(BOLD.format("• ✅ تم تفعيل الخط المائل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.مشطوب$'))
     async def toggle_strike(event):
-        if text_format_mode.get(phone) == 'strike': text_format_mode[phone] = None; await event.edit("• ✅ تم إلغاء الخط المشطوب")
-        else: text_format_mode[phone] = 'strike'; await event.edit("• ✅ تم تفعيل الخط المشطوب")
+        if text_format_mode.get(phone) == 'strike': text_format_mode[phone] = None; await event.edit(BOLD.format("• ✅ تم إلغاء الخط المشطوب"), parse_mode='markdown')
+        else: text_format_mode[phone] = 'strike'; await event.edit(BOLD.format("• ✅ تم تفعيل الخط المشطوب"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ خط$'))
     async def reset_format(event):
-        text_format_mode[phone] = None; await event.edit("• ✅ تم إرجاع الخط إلى الوضع الطبيعي")
+        text_format_mode[phone] = None; await event.edit(BOLD.format("• ✅ تم إرجاع الخط إلى الوضع الطبيعي"), parse_mode='markdown')
 
     # ============== أمر .خفي / .غ خفي ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.خفي$'))
     async def hide_name(event):
-        try: await client(UpdateProfileRequest(first_name='ㅤ', last_name='')); await event.edit("• ✅ تم إخفاء الاسم")
-        except Exception as e: await event.edit(f"• ❌ فشل: {str(e)[:100]}")
+        try: await client(UpdateProfileRequest(first_name='ㅤ', last_name='')); await event.edit(BOLD.format("• ✅ تم إخفاء الاسم"), parse_mode='markdown')
+        except Exception as e: await event.edit(BOLD.format(f"• ❌ فشل: {str(e)[:100]}"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ خفي$'))
     async def unhide_name(event):
         if phone in client_me:
             original = client_me[phone]
-            try: await client(UpdateProfileRequest(first_name=original.first_name or '', last_name=original.last_name or '')); await event.edit("• ✅ تم استرجاع الاسم")
-            except: await event.edit("• ❌ فشل استرجاع الاسم")
-        else: await event.edit("• ❌ لم يتم حفظ الاسم الأصلي")
+            try: await client(UpdateProfileRequest(first_name=original.first_name or '', last_name=original.last_name or '')); await event.edit(BOLD.format("• ✅ تم استرجاع الاسم"), parse_mode='markdown')
+            except: await event.edit(BOLD.format("• ❌ فشل استرجاع الاسم"), parse_mode='markdown')
+        else: await event.edit(BOLD.format("• ❌ لم يتم حفظ الاسم الأصلي"), parse_mode='markdown')
 
     # ============== أوامر النسب ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.حب$'))
     async def love_calc(event):
-        if not event.is_reply: await event.edit("• ❌ يرجى الرد على شخص"); return
+        if not event.is_reply: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص"), parse_mode='markdown'); return
         reply = await event.get_reply_message()
         user = await client.get_entity(reply.sender_id)
         name = user.first_name or "المستخدم"
         p = get_random_percentage()
-        result = f"💘 نسبة حب {name}:\n{'█' * (p // 10)}{'░' * (10 - p // 10)} {p}%\n\n{get_love_comment(p)}"
-        await event.edit(result)
+        result = f"💘 **نسبة حب {name}:**\n{'█' * (p // 10)}{'░' * (10 - p // 10)} **{p}%**\n\n**{get_love_comment(p)}**"
+        await event.edit(result, parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غباء$'))
     async def stupidity_calc(event):
-        if not event.is_reply: await event.edit("• ❌ يرجى الرد على شخص"); return
+        if not event.is_reply: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص"), parse_mode='markdown'); return
         reply = await event.get_reply_message()
         user = await client.get_entity(reply.sender_id)
         name = user.first_name or "المستخدم"
         p = get_random_percentage()
-        result = f"🧠 نسبة غباء {name}:\n{'█' * (p // 10)}{'░' * (10 - p // 10)} {p}%\n\n{get_stupidity_comment(p)}"
-        await event.edit(result)
+        result = f"🧠 **نسبة غباء {name}:**\n{'█' * (p // 10)}{'░' * (10 - p // 10)} **{p}%**\n\n**{get_stupidity_comment(p)}**"
+        await event.edit(result, parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.كدب$'))
     async def lying_calc(event):
-        if not event.is_reply: await event.edit("• ❌ يرجى الرد على شخص"); return
+        if not event.is_reply: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص"), parse_mode='markdown'); return
         reply = await event.get_reply_message()
         user = await client.get_entity(reply.sender_id)
         name = user.first_name or "المستخدم"
         p = get_random_percentage()
-        result = f"🤥 نسبة كذب {name}:\n{'█' * (p // 10)}{'░' * (10 - p // 10)} {p}%\n\n{get_lying_comment(p)}"
-        await event.edit(result)
+        result = f"🤥 **نسبة كذب {name}:**\n{'█' * (p // 10)}{'░' * (10 - p // 10)} **{p}%**\n\n**{get_lying_comment(p)}**"
+        await event.edit(result, parse_mode='markdown')
 
     # ============== أوامر المزاح ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تهكير$'))
     async def fake_hack(event):
-        if not event.is_reply: await event.edit("• ❌ يرجى الرد على شخص"); return
+        if not event.is_reply: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص"), parse_mode='markdown'); return
         reply = await event.get_reply_message()
         user = await client.get_entity(reply.sender_id)
         name = user.first_name or "المستخدم"
         for msg in HACK_MESSAGES:
-            await event.edit(msg); await asyncio.sleep(1.2)
-        await event.edit(f"✅ تمت السيطرة على حساب {name} بالكامل")
+            await event.edit(f"**{msg}**", parse_mode='markdown'); await asyncio.sleep(1.2)
+        await event.edit(f"**✅ تمت السيطرة على حساب {name} بالكامل**", parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.قتل$'))
     async def fake_kill(event):
-        if not event.is_reply: await event.edit("• ❌ يرجى الرد على شخص"); return
+        if not event.is_reply: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص"), parse_mode='markdown'); return
         reply = await event.get_reply_message()
         user = await client.get_entity(reply.sender_id)
         name = user.first_name or "المستخدم"
         method = random.choice(KILL_METHODS)
         for msg in method:
-            await event.edit(f"{msg}"); await asyncio.sleep(1.5)
-        await event.edit(f"💀 تم القضاء على {name}\n🪦 إنا لله وإنا إليه راجعون")
+            await event.edit(f"**{msg}**", parse_mode='markdown'); await asyncio.sleep(1.5)
+        await event.edit(f"**💀 تم القضاء على {name}\n🪦 إنا لله وإنا إليه راجعون**", parse_mode='markdown')
 
     # ============== أوامر الإحصائيات ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.جروباتي$'))
     async def my_groups(event):
-        await event.edit("• 📊 جاري حساب الجروبات...")
+        await event.edit(BOLD.format("• 📊 جاري حساب الجروبات..."), parse_mode='markdown')
         groups = sum(1 async for d in client.iter_dialogs() if d.is_group)
-        await event.edit(f"📊 عدد الجروبات: {groups}")
+        await event.edit(BOLD.format(f"📊 عدد الجروبات: {groups}"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.قنواتي$'))
     async def my_channels(event):
-        await event.edit("• 📊 جاري حساب القنوات...")
+        await event.edit(BOLD.format("• 📊 جاري حساب القنوات..."), parse_mode='markdown')
         channels = sum(1 async for d in client.iter_dialogs() if d.is_channel and not d.is_group)
-        await event.edit(f"📊 عدد القنوات: {channels}")
+        await event.edit(BOLD.format(f"📊 عدد القنوات: {channels}"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تونزي$'))
     async def top_interactions(event):
-        await event.edit("• 📊 جاري تحليل التفاعلات...")
+        await event.edit(BOLD.format("• 📊 جاري تحليل التفاعلات..."), parse_mode='markdown')
         interactions = {}
         async for dialog in client.iter_dialogs():
             try:
@@ -574,11 +484,11 @@ async def setup_handlers(client, phone):
                     if message.sender_id and message.sender_id != (await client.get_me()).id:
                         interactions[message.sender_id] = interactions.get(message.sender_id, 0) + 1
             except: continue
-        if not interactions: await event.edit("• ❌ لا توجد تفاعلات"); return
+        if not interactions: await event.edit(BOLD.format("• ❌ لا توجد تفاعلات"), parse_mode='markdown'); return
         top = max(interactions, key=interactions.get)
         try: name = (await client.get_entity(top)).first_name or "مستخدم"
         except: name = "مستخدم"
-        await event.edit(f"🏆 الأكثر تفاعلاً:\n👤 {name}\n💬 {interactions[top]} رسالة")
+        await event.edit(BOLD.format(f"🏆 الأكثر تفاعلاً:\n👤 {name}\n💬 {interactions[top]} رسالة"), parse_mode='markdown')
 
     # ============== أوامر الأنيمشن (مع ريبلاي) ==============
     for cmd_name in ['ضحك', 'قلب', 'غيمة', 'ورد', 'كوكب', 'شتاء', 'قمر']:
@@ -589,59 +499,62 @@ async def setup_handlers(client, phone):
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.وقف$'))
     async def stop_animation(event):
         stopped = sum(1 for k in list(active_animations.keys()) if k.startswith(str(event.chat_id)) and active_animations.pop(k, None))
-        await event.edit(f"• ⏹️ تم إيقاف {stopped} أنيمشن" if stopped else "• ❌ لا يوجد أنيمشن")
+        if stopped:
+            await event.edit(BOLD.format(f"• ⏹️ تم إيقاف {stopped} أنيمشن"), parse_mode='markdown')
+        else:
+            await event.edit(BOLD.format("• ❌ لا يوجد أنيمشن"), parse_mode='markdown')
 
     # ============== أوامر التحميل ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.يوت (.+)'))
     async def youtube_audio(event):
-        if not YTDLP_AVAILABLE: await event.edit("• ❌ مكتبة yt-dlp غير مثبتة\n• للتثبيت: pip install yt-dlp"); return
+        if not YTDLP_AVAILABLE: await event.edit(BOLD.format("• ❌ مكتبة yt-dlp غير مثبتة\n• للتثبيت: pip install yt-dlp"), parse_mode='markdown'); return
         query = event.pattern_match.group(1).strip()
-        status_msg = await event.edit("• 🔍 جاري البحث...")
+        status_msg = await event.edit(BOLD.format("• 🔍 جاري البحث..."), parse_mode='markdown')
         filepath = None
         try:
-            await status_msg.edit("• 🎵 جاري تحميل الصوت...")
+            await status_msg.edit(BOLD.format("• 🎵 جاري تحميل الصوت..."), parse_mode='markdown')
             info, filepath = await asyncio.get_event_loop().run_in_executor(_DOWNLOAD_EXECUTOR, download_youtube_media, query, TEMP_DIR, True)
             title = clean_filename(info['title'])[:200]
-            caption = f"{title}\n• {info['duration_str']} | ᥲᥙძᎥ᥆\n• {info['file_size_str']}"
-            await client.send_file(event.chat_id, filepath, caption=caption, attributes=[DocumentAttributeAudio(duration=int(info['duration']), title=info['title'][:64], performer='')], supports_streaming=True)
+            caption = f"**• {info['duration_str']} | {info['file_size_str']}**\n**• ᥲᥙძᎥ᥆**"
+            await client.send_file(event.chat_id, filepath, caption=caption, attributes=[DocumentAttributeAudio(duration=int(info['duration']), title=info['title'][:64], performer='')], supports_streaming=True, parse_mode='markdown')
             await status_msg.delete()
         except Exception as e:
-            await status_msg.edit(f"• ❌ فشل التحميل\nالسبب: {str(e)[:200]}")
+            await status_msg.edit(BOLD.format(f"• ❌ فشل التحميل\nالسبب: {str(e)[:200]}"), parse_mode='markdown')
         finally: safe_remove(filepath)
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فيد (.+)'))
     async def video_download(event):
-        if not YTDLP_AVAILABLE: await event.edit("• ❌ مكتبة yt-dlp غير مثبتة\n• للتثبيت: pip install yt-dlp"); return
+        if not YTDLP_AVAILABLE: await event.edit(BOLD.format("• ❌ مكتبة yt-dlp غير مثبتة\n• للتثبيت: pip install yt-dlp"), parse_mode='markdown'); return
         query = event.pattern_match.group(1).strip()
-        status_msg = await event.edit("• 🔍 جاري البحث عن الفيديو...")
+        status_msg = await event.edit(BOLD.format("• 🔍 جاري البحث عن الفيديو..."), parse_mode='markdown')
         filepath = None
         try:
-            await status_msg.edit("• 🎬 جاري تحميل الفيديو...")
+            await status_msg.edit(BOLD.format("• 🎬 جاري تحميل الفيديو..."), parse_mode='markdown')
             info, filepath = await asyncio.get_event_loop().run_in_executor(_DOWNLOAD_EXECUTOR, download_youtube_media, query, TEMP_DIR, False)
             title = clean_filename(info['title'])[:200]
-            caption = f"{title}\n• {info['duration_str']} | ᥎Ꭵძꫀ᥆\n• {info['file_size_str']}"
-            await client.send_file(event.chat_id, filepath, caption=caption, attributes=[DocumentAttributeVideo(duration=int(info['duration']), w=0, h=0, supports_streaming=True)], supports_streaming=True)
+            caption = f"**• {info['duration_str']} | {info['file_size_str']}**\n**• ᥎Ꭵძꫀ᥆**"
+            await client.send_file(event.chat_id, filepath, caption=caption, attributes=[DocumentAttributeVideo(duration=int(info['duration']), w=0, h=0, supports_streaming=True)], supports_streaming=True, parse_mode='markdown')
             await status_msg.delete()
         except Exception as e:
             error_text = str(e)
             if "File too large" in error_text or "too big" in error_text.lower():
-                await status_msg.edit("• ⚠️ الملف كبير جداً\n💡 الحل: جرب تحميل الصوت فقط بـ .يوت")
+                await status_msg.edit(BOLD.format("• ⚠️ الملف كبير جداً\n💡 الحل: جرب تحميل الصوت فقط بـ .يوت"), parse_mode='markdown')
             else:
-                await status_msg.edit(f"• ❌ فشل تحميل الفيديو\nالسبب: {error_text[:200]}")
+                await status_msg.edit(BOLD.format(f"• ❌ فشل تحميل الفيديو\nالسبب: {error_text[:200]}"), parse_mode='markdown')
         finally: safe_remove(filepath)
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.صوت$'))
     async def video_to_audio(event):
-        if not event.is_reply: await event.edit("• ❌ يرجى الرد على فيديو أو ملف صوتي"); return
+        if not event.is_reply: await event.edit(BOLD.format("• ❌ يرجى الرد على فيديو أو ملف صوتي"), parse_mode='markdown'); return
         reply = await event.get_reply_message()
         is_media = reply.video or reply.document or reply.audio or reply.voice
-        if not is_media: await event.edit("• ❌ يرجى الرد على: فيديو، ملف صوتي، رسالة صوتية"); return
-        status_msg = await event.edit("• 📥 جاري تحميل الملف...")
+        if not is_media: await event.edit(BOLD.format("• ❌ يرجى الرد على: فيديو، ملف صوتي، رسالة صوتية"), parse_mode='markdown'); return
+        status_msg = await event.edit(BOLD.format("• 📥 جاري تحميل الملف..."), parse_mode='markdown')
         media_path = audio_path = None
         try:
             media_path = os.path.join(TEMP_DIR, f"media_{phone}_{int(time.time())}.tmp")
             await client.download_media(reply, media_path)
-            await status_msg.edit("• 🔄 جاري التحويل إلى MP3...")
+            await status_msg.edit(BOLD.format("• 🔄 جاري التحويل إلى MP3..."), parse_mode='markdown')
             original_name = "ملف صوتي محول"
             if reply.video and reply.message: original_name = reply.message[:100]
             elif reply.document:
@@ -650,20 +563,20 @@ async def setup_handlers(client, phone):
             audio_info = await asyncio.get_event_loop().run_in_executor(_DOWNLOAD_EXECUTOR, convert_video_to_audio, media_path, TEMP_DIR)
             audio_path = audio_info['path']
             title = clean_filename(original_name)[:200]
-            caption = f"{title}\n• {audio_info['duration_str']} | ᥎Ꭵძꫀ᥆ ƚ᥆ ᥲᥙძᎥ᥆\n• {format_size(os.path.getsize(audio_path))}"
-            await client.send_file(event.chat_id, audio_path, caption=caption, attributes=[DocumentAttributeAudio(duration=int(audio_info['duration']), title=title[:64], performer='محول من فيديو')], supports_streaming=True)
+            caption = f"**• {audio_info['duration_str']}**\n**• ᥎Ꭵძꫀ᥆ ƚ᥆ ᥲᥙძᎥ᥆**\n**• {format_size(os.path.getsize(audio_path))}**"
+            await client.send_file(event.chat_id, audio_path, caption=caption, attributes=[DocumentAttributeAudio(duration=int(audio_info['duration']), title=title[:64], performer='محول من فيديو')], supports_streaming=True, parse_mode='markdown')
             await status_msg.delete()
         except Exception as e:
-            await status_msg.edit(f"• ❌ فشل التحويل\nالسبب: {str(e)[:150]}")
+            await status_msg.edit(BOLD.format(f"• ❌ فشل التحويل\nالسبب: {str(e)[:150]}"), parse_mode='markdown')
         finally: safe_remove(media_path); safe_remove(audio_path)
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.نسخ$'))
     async def transcribe_voice(event):
-        if not event.is_reply: await event.edit("• ❌ يرجى الرد على رسالة صوتية أو فيديو"); return
+        if not event.is_reply: await event.edit(BOLD.format("• ❌ يرجى الرد على رسالة صوتية أو فيديو"), parse_mode='markdown'); return
         reply = await event.get_reply_message()
-        if not (reply.voice or reply.audio or reply.video): await event.edit("• ❌ يرجى الرد على رسالة صوتية أو فيديو"); return
-        if not SR_AVAILABLE: await event.edit("• ❌ مكتبة SpeechRecognition غير مثبتة"); return
-        await event.edit("• 🎤 جاري تحويل المقطع إلى نص...")
+        if not (reply.voice or reply.audio or reply.video): await event.edit(BOLD.format("• ❌ يرجى الرد على رسالة صوتية أو فيديو"), parse_mode='markdown'); return
+        if not SR_AVAILABLE: await event.edit(BOLD.format("• ❌ مكتبة SpeechRecognition غير مثبتة"), parse_mode='markdown'); return
+        await event.edit(BOLD.format("• 🎤 جاري تحويل المقطع إلى نص..."), parse_mode='markdown')
         media_path = wav_path = None
         try:
             media_path = os.path.join(TEMP_DIR, f"media_{phone}_{int(time.time())}.ogg")
@@ -676,16 +589,16 @@ async def setup_handlers(client, phone):
             for lang in ['ar-AR', 'en-US']:
                 try: text = recognizer.recognize_google(audio_data, language=lang); break
                 except: continue
-            await event.edit(f"ƚꫀ᥊ƚ - {text}" if text else "• ❌ لم يتم التعرف")
-        except Exception as e: await event.edit(f"• ❌ {str(e)[:150]}")
+            await event.edit(BOLD.format(f"ƚꫀ᥊ƚ - {text}"), parse_mode='markdown') if text else await event.edit(BOLD.format("• ❌ لم يتم التعرف"), parse_mode='markdown')
+        except Exception as e: await event.edit(BOLD.format(f"• ❌ {str(e)[:150]}"), parse_mode='markdown')
         finally: safe_remove(media_path); safe_remove(wav_path)
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.استيك$'))
     async def photo_to_sticker(event):
-        if not event.is_reply or not PIL_AVAILABLE: await event.edit("• ❌ يرجى الرد على صورة"); return
+        if not event.is_reply or not PIL_AVAILABLE: await event.edit(BOLD.format("• ❌ يرجى الرد على صورة"), parse_mode='markdown'); return
         reply = await event.get_reply_message()
-        if not reply.photo: await event.edit("• ❌ الرد على صورة فقط"); return
-        await event.edit("• 🔄 جاري التحويل...")
+        if not reply.photo: await event.edit(BOLD.format("• ❌ الرد على صورة فقط"), parse_mode='markdown'); return
+        await event.edit(BOLD.format("• 🔄 جاري التحويل..."), parse_mode='markdown')
         img_path = stick_path = None
         try:
             img_path = os.path.join(TEMP_DIR, f"img_{phone}_{int(time.time())}.jpg")
@@ -696,15 +609,15 @@ async def setup_handlers(client, phone):
             im.save(stick_path, "WEBP", quality=80)
             await client.send_file(event.chat_id, stick_path, force_document=False)
             await event.delete()
-        except Exception as e: await event.edit(f"• ❌ {str(e)[:150]}")
+        except Exception as e: await event.edit(BOLD.format(f"• ❌ {str(e)[:150]}"), parse_mode='markdown')
         finally: safe_remove(img_path); safe_remove(stick_path)
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بيك$'))
     async def sticker_to_photo(event):
-        if not event.is_reply or not PIL_AVAILABLE: await event.edit("• ❌ يرجى الرد على استيكر"); return
+        if not event.is_reply or not PIL_AVAILABLE: await event.edit(BOLD.format("• ❌ يرجى الرد على استيكر"), parse_mode='markdown'); return
         reply = await event.get_reply_message()
-        if not reply.sticker: await event.edit("• ❌ الرد على استيكر فقط"); return
-        await event.edit("• 🔄 جاري التحويل...")
+        if not reply.sticker: await event.edit(BOLD.format("• ❌ الرد على استيكر فقط"), parse_mode='markdown'); return
+        await event.edit(BOLD.format("• 🔄 جاري التحويل..."), parse_mode='markdown')
         stick_path = img_path = None
         try:
             stick_path = os.path.join(TEMP_DIR, f"sticker_{phone}_{int(time.time())}.webp")
@@ -713,33 +626,8 @@ async def setup_handlers(client, phone):
             Image.open(stick_path).convert("RGBA").save(img_path, "PNG")
             await client.send_file(event.chat_id, img_path)
             await event.delete()
-        except Exception as e: await event.edit(f"• ❌ {str(e)[:150]}")
+        except Exception as e: await event.edit(BOLD.format(f"• ❌ {str(e)[:150]}"), parse_mode='markdown')
         finally: safe_remove(stick_path); safe_remove(img_path)
-
-    # ============== أمر .بن (محسن - بدون فلترة معقدة) ==============
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بن (.+)'))
-    async def image_search(event):
-        query = event.pattern_match.group(1).strip()
-        if query.startswith('http'):
-            await event.edit("• 📷 جاري تحميل الصورة...")
-            filepath = await asyncio.get_event_loop().run_in_executor(_DOWNLOAD_EXECUTOR, download_image_direct, query, TEMP_DIR)
-            if filepath: await client.send_file(event.chat_id, filepath); await event.delete(); safe_remove(filepath)
-            else: await event.edit("• ❌ فشل تحميل الصورة")
-            return
-        status_msg = await event.edit(f"• 🔍 جاري البحث عن '{query}'...")
-        try:
-            urls = await asyncio.get_event_loop().run_in_executor(_DOWNLOAD_EXECUTOR, search_all_images_enhanced, query, 10)
-            if not urls: await status_msg.edit(f"• ❌ لم يتم العثور على صور لـ '{query}'\n💡 جرب كلمات بحث مختلفة"); return
-            await status_msg.edit(f"• ✅ تم العثور على {len(urls)} صورة\n• 📥 جاري التحميل...")
-            success = 0
-            for i, url in enumerate(urls[:5], 1):
-                try:
-                    filepath = await asyncio.get_event_loop().run_in_executor(_DOWNLOAD_EXECUTOR, download_image_direct, url, TEMP_DIR)
-                    if filepath: await client.send_file(event.chat_id, filepath, caption=f"{query}\nصورة {i}/{min(5, len(urls))}"); success += 1; safe_remove(filepath); await asyncio.sleep(0.5)
-                except: continue
-            if success > 0: await status_msg.delete()
-            else: await status_msg.edit("• ❌ فشل تحميل الصور\n💡 جرب بحثاً آخر")
-        except Exception as e: await status_msg.edit(f"• ❌ خطأ في البحث: {str(e)[:150]}")
 
     # ============== أمر .ترجم ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ترجم(?: (.+))?$'))
@@ -749,36 +637,36 @@ async def setup_handlers(client, phone):
             reply = await event.get_reply_message()
             text = reply.text if reply.text else None
         if not text and event.pattern_match.group(1): text = event.pattern_match.group(1).strip()
-        if not text: await event.edit("• ❌ يرجى الرد على رسالة أو كتابة نص للترجمة"); return
-        await event.edit("• 🔄 جاري الترجمة...")
+        if not text: await event.edit(BOLD.format("• ❌ يرجى الرد على رسالة أو كتابة نص للترجمة"), parse_mode='markdown'); return
+        await event.edit(BOLD.format("• 🔄 جاري الترجمة..."), parse_mode='markdown')
         translated = await asyncio.get_event_loop().run_in_executor(_DOWNLOAD_EXECUTOR, translate_text, text)
-        await event.edit(f"• الترجمة:\n{translated}")
+        await event.edit(BOLD.format(f"• الترجمة:\n{translated}"), parse_mode='markdown')
 
     # ============== أمر .نت ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.نت$'))
     async def speed_test(event):
-        await event.edit("• 📶 جاري قياس سرعة النت...")
+        await event.edit(BOLD.format("• 📶 جاري قياس سرعة النت..."), parse_mode='markdown')
         result = await measure_speed()
         if result['success']:
-            await event.edit(f"ρɪꪀg: {result['ping']} ꪔ᥉\n᥉ρꫀꫀძ: {result['speed']:.1f} ꪔρᑲ᥉")
-        else: await event.edit("• ❌ فشل قياس سرعة النت - تأكد من اتصالك")
+            await event.edit(BOLD.format(f"ρɪꪀg: {result['ping']} ꪔ᥉\n᥉ρꫀꫀძ: {result['speed']:.1f} ꪔρᑲ᥉"), parse_mode='markdown')
+        else: await event.edit(BOLD.format("• ❌ فشل قياس سرعة النت - تأكد من اتصالك"), parse_mode='markdown')
 
     # ============== أمر .خرفة ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.خرفة (.+)'))
     async def decorate_text(event):
         text = event.pattern_match.group(1).strip()
-        if not text: await event.edit("• ❌ اكتب نص للزخرفة"); return
+        if not text: await event.edit(BOLD.format("• ❌ اكتب نص للزخرفة"), parse_mode='markdown'); return
         style_names = list(DECORATION_STYLES.keys())
         results = [f"🎨 زخرفة '{text}':\n"]
-        for i, style_name in enumerate(style_names, 1): results.append(f"{i}. {apply_decoration(text, style_name)}")
-        await event.edit('\n'.join(results))
+        for i, style_name in enumerate(style_names, 1): results.append(f"**{i}.** `{apply_decoration(text, style_name)}`")
+        await event.edit('\n'.join(results), parse_mode='markdown')
 
     # ============== أوامر الإدارة ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تاك$'))
     async def tag_all(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         tagging_active[phone] = True
-        await event.edit("• 📢 جاري عمل تاك للأعضاء...")
+        await event.edit(BOLD.format("• 📢 جاري عمل تاك للأعضاء..."), parse_mode='markdown')
         mentions = []
         async for user in client.iter_participants(event.chat_id):
             if tagging_active.get(phone):
@@ -793,150 +681,149 @@ async def setup_handlers(client, phone):
         await event.delete()
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ تاك$'))
-    async def stop_tag(event): tagging_active[phone] = False; await event.edit("• ⏹️ تم إيقاف التاك")
+    async def stop_tag(event): tagging_active[phone] = False; await event.edit(BOLD.format("• ⏹️ تم إيقاف التاك"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بلوكات$'))
     async def blocked_list(event):
-        await event.edit("• 📋 جاري جلب قائمة المحظورين...")
+        await event.edit(BOLD.format("• 📋 جاري جلب قائمة المحظورين..."), parse_mode='markdown')
         try:
             blocked = await client(GetBlockedRequest(offset=0, limit=100))
-            if not blocked.users: await event.edit("• 📋 لا يوجد محظورين"); return
+            if not blocked.users: await event.edit(BOLD.format("• 📋 لا يوجد محظورين"), parse_mode='markdown'); return
             result = "📋 قائمة المحظورين:\n"
             for user in blocked.users[:20]:
                 name = user.first_name or ''
                 if user.last_name: name += f" {user.last_name}"
                 result += f"• [{name}](tg://user?id={user.id})\n"
-            await event.edit(result)
-        except: await event.edit("• ❌ فشل")
+            await event.edit(result, parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.حظر$'))
     async def block_user(event):
         target = await resolve_user(event, client)
-        if not target: await event.edit("• ❌ يرجى الرد على شخص أو كتابة اليوزر"); return
+        if not target: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص أو كتابة اليوزر"), parse_mode='markdown'); return
         try:
             await client(BlockRequest(id=target))
-            await event.edit(f"• 🚫 تم حظر {target.first_name or 'المستخدم'}")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format(f"• 🚫 تم حظر {target.first_name or 'المستخدم'}"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ حظر$'))
     async def unblock_user(event):
         target = await resolve_user(event, client)
-        if not target: await event.edit("• ❌ يرجى الرد على شخص أو كتابة اليوزر"); return
+        if not target: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص أو كتابة اليوزر"), parse_mode='markdown'); return
         try:
             await client(UnblockRequest(id=target))
-            await event.edit(f"• ✅ تم فك حظر {target.first_name or 'المستخدم'}")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format(f"• ✅ تم فك حظر {target.first_name or 'المستخدم'}"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
-    # ============== كتم (يعمل في الخاص والجروبات) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.كتم$'))
     async def mute_user_cmd(event):
         target = await resolve_user(event, client)
-        if not target: await event.edit("• ❌ يرجى الرد على شخص أو كتابة اليوزر"); return
+        if not target: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص أو كتابة اليوزر"), parse_mode='markdown'); return
         try:
             if event.is_group:
                 rights = ChatBannedRights(until_date=None, send_messages=True)
                 await client(EditBannedRequest(event.chat_id, target.id, rights))
             muted_users[phone][target.id] = time.time()
-            await event.edit(f"• 🤐 تم كتم {target.first_name or 'المستخدم'}")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format(f"• 🤐 تم كتم {target.first_name or 'المستخدم'}"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.قيد$'))
     async def restrict_user(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         target = await resolve_user(event, client)
-        if not target: await event.edit("• ❌ يرجى الرد على شخص"); return
+        if not target: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص"), parse_mode='markdown'); return
         try:
             rights = ChatBannedRights(until_date=None, send_messages=True, send_media=True, send_stickers=True, send_gifs=True, send_games=True, send_inline=True, embed_links=True)
             await client(EditBannedRequest(event.chat_id, target.id, rights))
-            await event.edit(f"• 🔒 تم تقييد {target.first_name or 'المستخدم'}")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format(f"• 🔒 تم تقييد {target.first_name or 'المستخدم'}"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.طرد$'))
     async def kick_user(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         target = await resolve_user(event, client)
-        if not target: await event.edit("• ❌ يرجى الرد على شخص أو كتابة اليوزر"); return
+        if not target: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص أو كتابة اليوزر"), parse_mode='markdown'); return
         try:
             await client.kick_participant(event.chat_id, target.id)
-            await event.edit(f"• 👢 تم طرد {target.first_name or 'المستخدم'}")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format(f"• 👢 تم طرد {target.first_name or 'المستخدم'}"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     # ============== أوامر المحظورين والمكتومين ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.محظورين$'))
     async def banned_list(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
-        await event.edit("• 📋 جاري جلب المحظورين...")
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
+        await event.edit(BOLD.format("• 📋 جاري جلب المحظورين..."), parse_mode='markdown')
         try:
             banned = await client(GetParticipantsRequest(event.chat_id, types.ChannelParticipantsKicked(), 0, 100, 0))
-            if not banned.users: await event.edit("• 📋 لا يوجد محظورين"); return
+            if not banned.users: await event.edit(BOLD.format("• 📋 لا يوجد محظورين"), parse_mode='markdown'); return
             result = "📋 المحظورين:\n"
             for user in banned.users[:20]: result += f"• [{user.first_name or ''}](tg://user?id={user.id})\n"
-            await event.edit(result)
-        except: await event.edit("• ❌ فشل")
+            await event.edit(result, parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فك محظور$'))
     async def unban_user(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         target = await resolve_user(event, client)
-        if not target: await event.edit("• ❌ يرجى الرد على شخص أو كتابة اليوزر"); return
+        if not target: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص أو كتابة اليوزر"), parse_mode='markdown'); return
         try:
             await client(EditBannedRequest(event.chat_id, target.id, ChatBannedRights(until_date=None)))
-            await event.edit(f"• ✅ تم فك حظر {target.first_name or 'المستخدم'}")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format(f"• ✅ تم فك حظر {target.first_name or 'المستخدم'}"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فك محظورين$'))
     async def unban_all(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
-        await event.edit("• 🔄 جاري فك حظر الجميع...")
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
+        await event.edit(BOLD.format("• 🔄 جاري فك حظر الجميع..."), parse_mode='markdown')
         try:
             banned = await client(GetParticipantsRequest(event.chat_id, types.ChannelParticipantsKicked(), 0, 200, 0))
             for user in banned.users:
                 try: await client(EditBannedRequest(event.chat_id, user.id, ChatBannedRights(until_date=None))); await asyncio.sleep(0.5)
                 except: continue
-            await event.edit("• ✅ تم فك حظر الجميع")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format("• ✅ تم فك حظر الجميع"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فك كتم$'))
     async def unmute_user(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         target = await resolve_user(event, client)
-        if not target: await event.edit("• ❌ يرجى الرد على شخص أو كتابة اليوزر"); return
+        if not target: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص أو كتابة اليوزر"), parse_mode='markdown'); return
         try:
             await client(EditBannedRequest(event.chat_id, target.id, ChatBannedRights(until_date=None)))
-            await event.edit(f"• ✅ تم فك كتم {target.first_name or 'المستخدم'}")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format(f"• ✅ تم فك كتم {target.first_name or 'المستخدم'}"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فك مكتومين$'))
     async def unmute_all(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
-        await event.edit("• 🔄 جاري فك كتم الجميع...")
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
+        await event.edit(BOLD.format("• 🔄 جاري فك كتم الجميع..."), parse_mode='markdown')
         try:
             async for user in client.iter_participants(event.chat_id):
                 try: await client(EditBannedRequest(event.chat_id, user.id, ChatBannedRights(until_date=None)))
                 except: continue
-            await event.edit("• ✅ تم فك كتم الجميع")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format("• ✅ تم فك كتم الجميع"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فك تقيد$'))
     async def unrestrict_user(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         target = await resolve_user(event, client)
-        if not target: await event.edit("• ❌ يرجى الرد على شخص أو كتابة اليوزر"); return
+        if not target: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص أو كتابة اليوزر"), parse_mode='markdown'); return
         try:
             await client(EditBannedRequest(event.chat_id, target.id, ChatBannedRights(until_date=None)))
-            await event.edit(f"• ✅ تم فك تقييد {target.first_name or 'المستخدم'}")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format(f"• ✅ تم فك تقييد {target.first_name or 'المستخدم'}"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فك مقيدين$'))
     async def unrestrict_all(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
-        await event.edit("• 🔄 جاري فك تقييد الجميع...")
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
+        await event.edit(BOLD.format("• 🔄 جاري فك تقييد الجميع..."), parse_mode='markdown')
         try:
             async for user in client.iter_participants(event.chat_id):
                 try: await client(EditBannedRequest(event.chat_id, user.id, ChatBannedRights(until_date=None)))
                 except: continue
-            await event.edit("• ✅ تم فك تقييد الجميع")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format("• ✅ تم فك تقييد الجميع"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     # ============== أوامر المعرفات ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ايدي$'))
@@ -948,14 +835,14 @@ async def setup_handlers(client, phone):
         info_lines = []
         name = target.first_name or ''
         if target.last_name: name += f" {target.last_name}"
-        if name.strip(): info_lines.append(f"ꪀᥲꪔꫀ {name}")
-        if hasattr(target, 'username') and target.username: info_lines.append(f"ᥙ᥉ꫀɾ @{target.username}")
-        info_lines.append(f"ɪძ {target.id}")
+        if name.strip(): info_lines.append(f"**ꪀᥲꪔꫀ** {name}")
+        if hasattr(target, 'username') and target.username: info_lines.append(f"**ᥙ᥉ꫀɾ** @{target.username}")
+        info_lines.append(f"**ɪძ** `{target.id}`")
         try:
             full = await client(GetFullUserRequest(target.id))
-            if full.full_user.about: info_lines.append(f"ᑲɪ᥆ {full.full_user.about}")
+            if full.full_user.about: info_lines.append(f"**ᑲɪ᥆** {full.full_user.about}")
         except: pass
-        await event.edit('\n'.join(info_lines))
+        await event.edit('\n'.join(info_lines), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.انشاء$'))
     async def creation_date(event):
@@ -966,11 +853,11 @@ async def setup_handlers(client, phone):
             except: pass
         elif event.is_private: target = await client.get_entity(event.chat_id)
         elif event.is_group or event.is_channel: target = await client.get_entity(event.chat_id)
-        if not target: await event.edit("• ❌ لا يمكن تحديد تاريخ الإنشاء"); return
+        if not target: await event.edit(BOLD.format("• ❌ لا يمكن تحديد تاريخ الإنشاء"), parse_mode='markdown'); return
         if hasattr(target, 'date') and target.date:
             date = target.date.strftime('%Y-%m-%d %H:%M:%S')
-            await event.edit(f"ძᥲƚᥲ - {date}")
-        else: await event.edit("• ❌ لا يمكن تحديد تاريخ الإنشاء لهذا النوع")
+            await event.edit(BOLD.format(f"ძᥲƚᥲ - {date}"), parse_mode='markdown')
+        else: await event.edit(BOLD.format("• ❌ لا يمكن تحديد تاريخ الإنشاء لهذا النوع"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.عدد$'))
     async def message_count(event):
@@ -992,18 +879,18 @@ async def setup_handlers(client, phone):
                 async for msg in client.iter_messages(chat, limit=10000):
                     count += 1
             except: pass
-        await event.edit(f"ꪔꫀ᥉᥉ᥲgꫀ᥉ - {count}")
+        await event.edit(BOLD.format(f"ꪔꫀ᥉᥉ᥲgꫀ᥉ - {count}"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.رتبة$'))
     async def user_rank(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         target = await resolve_user(event, client)
-        if not target: await event.edit("• ❌ يرجى الرد على شخص"); return
+        if not target: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص"), parse_mode='markdown'); return
         try:
             participant = await client(functions.channels.GetParticipantRequest(event.chat_id, target.id))
             rank = "مالك" if isinstance(participant.participant, ChannelParticipantCreator) else "مشرف" if isinstance(participant.participant, ChannelParticipantAdmin) else "عضو"
-            await event.edit(f"🏅 رتبة {target.first_name or 'المستخدم'}: {rank}")
-        except: await event.edit(f"🏅 رتبة {target.first_name or 'المستخدم'}: عضو")
+            await event.edit(BOLD.format(f"🏅 رتبة {target.first_name or 'المستخدم'}: {rank}"), parse_mode='markdown')
+        except: await event.edit(BOLD.format(f"🏅 رتبة {target.first_name or 'المستخدم'}: عضو"), parse_mode='markdown')
 
     # ============== أوامر الحذف ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.حذف(?: (\d+))?$'))
@@ -1014,7 +901,7 @@ async def setup_handlers(client, phone):
             if msg.out:
                 try: await msg.delete(); deleted += 1
                 except: pass
-        if deleted > 0: await event.edit(f"• 🗑️ تم حذف {deleted} رسالة")
+        if deleted > 0: await event.edit(BOLD.format(f"• 🗑️ تم حذف {deleted} رسالة"), parse_mode='markdown')
         else: await event.delete()
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.احذف$'))
@@ -1022,80 +909,80 @@ async def setup_handlers(client, phone):
         target = await resolve_user(event, client)
         if not target:
             if event.is_private: target = await client.get_entity(event.chat_id)
-            else: await event.edit("• ❌ يرجى الرد على شخص أو استخدام في الخاص"); return
+            else: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص أو استخدام في الخاص"), parse_mode='markdown'); return
         try:
             await client(DeleteHistoryRequest(peer=target, max_id=0, just_clear=False, revoke=True))
-            await event.edit("• ✅ تم حذف المحادثة من الطرفين")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format("• ✅ تم حذف المحادثة من الطرفين"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     # ============== أوامر الجروب ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.فتح$'))
     async def open_group(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         try:
             await client(EditChatDefaultBannedRightsRequest(event.chat_id, ChatBannedRights(until_date=None)))
-            await event.edit("• 🔓 تم فتح الجروب")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format("• 🔓 تم فتح الجروب"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.قفل$'))
     async def close_group(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         try:
             rights = ChatBannedRights(until_date=None, send_messages=True)
             await client(EditChatDefaultBannedRightsRequest(event.chat_id, rights))
-            await event.edit("• 🔒 تم قفل الجروب")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format("• 🔒 تم قفل الجروب"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     # ============== أوامر الرفع والتنزيل ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.مش$'))
     async def promote_mod(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         target = await resolve_user(event, client)
-        if not target: await event.edit("• ❌ يرجى الرد على شخص"); return
+        if not target: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص"), parse_mode='markdown'); return
         try:
             rights = ChatAdminRights(post_messages=True, delete_messages=True, ban_users=True, invite_users=True, pin_messages=True, add_admins=False, anonymous=False, manage_call=True)
             await client(EditAdminRequest(event.chat_id, target.id, rights, "مشرف"))
-            await event.edit(f"• ⭐ تم رفع {target.first_name or 'المستخدم'} مشرف")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format(f"• ⭐ تم رفع {target.first_name or 'المستخدم'} مشرف"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اد$'))
     async def promote_admin(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         target = await resolve_user(event, client)
-        if not target: await event.edit("• ❌ يرجى الرد على شخص"); return
+        if not target: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص"), parse_mode='markdown'); return
         try:
             rights = ChatAdminRights(post_messages=True, delete_messages=True, ban_users=True, invite_users=True, pin_messages=True, add_admins=True, anonymous=False, manage_call=True, other=True)
             await client(EditAdminRequest(event.chat_id, target.id, rights, "أدمن"))
-            await event.edit(f"• 👑 تم رفع {target.first_name or 'المستخدم'} أدمن")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format(f"• 👑 تم رفع {target.first_name or 'المستخدم'} أدمن"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.مالك$'))
     async def promote_owner(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         target = await resolve_user(event, client)
-        if not target: await event.edit("• ❌ يرجى الرد على شخص"); return
+        if not target: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص"), parse_mode='markdown'); return
         try:
             rights = ChatAdminRights(post_messages=True, delete_messages=True, ban_users=True, invite_users=True, pin_messages=True, add_admins=True, anonymous=True, manage_call=True, other=True)
             await client(EditAdminRequest(event.chat_id, target.id, rights, "مالك"))
-            await event.edit(f"• 🤴 تم رفع {target.first_name or 'المستخدم'} مالك")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format(f"• 🤴 تم رفع {target.first_name or 'المستخدم'} مالك"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تن$'))
     async def demote_all(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         target = await resolve_user(event, client)
-        if not target: await event.edit("• ❌ يرجى الرد على شخص"); return
+        if not target: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص"), parse_mode='markdown'); return
         try:
             await client(EditAdminRequest(event.chat_id, target.id, ChatAdminRights(), ""))
-            await event.edit(f"• ⬇️ تم تنزيل {target.first_name or 'المستخدم'}")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format(f"• ⬇️ تم تنزيل {target.first_name or 'المستخدم'}"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     # ============== أوامر الإضافة والتسجيل ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ضيف (\d+)$'))
     async def smart_add(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         count = int(event.pattern_match.group(1))
-        await event.edit(f"• 📥 جاري إضافة {count} عضو بذكاء...")
+        await event.edit(BOLD.format(f"• 📥 جاري إضافة {count} عضو بذكاء..."), parse_mode='markdown')
         added = 0
         async for dialog in client.iter_dialogs():
             if added >= count: break
@@ -1108,28 +995,28 @@ async def setup_handlers(client, phone):
                         except FloodWaitError as e: await asyncio.sleep(e.seconds + 1)
                         except: continue
                 except: continue
-        await event.edit(f"• ✅ تم إضافة {added} عضو")
+        await event.edit(BOLD.format(f"• ✅ تم إضافة {added} عضو"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ ضيف$'))
-    async def stop_add(event): await event.edit("• ⏹️ تم إيقاف الإضافة")
+    async def stop_add(event): await event.edit(BOLD.format("• ⏹️ تم إيقاف الإضافة"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تسجيل$'))
     async def add_contact(event):
         target = await resolve_user(event, client)
-        if not target: await event.edit("• ❌ يرجى الرد على شخص أو كتابة اليوزر"); return
+        if not target: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص أو كتابة اليوزر"), parse_mode='markdown'); return
         try:
             await client(AddContactRequest(id=target, first_name=target.first_name or '', last_name=target.last_name or '', phone='', add_phone_privacy_exception=False))
-            await event.edit(f"• 📇 تم تسجيل {target.first_name or 'المستخدم'} في جهات الاتصال")
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format(f"• 📇 تم تسجيل {target.first_name or 'المستخدم'} في جهات الاتصال"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ممول (\d+) (.+)$'))
     async def fund_add(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         count = int(event.pattern_match.group(1))
         username = event.pattern_match.group(2).strip('@')
         try: target_group = await client.get_entity(username)
-        except: await event.edit(f"• ❌ لم يتم العثور على {username}"); return
-        await event.edit(f"• 📥 جاري تسجيل {count} عضو...")
+        except: await event.edit(BOLD.format(f"• ❌ لم يتم العثور على {username}"), parse_mode='markdown'); return
+        await event.edit(BOLD.format(f"• 📥 جاري تسجيل {count} عضو..."), parse_mode='markdown')
         added = 0
         try:
             async for user in client.iter_participants(event.chat_id, limit=count):
@@ -1138,23 +1025,23 @@ async def setup_handlers(client, phone):
                 except FloodWaitError as e: await asyncio.sleep(e.seconds + 1)
                 except: continue
         except: pass
-        await event.edit(f"• ✅ تم تسجيل {added} عضو في {username}")
+        await event.edit(BOLD.format(f"• ✅ تم تسجيل {added} عضو في {username}"), parse_mode='markdown')
 
     # ============== أوامر متفرقة ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اطردني$'))
     async def leave_group(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
         try: await client.delete_dialog(event.chat_id)
         except: pass
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ادمنز$'))
     async def admin_list(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
-        await event.edit("• 📋 جاري جلب قائمة الأدمنز...")
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
+        await event.edit(BOLD.format("• 📋 جاري جلب قائمة الأدمنز..."), parse_mode='markdown')
         admins = []
         async for admin in client.iter_participants(event.chat_id, filter=ChannelParticipantsAdmins):
             admins.append(f"• {admin.first_name or ''} {'@'+admin.username if admin.username else ''}")
-        await event.edit("👑 الأدمنز:\n" + '\n'.join(admins[:20]) if admins else "• ❌ لا يوجد أدمنز")
+        await event.edit("👑 الأدمنز:\n" + '\n'.join(admins[:20]) if admins else BOLD.format("• ❌ لا يوجد أدمنز"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.نيم (.+)'))
     async def set_name(event):
@@ -1162,112 +1049,111 @@ async def setup_handlers(client, phone):
         if event.is_group:
             try:
                 await client(EditAdminRequest(event.chat_id, (await client.get_me()).id, ChatAdminRights(), name))
-                await event.edit(f"• ✅ تم تغيير اسم الجروب إلى {name}")
-            except: await event.edit("• ❌ فشل")
+                await event.edit(BOLD.format(f"• ✅ تم تغيير اسم الجروب إلى {name}"), parse_mode='markdown')
+            except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
         else:
-            try: await client(UpdateProfileRequest(first_name=name)); await event.edit(f"• ✅ تم تغيير الاسم إلى {name}")
-            except: await event.edit("• ❌ فشل")
+            try: await client(UpdateProfileRequest(first_name=name)); await event.edit(BOLD.format(f"• ✅ تم تغيير الاسم إلى {name}"), parse_mode='markdown')
+            except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بايو (.+)'))
     async def set_bio(event):
         bio = event.pattern_match.group(1).strip()
-        try: await client(UpdateProfileRequest(about=bio[:70])); await event.edit("• ✅ تم تحديث البايو")
-        except: await event.edit("• ❌ فشل")
+        try: await client(UpdateProfileRequest(about=bio[:70])); await event.edit(BOLD.format("• ✅ تم تحديث البايو"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.صورة$'))
     async def set_photo(event):
-        if not event.is_reply: await event.edit("• ❌ يرجى الرد على صورة"); return
+        if not event.is_reply: await event.edit(BOLD.format("• ❌ يرجى الرد على صورة"), parse_mode='markdown'); return
         reply = await event.get_reply_message()
-        if not reply.photo: await event.edit("• ❌ الرد على صورة فقط"); return
+        if not reply.photo: await event.edit(BOLD.format("• ❌ الرد على صورة فقط"), parse_mode='markdown'); return
         try:
             photo = await client.download_media(reply)
             uploaded = await client.upload_file(photo)
             if event.is_group: await client(EditPhotoRequest(event.chat_id, uploaded))
             else: await client(UploadProfilePhotoRequest(file=uploaded))
-            await event.edit("• ✅ تم تحديث الصورة"); safe_remove(photo)
-        except: await event.edit("• ❌ فشل")
+            await event.edit(BOLD.format("• ✅ تم تحديث الصورة"), parse_mode='markdown'); safe_remove(photo)
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تابع (.+)'))
     async def stalk_user(event):
         username = event.pattern_match.group(1).strip('@')
         try:
             target = await client.get_entity(username)
-            await event.edit(f"• 👀 جاري متابعة {target.first_name or username}...")
+            await event.edit(BOLD.format(f"• 👀 جاري متابعة {target.first_name or username}..."), parse_mode='markdown')
             was_online = False
             stalking_active[phone] = True
             while stalking_active.get(phone):
                 entity = await client.get_entity(target.id)
                 if hasattr(entity, 'status'):
                     if isinstance(entity.status, UserStatusOnline):
-                        if not was_online: await event.edit(f"• 🟢 {target.first_name or username} أونلاين الآن!"); was_online = True
+                        if not was_online: await event.edit(BOLD.format(f"• 🟢 {target.first_name or username} أونلاين الآن!"), parse_mode='markdown'); was_online = True
                     else:
-                        if was_online: await event.edit(f"• 🔴 {target.first_name or username} أصبح أوفلاين"); break
+                        if was_online: await event.edit(BOLD.format(f"• 🔴 {target.first_name or username} أصبح أوفلاين"), parse_mode='markdown'); break
                 await asyncio.sleep(10)
-        except: await event.edit("• ❌ فشل")
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ تابع$'))
-    async def stop_stalk(event): stalking_active[phone] = False; await event.edit("• ⏹️ تم إيقاف المتابعة")
+    async def stop_stalk(event): stalking_active[phone] = False; await event.edit(BOLD.format("• ⏹️ تم إيقاف المتابعة"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ث$'))
     async def pin_message(event):
-        if not event.is_reply: await event.edit("• ❌ يرجى الرد على رسالة"); return
-        try: await (await event.get_reply_message()).pin(); await event.edit("• 📌 تم تثبيت الرسالة")
-        except: await event.edit("• ❌ فشل")
+        if not event.is_reply: await event.edit(BOLD.format("• ❌ يرجى الرد على رسالة"), parse_mode='markdown'); return
+        try: await (await event.get_reply_message()).pin(); await event.edit(BOLD.format("• 📌 تم تثبيت الرسالة"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ ث$'))
     async def unpin_message(event):
-        if not event.is_reply: await event.edit("• ❌ يرجى الرد على رسالة"); return
-        try: await (await event.get_reply_message()).unpin(); await event.edit("• ✅ تم إلغاء التثبيت")
-        except: await event.edit("• ❌ فشل")
+        if not event.is_reply: await event.edit(BOLD.format("• ❌ يرجى الرد على رسالة"), parse_mode='markdown'); return
+        try: await (await event.get_reply_message()).unpin(); await event.edit(BOLD.format("• ✅ تم إلغاء التثبيت"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.كول$'))
     async def create_call(event):
-        if not event.is_group: await event.edit("• ❌ الأمر يعمل في الجروبات فقط"); return
-        try: await client(CreateGroupCallRequest(event.chat_id, title='مكالمة صوتية')); await event.edit("• 📞 تم فتح مكالمة صوتية")
-        except: await event.edit("• ❌ فشل")
+        if not event.is_group: await event.edit(BOLD.format("• ❌ الأمر يعمل في الجروبات فقط"), parse_mode='markdown'); return
+        try: await client(CreateGroupCallRequest(event.chat_id, title='مكالمة صوتية')); await event.edit(BOLD.format("• 📞 تم فتح مكالمة صوتية"), parse_mode='markdown')
+        except: await event.edit(BOLD.format("• ❌ فشل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.اوامر$'))
     async def show_commands(event):
-        cmds = """📋 قائمة الأوامر:
+        cmds = """**📋 قائمة الأوامر:**
 
-🎨 التنسيق: .عريض .مائل .مشطوب .غ خط .خفي .غ خفي
-😂 النسب: .حب .غباء .كدب
-🎭 المزاح: .تهكير .قتل
-📊 الإحصائيات: .جروباتي .قنواتي .تونزي .بلوكات
-🎪 الأنيمشن: .ضحك .قلب .غيمة .ورد .كوكب .شتاء .قمر .وقف
-📥 التحميل: .يوت .فيد .صوت
-🔧 التحويل: .نسخ .استيك .بيك .ترجم
-🖼️ الصور: .بن .صورة
-👥 الإدارة: .تاك .غ تاك .حظر .غ حظر .كتم .قيد .طرد
-🔓 فك: .فك محظور .فك محظورين .فك كتم .فك مكتومين .فك تقيد .فك مقيدين
-📝 المعرفات: .ايدي .انشاء .عدد .رتبة
-🗑️ الحذف: .حذف .احذف
-🚪 الجروب: .فتح .قفل .ادمنز .اطردني .كول
-👑 الرفع: .مش .اد .مالك .تن
-📇 جهات الاتصال: .تسجيل .ممول .ضيف .غ ضيف
-📌 التثبيت: .ث .غ ث
-🔍 متابعة: .تابع .غ تابع
-🎭 الانتحال: .انتحل .غ انتحل
-🎭 التقليد: .قلد .غ تقليد
-🔤 الزخرفة: .خرفة
-🚫 السبام: .سبام .غ سبام .سماح
-👁️ المراقبة: .راقب .غ راقب
-📶 السرعة: .نت
-ℹ️ معلومات: .اوامر .سورس .المساحة .تنظيف"""
-        await event.edit(cmds)
+**🎨 التنسيق:** `.عريض` `.مائل` `.مشطوب` `.غ خط` `.خفي` `.غ خفي`
+**😂 النسب:** `.حب` `.غباء` `.كدب`
+**🎭 المزاح:** `.تهكير` `.قتل`
+**📊 الإحصائيات:** `.جروباتي` `.قنواتي` `.تونزي` `.بلوكات`
+**🎪 الأنيمشن:** `.ضحك` `.قلب` `.غيمة` `.ورد` `.كوكب` `.شتاء` `.قمر` `.وقف`
+**📥 التحميل:** `.يوت` `.فيد` `.صوت`
+**🔧 التحويل:** `.نسخ` `.استيك` `.بيك` `.ترجم`
+**👥 الإدارة:** `.تاك` `.غ تاك` `.حظر` `.غ حظر` `.كتم` `.قيد` `.طرد`
+**🔓 فك:** `.فك محظور` `.فك محظورين` `.فك كتم` `.فك مكتومين` `.فك تقيد` `.فك مقيدين`
+**📝 المعرفات:** `.ايدي` `.انشاء` `.عدد` `.رتبة`
+**🗑️ الحذف:** `.حذف` `.احذف`
+**🚪 الجروب:** `.فتح` `.قفل` `.ادمنز` `.اطردني` `.كول`
+**👑 الرفع:** `.مش` `.اد` `.مالك` `.تن`
+**📇 جهات الاتصال:** `.تسجيل` `.ممول` `.ضيف` `.غ ضيف`
+**📌 التثبيت:** `.ث` `.غ ث`
+**🔍 متابعة:** `.تابع` `.غ تابع`
+**🎭 الانتحال:** `.انتحل` `.غ انتحل`
+**🎭 التقليد:** `.قلد` `.غ تقليد`
+**🔤 الزخرفة:** `.خرفة`
+**🚫 السبام:** `.سبام` `.غ سبام` `.سماح`
+**👁️ المراقبة:** `.راقب` `.غ راقب`
+**📶 السرعة:** `.نت`
+**ℹ️ معلومات:** `.اوامر` `.سورس` `.المساحة` `.تنظيف`"""
+        await event.edit(cmds, parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.سورس$'))
     async def show_source(event):
-        await event.edit("Ԛgɾᥲꪔ ƚꫀᥣꫀƚһ᥆ꪀ ᥉᥆ᥙɾᥴꫀ\nᥙρძᥲƚꫀ᥉ @Q_g_r_a_m\nᑲ᥆ƚ @Qthon_bot\nძꫀ᥎ @J0E_3")
+        await event.edit(BOLD.format("Ԛgɾᥲꪔ ƚꫀᥣꫀƚһ᥆ꪀ ᥉᥆ᥙɾᥴꫀ\nᥙρძᥲƚꫀ᥉ @Q_g_r_a_m\nᑲ᥆ƚ @Qthon_bot\nძꫀ᥎ @J0E_3"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.المساحة$'))
     async def space_check(event):
-        await event.edit(f"📊 المساحة: {get_free_space_mb():.1f} MB")
+        await event.edit(BOLD.format(f"📊 المساحة: {get_free_space_mb():.1f} MB"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تنظيف$'))
     async def force_clean(event):
         c = clean_temp_files()
-        await event.edit(f"✅ تم تنظيف {c} ملف\n📊 المساحة: {get_free_space_mb():.1f} MB")
+        await event.edit(BOLD.format(f"✅ تم تنظيف {c} ملف\n📊 المساحة: {get_free_space_mb():.1f} MB"), parse_mode='markdown')
 
     # ============== التقليد والانتحال ==============
     @client.on(events.NewMessage(incoming=True))
@@ -1280,32 +1166,32 @@ async def setup_handlers(client, phone):
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.قلد$'))
     async def taq(event):
         target = await resolve_user(event, client)
-        if target: taqleed_users[phone][target.id] = True; await event.edit(f"• ✅ تم تفعيل التقليد لـ {target.first_name or 'المستخدم'}")
+        if target: taqleed_users[phone][target.id] = True; await event.edit(BOLD.format(f"• ✅ تم تفعيل التقليد لـ {target.first_name or 'المستخدم'}"), parse_mode='markdown')
         else:
             if event.is_reply:
                 reply = await event.get_reply_message()
-                taqleed_users[phone][reply.sender_id] = True; await event.edit("• ✅ تم تفعيل التقليد")
-            else: await event.edit("• ❌ يرجى الرد على شخص أو كتابة اليوزر")
+                taqleed_users[phone][reply.sender_id] = True; await event.edit(BOLD.format("• ✅ تم تفعيل التقليد"), parse_mode='markdown')
+            else: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص أو كتابة اليوزر"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ تقليد$'))
     async def notaq(event):
         target = await resolve_user(event, client)
-        if target and target.id in taqleed_users.get(phone, {}): del taqleed_users[phone][target.id]; await event.edit("• ✅ تم فك التقليد")
-        else: await event.edit("• ❌ لا يوجد تقليد نشط")
+        if target and target.id in taqleed_users.get(phone, {}): del taqleed_users[phone][target.id]; await event.edit(BOLD.format("• ✅ تم فك التقليد"), parse_mode='markdown')
+        else: await event.edit(BOLD.format("• ❌ لا يوجد تقليد نشط"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.انتحل$'))
     async def ent7al(event):
         track_command(phone, ".انتحال")
-        await event.edit("• 🔄 جاري الانتحال...")
+        await event.edit(BOLD.format("• 🔄 جاري الانتحال..."), parse_mode='markdown')
         target_user = await resolve_user(event, client)
         if not target_user:
             if event.is_reply:
                 reply = await event.get_reply_message()
                 target_user = await client.get_entity(reply.sender_id)
             elif event.is_private: target_user = await client.get_entity(event.chat_id)
-        if not target_user: await event.edit("• ❌ فشل الانتحال"); return
+        if not target_user: await event.edit(BOLD.format("• ❌ فشل الانتحال"), parse_mode='markdown'); return
         target_info = await get_user_info_full(client, target_user.id)
-        if not target_info: await event.edit("• ❌ فشل جلب المعلومات"); return
+        if not target_info: await event.edit(BOLD.format("• ❌ فشل جلب المعلومات"), parse_mode='markdown'); return
         me = await client.get_me()
         client_me[phone] = me
         original = {'first_name': me.first_name or '', 'last_name': me.last_name or '', 'about': '', 'added_photo_id': None}
@@ -1324,11 +1210,11 @@ async def setup_handlers(client, phone):
         if photo_ok and added_id: original['added_photo_id'] = added_id
         ent7al_original[phone] = original
         ent7al_users[phone] = True
-        await event.edit("• ✅ تم الانتحال")
+        await event.edit(BOLD.format("• ✅ تم الانتحال"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ انتحل$'))
     async def unent7al(event):
-        if not ent7al_users.get(phone): await event.edit("• ❌ لا يوجد انتحال"); return
+        if not ent7al_users.get(phone): await event.edit(BOLD.format("• ❌ لا يوجد انتحال"), parse_mode='markdown'); return
         original = ent7al_original[phone]
         try: await client(UpdateProfileRequest(first_name=original.get('first_name',''), last_name=original.get('last_name','')))
         except: pass
@@ -1339,55 +1225,54 @@ async def setup_handlers(client, phone):
         except: pass
         ent7al_users[phone] = False
         ent7al_original[phone] = {}
-        await event.edit("• ✅ تم إلغاء الانتحال")
+        await event.edit(BOLD.format("• ✅ تم إلغاء الانتحال"), parse_mode='markdown')
 
-    # ============== سبام (منع الرسائل الكثيرة في الخاص) ==============
+    # ============== سبام (عام على الحساب كله) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.سبام$'))
     async def spam_block(event):
-        if not event.is_private: await event.edit("• ❌ الأمر يعمل في الخاص فقط"); return
-        target = await client.get_entity(event.chat_id)
-        spam_blocked[phone][target.id] = True
-        await event.edit(f"• 🚫 تم منع رسائل {target.first_name or 'المستخدم'}")
+        global spam_blocked_global
+        spam_blocked_global = True
+        spam_allowed_users.clear()
+        await event.edit(BOLD.format("• 🚫 تم تفعيل منع السبام على الحساب بالكامل\n• أي حد يبعتلك هايترد عليه بنقطة لحد ما ترد"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ سبام$'))
     async def spam_unblock(event):
-        if not event.is_private: await event.edit("• ❌ الأمر يعمل في الخاص فقط"); return
-        target = await client.get_entity(event.chat_id)
-        if target.id in spam_blocked.get(phone, {}):
-            del spam_blocked[phone][target.id]
-            await event.edit(f"• ✅ تم السماح لـ {target.first_name or 'المستخدم'}")
-        else: await event.edit("• ❌ هذا الشخص غير ممنوع")
+        global spam_blocked_global
+        spam_blocked_global = False
+        spam_allowed_users.clear()
+        await event.edit(BOLD.format("• ✅ تم إلغاء منع السبام"), parse_mode='markdown')
 
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.سماح (.+)'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.سماح$'))
     async def allow_user(event):
-        username = event.pattern_match.group(1).strip('@')
-        try:
-            target = await client.get_entity(username)
-            if target.id in spam_blocked.get(phone, {}):
-                del spam_blocked[phone][target.id]
-                await event.edit(f"• ✅ تم السماح لـ {target.first_name or username}")
-            else: await event.edit(f"• ❌ {target.first_name or username} ليس ممنوعاً")
-        except: await event.edit("• ❌ لم يتم العثور على المستخدم")
+        target = await resolve_user(event, client)
+        if not target:
+            if event.is_private: target = await client.get_entity(event.chat_id)
+            else: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص أو استخدام في الخاص"), parse_mode='markdown'); return
+        spam_allowed_users.add(target.id)
+        await event.edit(BOLD.format(f"• ✅ تم السماح لـ {target.first_name or 'المستخدم'}"), parse_mode='markdown')
 
-    # مراقبة الخاص - حذف رسائل الممنوعين تلقائياً
+    # مراقبة الخاص - منع السبام (عام)
     @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private and not e.out))
-    async def auto_delete_spam(event):
-        if event.sender_id in spam_blocked.get(phone, {}):
-            try: await event.delete()
-            except: pass
+    async def auto_reply_spam(event):
+        global spam_blocked_global
+        if not spam_blocked_global: return
+        if event.sender_id == (await client.get_me()).id: return
+        if event.sender_id in spam_allowed_users: return
+        try:
+            await event.reply("إنتظر رد المالك")
+        except: pass
 
     # ============== راقب (حفظ رسائل الخاص المعدلة) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.راقب$'))
     async def watch_on(event):
         watch_edits[phone] = True
-        await event.edit("• 👁️ تم تفعيل مراقبة الرسائل المعدلة في الخاص")
+        await event.edit(BOLD.format("• 👁️ تم تفعيل مراقبة الرسائل المعدلة في الخاص"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ راقب$'))
     async def watch_off(event):
         watch_edits[phone] = False
-        await event.edit("• 👁️ تم إلغاء مراقبة الرسائل المعدلة")
+        await event.edit(BOLD.format("• 👁️ تم إلغاء مراقبة الرسائل المعدلة"), parse_mode='markdown')
 
-    # مراقبة الخاص - رسائل
     @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private and not e.out))
     async def cache_message(event):
         if event.sender_id == (await client.get_me()).id: return
