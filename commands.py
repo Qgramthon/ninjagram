@@ -75,6 +75,7 @@ adding_members = {}
 stalking_active = {}
 spam_blocked_global = False
 spam_allowed_users = set()
+spam_replied_users = set()
 watch_edits = {}
 
 BOLD = "**{}**"
@@ -352,8 +353,8 @@ async def measure_speed():
     except: return {'success': False}
 
 async def setup_handlers(client, phone):
-    global spam_blocked_global, spam_allowed_users
-    
+    global spam_blocked_global, spam_allowed_users, spam_replied_users
+
     if phone not in muted_users: muted_users[phone] = {}
     if phone not in taqleed_users: taqleed_users[phone] = {}
     if phone not in ent7al_users: ent7al_users[phone] = False
@@ -1227,19 +1228,21 @@ async def setup_handlers(client, phone):
         ent7al_original[phone] = {}
         await event.edit(BOLD.format("• ✅ تم إلغاء الانتحال"), parse_mode='markdown')
 
-    # ============== سبام (عام على الحساب كله) ==============
+    # ============== سبام (عام على الحساب كله - رد مرة واحدة فقط ثم مسح) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.سبام$'))
     async def spam_block(event):
         global spam_blocked_global
         spam_blocked_global = True
         spam_allowed_users.clear()
-        await event.edit(BOLD.format("• 🚫 تم تفعيل منع السبام على الحساب بالكامل\n• أي حد يبعتلك هايترد عليه بنقطة لحد ما ترد"), parse_mode='markdown')
+        spam_replied_users.clear()
+        await event.edit(BOLD.format("• 🚫 تم تفعيل منع السبام على الحساب بالكامل"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.غ سبام$'))
     async def spam_unblock(event):
         global spam_blocked_global
         spam_blocked_global = False
         spam_allowed_users.clear()
+        spam_replied_users.clear()
         await event.edit(BOLD.format("• ✅ تم إلغاء منع السبام"), parse_mode='markdown')
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.سماح$'))
@@ -1249,18 +1252,29 @@ async def setup_handlers(client, phone):
             if event.is_private: target = await client.get_entity(event.chat_id)
             else: await event.edit(BOLD.format("• ❌ يرجى الرد على شخص أو استخدام في الخاص"), parse_mode='markdown'); return
         spam_allowed_users.add(target.id)
+        spam_replied_users.discard(target.id)
         await event.edit(BOLD.format(f"• ✅ تم السماح لـ {target.first_name or 'المستخدم'}"), parse_mode='markdown')
 
-    # مراقبة الخاص - منع السبام (عام)
+    # مراقبة الخاص - منع السبام
     @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private and not e.out))
-    async def auto_reply_spam(event):
+    async def auto_handle_spam(event):
         global spam_blocked_global
         if not spam_blocked_global: return
-        if event.sender_id == (await client.get_me()).id: return
+        me = await client.get_me()
+        if event.sender_id == me.id: return
         if event.sender_id in spam_allowed_users: return
-        try:
-            await event.reply("إنتظر رد المالك")
-        except: pass
+
+        if event.sender_id not in spam_replied_users:
+            # أول رسالة -> نرد عليه مرة واحدة
+            try:
+                await event.reply(BOLD.format("🚫 انتظر رد المالك"), parse_mode='markdown')
+                spam_replied_users.add(event.sender_id)
+            except: pass
+        else:
+            # رسايل تانية -> تتمسح بدون رد
+            try:
+                await event.delete()
+            except: pass
 
     # ============== راقب (حفظ رسائل الخاص المعدلة) ==============
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.راقب$'))
