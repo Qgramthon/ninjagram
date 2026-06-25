@@ -381,7 +381,6 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
     timestamp = int(time.time() * 1000)
     prefix = 'audio_' if audio_only else 'video_'
 
-    # إنشاء ملف الكوكيز المؤقت
     cookie_path = _get_cookie_file_path()
 
     if audio_only:
@@ -398,15 +397,15 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
             'max_filesize': 100 * 1024 * 1024,
             'extract_flat': False,
             'nocheckcertificate': True,
-            'ignoreerrors': False,
+            'ignoreerrors': True,
             'socket_timeout': 30,
             'retries': 5,
             'fragment_retries': 5,
-            'cookiefile': cookie_path,  # <-- الكوكيز هنا
+            'cookiefile': cookie_path,
         }
     else:
         ydl_opts = {
-            'format': 'best[height<=1080][ext=mp4]/best[height<=720][ext=mp4]/best[ext=mp4]/best',
+            'format': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best',
             'outtmpl': os.path.join(out_dir, f'{prefix}{timestamp}.%(ext)s'),
             'quiet': True,
             'no_warnings': False,
@@ -414,13 +413,13 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
             'merge_output_format': 'mp4',
             'extract_flat': False,
             'nocheckcertificate': True,
-            'ignoreerrors': False,
+            'ignoreerrors': True,
             'socket_timeout': 60,
             'retries': 10,
             'fragment_retries': 10,
             'concurrent_fragment_downloads': 8,
             'buffersize': 16384,
-            'cookiefile': cookie_path,  # <-- الكوكيز هنا
+            'cookiefile': cookie_path,
         }
 
     downloaded_file = None
@@ -434,7 +433,8 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
                 info_dict = entries[0]
             title = info_dict.get('title', 'بدون عنوان')
             duration = info_dict.get('duration', 0)
-            info_dict = ydl.extract_info(info_dict.get('webpage_url', info_dict.get('url', query)), download=True)
+            webpage_url = info_dict.get('webpage_url') or info_dict.get('url') or query
+            info_dict = ydl.extract_info(webpage_url, download=True)
             files = []
             for f in os.listdir(out_dir):
                 if f.startswith(f'{prefix}{timestamp}'):
@@ -465,7 +465,6 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
                 safe_remove(os.path.join(out_dir, f))
         raise ValueError(f"فشل التحميل: {str(e)[:200]}")
     finally:
-        # تنظيف ملف الكوكيز المؤقت
         if os.path.exists(cookie_path):
             try:
                 os.unlink(cookie_path)
