@@ -425,16 +425,40 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
     downloaded_file = None
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(query, download=False)
-            if 'entries' in info_dict:
-                entries = [e for e in info_dict['entries'] if e]
+            # الخطوة الأولى: استخراج المعلومات بدون تحميل
+            info = ydl.extract_info(query, download=False)
+
+            # لو في entries، ناخد أول وحدة
+            if info and 'entries' in info and info['entries']:
+                entries = [e for e in info['entries'] if e is not None]
                 if not entries:
                     raise ValueError("لم يتم العثور على نتائج")
-                info_dict = entries[0]
-            title = info_dict.get('title', 'بدون عنوان')
-            duration = info_dict.get('duration', 0)
-            webpage_url = info_dict.get('webpage_url') or info_dict.get('url') or query
-            info_dict = ydl.extract_info(webpage_url, download=True)
+                video = entries[0]
+            elif info and 'id' in info:
+                video = info
+            else:
+                raise ValueError("لم يتم العثور على نتائج")
+
+            # نجيب الرابط الفعلي للفيديو
+            video_url = None
+            if video.get('webpage_url'):
+                video_url = video['webpage_url']
+            elif video.get('url'):
+                video_url = video['url']
+            elif video.get('original_url'):
+                video_url = video['original_url']
+            elif video.get('id'):
+                video_url = f"https://www.youtube.com/watch?v={video['id']}"
+
+            if not video_url:
+                raise ValueError("لم يتم العثور على رابط الفيديو")
+
+            title = video.get('title', 'بدون عنوان')
+            duration = video.get('duration', 0)
+
+            # الخطوة التانية: تحميل الفيديو من الرابط المباشر
+            ydl.download([video_url])
+
             files = []
             for f in os.listdir(out_dir):
                 if f.startswith(f'{prefix}{timestamp}'):
