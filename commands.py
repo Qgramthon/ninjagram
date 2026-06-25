@@ -369,8 +369,7 @@ async def run_animation(event, animation_name, duration=5):
 
 def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
     """
-    تحميل وسائط من يوتيوب
-    يستخدم ملف كوكيز مؤقت + User-Agent حقيقي
+    تحميل وسائط من يوتيوب - يبحث بدون كوكيز ويحمل بالكوكيز
     """
     if not YTDLP_AVAILABLE:
         raise ValueError("مكتبة yt-dlp غير مثبتة")
@@ -381,10 +380,55 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
     timestamp = int(time.time() * 1000)
     prefix = 'audio_' if audio_only else 'video_'
 
-    cookie_path = _get_cookie_file_path()
-
-    # User-Agent حقيقي من متصفح Chrome حديث
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+    # ====== الخطوة 1: البحث بدون كوكيز ======
+    search_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': True,
+        'nocheckcertificate': True,
+        'ignoreerrors': True,
+        'socket_timeout': 30,
+        'retries': 3,
+        'http_headers': {'User-Agent': user_agent},
+    }
+
+    video_url = None
+    title = "بدون عنوان"
+    duration = 0
+
+    try:
+        with yt_dlp.YoutubeDL(search_opts) as ydl:
+            info = ydl.extract_info(query, download=False)
+            if info and 'entries' in info and info['entries']:
+                entries = [e for e in info['entries'] if e is not None]
+                if not entries:
+                    raise ValueError("لم يتم العثور على نتائج")
+                video = entries[0]
+            elif info and 'id' in info:
+                video = info
+            else:
+                raise ValueError("لم يتم العثور على نتائج")
+
+            if video.get('webpage_url'):
+                video_url = video['webpage_url']
+            elif video.get('url'):
+                video_url = video['url']
+            elif video.get('id'):
+                video_url = f"https://www.youtube.com/watch?v={video['id']}"
+
+            if not video_url:
+                raise ValueError("لم يتم العثور على رابط الفيديو")
+
+            title = video.get('title') or video.get('fulltitle') or 'بدون عنوان'
+            duration = video.get('duration') or 0
+
+    except Exception as e:
+        raise ValueError(f"فشل البحث: {str(e)[:200]}")
+
+    # ====== الخطوة 2: تحميل بالكوكيز ======
+    cookie_path = _get_cookie_file_path()
 
     if audio_only:
         ydl_opts = {
@@ -430,34 +474,6 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
     downloaded_file = None
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(query, download=False)
-
-            if info and 'entries' in info and info['entries']:
-                entries = [e for e in info['entries'] if e is not None]
-                if not entries:
-                    raise ValueError("لم يتم العثور على نتائج")
-                video = entries[0]
-            elif info and 'id' in info:
-                video = info
-            else:
-                raise ValueError("لم يتم العثور على نتائج")
-
-            video_url = None
-            if video.get('webpage_url'):
-                video_url = video['webpage_url']
-            elif video.get('url'):
-                video_url = video['url']
-            elif video.get('original_url'):
-                video_url = video['original_url']
-            elif video.get('id'):
-                video_url = f"https://www.youtube.com/watch?v={video['id']}"
-
-            if not video_url:
-                raise ValueError("لم يتم العثور على رابط الفيديو")
-
-            title = video.get('title', 'بدون عنوان')
-            duration = video.get('duration', 0)
-
             ydl.download([video_url])
 
             files = []
