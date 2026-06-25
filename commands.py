@@ -78,39 +78,6 @@ watch_edits = {}
 
 BOLD = "**{}**"
 
-# ============== الكوكيز (ثابتة) ==============
-_COOKIES_TEXT = """# Netscape HTTP Cookie File
-# This is a generated file!  Do not edit.
-.youtube.com	TRUE	/	TRUE	1798761600	GPS	1
-.youtube.com	TRUE	/	TRUE	1798761600	VISITOR_PRIVACY_METADATA	CgJERRIEEgAgSQ%3D%3D
-.youtube.com	TRUE	/	TRUE	1798761600	PREF	f6=40000000&tz=Africa.Cairo
-.youtube.com	TRUE	/	TRUE	1798761600	__Secure-1PSIDTS	sidts-CjUByojQUx58ERvSDskWSihIxkWc2Q5-rTs-CVVAgIG1OG7ZeeC5L71HNU63M1x9ftH9i_Rt-RAA
-.youtube.com	TRUE	/	TRUE	1798761600	__Secure-3PSIDTS	sidts-CjUByojQUx58ERvSDskWSihIxkWc2Q5-rTs-CVVAgIG1OG7ZeeC5L71HNU63M1x9ftH9i_Rt-RAA
-.youtube.com	TRUE	/	TRUE	1798761600	HSID	A5D9LhXXu_4LzIw__
-.youtube.com	TRUE	/	TRUE	1798761600	SSID	AafW1KLt0V51k0CVP
-.youtube.com	TRUE	/	TRUE	1798761600	APISID	E7a4fljFYvBoLz7c/AG1z3-8QKvwCoHcOo
-.youtube.com	TRUE	/	TRUE	1798761600	SAPISID	Q4gM-6RWH58NbnQ_/AzZn1qKJn-AgVVjYB
-.youtube.com	TRUE	/	TRUE	1798761600	__Secure-1PAPISID	Q4gM-6RWH58NbnQ_/AzZn1qKJn-AgVVjYB
-.youtube.com	TRUE	/	TRUE	1798761600	__Secure-3PAPISID	Q4gM-6RWH58NbnQ_/AzZn1qKJn-AgVVjYB
-.youtube.com	TRUE	/	TRUE	1798761600	SID	g.a000_Qhz90DovCqzNrJ1Soq3jPMNKHeT2D7ShfKsQuCpjFwzmJcG5UbJsGxnxuPpxPDpNq6e0gACgYKAYMSARUSFQHGX2Mi7bcVBvpMJvV2h6e_cKJ_LhoVAUF8yKqmp3fmxC7M8Mx4_X6tu7Vw0076
-.youtube.com	TRUE	/	TRUE	1798761600	__Secure-1PSID	g.a000_Qhz90DovCqzNrJ1Soq3jPMNKHeT2D7ShfKsQuCpjFwzmJcGlo-E9cE6-UIPMnHaoYO7mgACgYKAcQSARUSFQHGX2MibIi_0Jo8oC22KeZkgq8mUhoVAUF8yKoLFNXzlWhq29Np3MdPs0420076
-.youtube.com	TRUE	/	TRUE	1798761600	__Secure-3PSID	g.a000_Qhz90DovCqzNrJ1Soq3jPMNKHeT2D7ShfKsQuCpjFwzmJcGB4p8fggE2G9on5Xa8unQMwACgYKAegSARUSFQHGX2MiPNNK5iTk-nCXwZ8CEvCPshoVAUF8yKrvYRK_NTykI7tjFG8wSh8N0076
-.youtube.com	TRUE	/	TRUE	1798761600	SIDCC	AKEyXzUuButFwyJ0yoJ_VyrICO6ofVO8aEcy8cqyiwuR2D58_G0XzDeqbjdp8cXaSAytoZQpOA
-.youtube.com	TRUE	/	TRUE	1798761600	__Secure-1PSIDCC	AKEyXzXlJhzWpZBBXr4pkEPQfjh6YHvY41Jdg1P48S1zuS6Qikb_5zIUn8A1Ta_M2kDVWVDCaw
-.youtube.com	TRUE	/	TRUE	1798761600	__Secure-3PSIDCC	AKEyXzW9I-cOewc9Nmu_htoCYUJ_UL4KvhYHoytrL-99PfFsvA53Zmm0Q5to43s9iaISQ7j9
-.youtube.com	TRUE	/	TRUE	1798761600	LOGIN_INFO	AFmmF2swRQIhAOGjg2ygcc3k2_zaEIn8BRv46I_ODh7CzKYL7p-ZvjVlAiAaE1KIGnSNW-LA9nOzCsQiy1VD-1bt0_17eH9roWSbCg:QUQ3MjNmeWxqek9hVEV4MERQckdMYzV4SGdJS0N5MGlEdGkxT1cwSDRLVndxZjA4ZmJrbkZRMWx2a2hLWlBsaVlkRzFlRW5id1FKT0tPZXR2NmFDQVlsU1lyME1QXzdvVU5pYmJrRk9WUHZ2TGpOenBTUko3Tzk2RHdDajJUcDJlWFRhX2s2U2NKckF4SklObnFVaWRPd29fNkxJZkdhZWtB
-.youtube.com	TRUE	/	TRUE	1798761600	__Secure-YENID	16.YTE=fQuBflwCHkUR2ow3sgJUe8StLoQ5rUZ3nVHo7cPcAw-UvqmAwvbi0HbcPVFfT6HMNJh97WqetzPSX9tIwB4XJvZk2fn-C0A1pnd6UFolFAbIAzhUBrnn1ssJCC_DzJjglmmRAV2fHylHaJBio-VcINekDe3Zy3P9jDBsRGvztLj_x3Y9FOdLiUdAi9Dm0dy0e1z4yypf3XVXBHZTzHph0FZCzyEVTSZsYO82b5_aMmbCklh9J7o4-EwkM_t4S7USLRCfksZxI2PFTDBJhe11kVuvi9Wvvn2sQ0Kv003wBp6KzeqlIsWj4gV43DBaajD1nF0KIDGlajlRrsCzJGNXMA
-.youtube.com	TRUE	/	TRUE	1798761600	YSC	oSk4tvkFU48
-.youtube.com	TRUE	/	TRUE	1798761600	__Secure-YEC	Cgtyc0pEd1NYbmhuNCj83vPRBjIKCgJERRIEEgAgSWLgAgrdAjE2LllURT1NSEhmLVdEQmZIN3RyNGJNMHU1dnIxdnZPYlVqY2RXX1hYYW9QTjUxeFJxWGViUjF3RnRWZC0tU1dvSmI3VGEtcWRENzBXRm9mZXY5WjFrM1d1QU90QkFlSWstVTluREhncE5aVmNpYjJMTTNoaktiUXZDTkxUb1lVTklCYlFRSW9yVjNvV1h5Z19GNHJYajlkN2RkQzJ0NWVYSU1KeVMwMzZlbVNUdXFrS0NwQXZSQjY3LXBDdTRxWXFHOTRmdndwdEQxZTdhdzdPUDJGR2g4d2t5THI5OWRCcl94VG1yc2tSamxEcFJhV0g4Y3c4bzlGbDFOS0Rzc1Y0OGUzWVBHQWxmclBsekFOdEszUVZKNS1yUTRacHhQSzZfdHFjbU9jMDhQS2hsN2pEOGlIY1J4NWhxUzBVR05qXzYxejN4OEl4bXlFVTFhU3JvaEd6OVFfQzgtMUE%3D
-"""
-
-def _get_cookie_file_path():
-    """ينشئ ملف كوكيز مؤقت ويعيد مساره"""
-    fd, path = tempfile.mkstemp(suffix='.txt', prefix='ytdl_cookies_')
-    with os.fdopen(fd, 'w', encoding='utf-8') as f:
-        f.write(_COOKIES_TEXT)
-    return path
-
 def get_free_space_mb():
     try:
         temp_dir = TEMP_DIR if TEMP_DIR and os.path.exists(TEMP_DIR) else '/'
@@ -370,6 +337,7 @@ async def run_animation(event, animation_name, duration=5):
 def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
     """
     تحميل وسائط من يوتيوب - يبحث بدون كوكيز ويحمل بالكوكيز
+    بعد التحميل يبحث عن الملف المحمل في المجلد كاملاً
     """
     if not YTDLP_AVAILABLE:
         raise ValueError("مكتبة yt-dlp غير مثبتة")
@@ -428,12 +396,31 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
         raise ValueError(f"فشل البحث: {str(e)[:200]}")
 
     # ====== الخطوة 2: تحميل بالكوكيز ======
-    cookie_path = _get_cookie_file_path()
+    # نجيب قائمة الملفات قبل التحميل
+    files_before = set()
+    if os.path.exists(out_dir):
+        for f in os.listdir(out_dir):
+            fp = os.path.join(out_dir, f)
+            if os.path.isfile(fp) and not f.startswith('.'):
+                files_before.add(fp)
+
+    cookie_path = None
+    try:
+        fd, cookie_path = tempfile.mkstemp(suffix='.txt', prefix='ytdl_cookies_')
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(_COOKIES_TEXT)
+    except:
+        if cookie_path:
+            try:
+                os.unlink(cookie_path)
+            except:
+                pass
+        raise ValueError("فشل إنشاء ملف الكوكيز")
 
     if audio_only:
         ydl_opts = {
             'format': 'bestaudio/best',
-            'outtmpl': os.path.join(out_dir, f'{prefix}{timestamp}.%(ext)s'),
+            'outtmpl': os.path.join(out_dir, f'%(title).100s_{timestamp}.%(ext)s'),
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -454,7 +441,7 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
     else:
         ydl_opts = {
             'format': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best',
-            'outtmpl': os.path.join(out_dir, f'{prefix}{timestamp}.%(ext)s'),
+            'outtmpl': os.path.join(out_dir, f'%(title).100s_{timestamp}.%(ext)s'),
             'quiet': True,
             'no_warnings': False,
             'max_filesize': 500 * 1024 * 1024,
@@ -476,37 +463,69 @@ def download_youtube_media(query: str, out_dir: str, audio_only: bool = False):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
 
-            files = []
+        # نجيب الملفات الجديدة بعد التحميل
+        files_after = set()
+        if os.path.exists(out_dir):
             for f in os.listdir(out_dir):
-                if f.startswith(f'{prefix}{timestamp}'):
-                    filepath = os.path.join(out_dir, f)
-                    if os.path.getsize(filepath) > 1024:
-                        files.append(filepath)
-            if not files:
-                all_files = [(f, os.path.getmtime(os.path.join(out_dir, f))) for f in os.listdir(out_dir) if f.startswith(prefix) and os.path.isfile(os.path.join(out_dir, f))]
-                if all_files:
-                    newest = max(all_files, key=lambda x: x[1])
-                    files = [os.path.join(out_dir, newest[0])]
-            if not files:
-                raise ValueError("لم يتم العثور على الملف المحمل")
-            downloaded_file = files[0]
-            file_size = os.path.getsize(downloaded_file)
-            return {
-                'title': title,
-                'duration': duration,
-                'duration_str': format_duration(duration),
-                'file_size': file_size,
-                'file_size_str': format_size(file_size),
-            }, downloaded_file
+                fp = os.path.join(out_dir, f)
+                if os.path.isfile(fp) and not f.startswith('.'):
+                    files_after.add(fp)
+
+        new_files = files_after - files_before
+
+        # لو مفيش ملفات جديدة، ناخد أحدث ملف في المجلد كله
+        if not new_files:
+            all_files = []
+            if os.path.exists(out_dir):
+                for f in os.listdir(out_dir):
+                    fp = os.path.join(out_dir, f)
+                    if os.path.isfile(fp) and not f.startswith('.'):
+                        all_files.append(fp)
+            if all_files:
+                newest = max(all_files, key=lambda x: os.path.getmtime(x))
+                new_files = {newest}
+
+        if not new_files:
+            raise ValueError("لم يتم العثور على الملف المحمل")
+
+        # ناخد أكبر ملف من الملفات الجديدة
+        downloaded_file = max(new_files, key=lambda x: os.path.getsize(x))
+        file_size = os.path.getsize(downloaded_file)
+
+        if file_size < 1024:
+            raise ValueError("الملف المحمل صغير جداً أو تالف")
+
+        # لو الملف مش بالامتداد الصح، نحوله
+        if audio_only:
+            ext = os.path.splitext(downloaded_file)[1].lower()
+            if ext not in ['.mp3', '.m4a', '.opus', '.ogg', '.wav']:
+                try:
+                    converted = os.path.join(out_dir, f"audio_conv_{timestamp}.mp3")
+                    subprocess.run([
+                        'ffmpeg', '-i', downloaded_file, '-vn', '-acodec', 'libmp3lame',
+                        '-ab', '192k', '-ar', '44100', '-y', converted
+                    ], capture_output=True, timeout=120)
+                    if os.path.exists(converted) and os.path.getsize(converted) > 1024:
+                        safe_remove(downloaded_file)
+                        downloaded_file = converted
+                        file_size = os.path.getsize(converted)
+                except:
+                    pass
+
+        return {
+            'title': title,
+            'duration': duration,
+            'duration_str': format_duration(duration),
+            'file_size': file_size,
+            'file_size_str': format_size(file_size),
+        }, downloaded_file
+
     except Exception as e:
         if downloaded_file:
             safe_remove(downloaded_file)
-        for f in os.listdir(out_dir):
-            if f.startswith(f'{prefix}{timestamp}'):
-                safe_remove(os.path.join(out_dir, f))
         raise ValueError(f"فشل التحميل: {str(e)[:200]}")
     finally:
-        if os.path.exists(cookie_path):
+        if cookie_path and os.path.exists(cookie_path):
             try:
                 os.unlink(cookie_path)
             except:
