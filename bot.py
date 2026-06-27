@@ -72,7 +72,7 @@ async def bot_start(event):
         [Button.url("بدء التنصيب", "https://t.me/nj_rm_bot?profile")]
     ]
     caption = (
-        "**• لبدء تنصيب تيليثون نينجاغࢪام 🜲**"
+        "**• إضغط بدء التنصيب ثم فتح التطبيق 🜲**"
     )
 
     if os.path.exists(START_IMAGE):
