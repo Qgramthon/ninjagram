@@ -71,8 +71,7 @@ async def bot_start(event):
     buttons = [
         [Button.url("بدء التنصيب", "https://t.me/nj_rm_bot?profile")]
     ]
-    caption = (
-    )
+    caption = "**🐙 Ninjathon UserBot**\n\n• لبدء التنصيب اضغط على الزر أدناه"
 
     if os.path.exists(START_IMAGE):
         await bot.send_file(event.chat_id, file=START_IMAGE, caption=caption, buttons=buttons, parse_mode='md')
@@ -267,7 +266,6 @@ async def dev_callback(event):
         await event.answer("قريباً", alert=True)
 
     await event.answer()
-
 
 @bot.on(events.NewMessage(func=lambda e: e.sender_id in pending_input and not e.text.startswith('/')))
 async def handle_pending_input(event):
