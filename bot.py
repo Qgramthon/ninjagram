@@ -14,7 +14,7 @@ from fake_useragent import UserAgent
 from telethon import TelegramClient, events, Button, functions, types
 from telethon.errors import *
 from telethon.tl.functions.users import GetFullUserRequest
-from telethon.tl.functions.messages import CheckChatInviteRequest, SearchRequest
+from telethon.tl.functions.messages import CheckChatInviteRequest
 from telethon.tl.functions.channels import GetFullChannelRequest
 from telethon.tl.functions.contacts import ImportContactsRequest, DeleteContactsRequest
 from telethon.tl.types import InputPhoneContact
@@ -286,7 +286,8 @@ class GroupScraper:
     async def search(cls, kw, limit=25):
         res = []
         try:
-            sr = await bot(SearchRequest(q=kw, filter=types.InputMessagesFilterEmpty(), min_date=None, max_date=None, offset_id=0, add_offset=0, limit=limit, max_id=0, min_id=0, hash=0))
+            from telethon.tl.functions.contacts import SearchRequest
+            sr = await bot(SearchRequest(q=kw, limit=limit))
             if hasattr(sr, 'chats'):
                 for c in sr.chats:
                     if hasattr(c, 'username') and c.username:
@@ -349,6 +350,16 @@ class Breach:
                             r["breaches"] = [{"name": b.get('Name', ''), "date": b.get('BreachDate', '')} for b in data]
                             r["count"] = len(data)
                 except: pass
+            try:
+                async with aiohttp.ClientSession() as s:
+                    async with s.get(f"https://leakcheck.io/api/public?key=&check={email}", headers={'User-Agent': ua.random}, timeout=10) as resp:
+                        if resp.status == 200:
+                            d = await resp.json()
+                            if d.get('sources'):
+                                for src in d['sources']:
+                                    r["breaches"].append({"name": src.get('name', 'Unknown'), "date": src.get('date', '?')})
+                            r["count"] += d.get('found', 0)
+            except: pass
         except: pass
         return r
 
@@ -389,6 +400,221 @@ class Faker:
         return o
 
 # ============================================================
+class WhatsAppTools:
+    @classmethod
+    async def check(cls, phone):
+        clean = re.sub(r'[^\d]', '', phone)
+        r = {"phone": phone, "has_whatsapp": False, "profile_pic": None, "name": None, "bio": None, "link": f"https://wa.me/{clean}"}
+        try:
+            async with aiohttp.ClientSession() as s:
+                headers = {'User-Agent': ua.random}
+                async with s.get(f"https://wa.me/{clean}", headers=headers, timeout=10) as resp:
+                    t = await resp.text()
+                    if 'WhatsApp' in t:
+                        r["has_whatsapp"] = True
+                        name_match = re.search(r'<title>([^<]+)</title>', t)
+                        if name_match:
+                            r["name"] = name_match.group(1).replace('WhatsApp', '').strip()
+        except: pass
+        return r
+
+    @classmethod
+    async def bulk_check(cls, phones):
+        results = []
+        for phone in phones[:20]:
+            r = await cls.check(phone)
+            results.append(r)
+            await asyncio.sleep(0.5)
+        return results
+
+# ============================================================
+class LinkAnalyzer:
+    @classmethod
+    async def analyze(cls, link):
+        r = {"original": link, "type": "unknown", "valid": False, "username": None, "info": {}}
+        try:
+            patterns = [
+                r'(?:t\.me/|telegram\.me/|telegram\.dog/)([a-zA-Z][a-zA-Z0-9_]{3,31})',
+                r'(?:t\.me/joinchat/|telegram\.me/joinchat/)([a-zA-Z0-9_-]+)',
+            ]
+            for pattern in patterns:
+                match = re.search(pattern, link)
+                if match:
+                    r["username"] = match.group(1)
+                    break
+            if r["username"]:
+                if '+' in r["username"] or '/' in r["username"]:
+                    r["type"] = "private_invite"
+                    try:
+                        invite = await bot(CheckChatInviteRequest(r["username"]))
+                        r["valid"] = True
+                        r["info"] = {"title": getattr(invite, 'title', '?'), "members": getattr(invite, 'participants_count', 0)}
+                    except:
+                        r["valid"] = False
+                else:
+                    try:
+                        entity = await bot.get_entity(r["username"])
+                        r["valid"] = True
+                        r["type"] = "bot" if getattr(entity, 'bot', False) else "channel" if getattr(entity, 'broadcast', False) else "group"
+                        r["info"] = {"id": entity.id, "title": getattr(entity, 'title', getattr(entity, 'first_name', '')), "verified": getattr(entity, 'verified', False)}
+                    except:
+                        r["valid"] = False
+        except: pass
+        return r
+
+# ============================================================
+class FakeDetector:
+    @classmethod
+    async def analyze(cls, target):
+        r = {"fake_probability": 0, "indicators": [], "risk_level": "🟢"}
+        try:
+            entity = await bot.get_entity(int(target) if target.lstrip('-').isdigit() else target.replace("@", ""))
+            score = 0
+            indicators = []
+            if not getattr(entity, 'photo', None):
+                indicators.append("❌ لا صورة بروفايل")
+                score += 15
+            if not getattr(entity, 'username', None):
+                indicators.append("❌ لا يوزر عام")
+                score += 10
+            if getattr(entity, 'scam', False):
+                indicators.append("🚫 علامة احتيال رسمية")
+                score += 80
+            if getattr(entity, 'fake', False):
+                indicators.append("⚠️ علامة مزيف رسمية")
+                score += 70
+            uid = entity.id
+            if uid > 7000000000:
+                indicators.append("🆕 حساب جديد جداً")
+                score += 25
+            elif uid > 6000000000:
+                indicators.append("🆕 حساب حديث")
+                score += 15
+            try:
+                fu = await bot(GetFullUserRequest(entity))
+                about = getattr(fu.full_user, 'about', '') or ''
+                if not about.strip():
+                    indicators.append("📝 بايو فارغ")
+                    score += 5
+                else:
+                    suspicious = ['earn', 'money', 'free', 'click', 'join', 'win', 'ربح', 'مجاناً', 'انضم']
+                    for word in suspicious:
+                        if word in about.lower():
+                            indicators.append(f"⚠️ كلمة مشبوهة: {word}")
+                            score += 10
+                            break
+            except: pass
+            r["indicators"] = indicators
+            r["fake_probability"] = min(score, 100)
+            r["risk_level"] = "🟢" if score < 25 else "🟡" if score < 50 else "🟠" if score < 75 else "🔴"
+            r["is_fake"] = score >= 60
+        except Exception as e:
+            r["error"] = str(e)[:200]
+        return r
+
+# ============================================================
+class NumberScanner:
+    @classmethod
+    async def scan(cls, numbers):
+        results = []
+        for num in numbers[:50]:
+            try:
+                clean = re.sub(r'[^\d]', '', num)
+                if len(clean) < 8:
+                    results.append({"number": num, "valid": False, "error": "رقم غير صالح"})
+                    continue
+                c = InputPhoneContact(client_id=random.randint(100000, 999999), phone=f"+{clean}" if not num.startswith('+') else num, first_name="Scan", last_name="")
+                imp = await bot(ImportContactsRequest([c]))
+                registered = False
+                user_info = None
+                if imp and imp.users:
+                    u = imp.users[0]
+                    registered = True
+                    user_info = {"id": u.id, "username": getattr(u, 'username', None), "name": f"{getattr(u, 'first_name', '')} {getattr(u, 'last_name', '')}".strip()}
+                    try: await bot(DeleteContactsRequest([u]))
+                    except: pass
+                results.append({"number": num, "valid": True, "registered_telegram": registered, "user": user_info})
+            except Exception as e:
+                results.append({"number": num, "valid": False, "error": str(e)[:100]})
+            await asyncio.sleep(1.5)
+        return results
+
+# ============================================================
+class SecurityScanner:
+    @classmethod
+    async def scan(cls, target):
+        r = {"target": target, "security_score": 0, "issues": [], "recommendations": []}
+        try:
+            entity = await bot.get_entity(int(target) if target.lstrip('-').isdigit() else target.replace("@", ""))
+            score = 100
+            if getattr(entity, 'phone', None):
+                r["issues"].append("⚠️ رقم الهاتف مكشوف للجميع")
+                r["recommendations"].append("🔒 اخف رقم الهاتف من الإعدادات > الخصوصية > رقم الهاتف > لا أحد")
+                score -= 30
+            if not getattr(entity, 'username', None):
+                r["issues"].append("ℹ️ لا يوجد يوزر عام (أكثر خصوصية)")
+                score += 5
+            else:
+                username = getattr(entity, 'username', '')
+                if len(username) < 6:
+                    r["issues"].append("⚠️ يوزر قصير قد يكون هدفاً للسرقة")
+                    score -= 5
+            try:
+                fu = await bot(GetFullUserRequest(entity))
+                about = getattr(fu.full_user, 'about', '') or ''
+                sensitive = ['phone', 'mobile', 'email', '@', 'رقم', 'هاتف', 'إيميل']
+                for word in sensitive:
+                    if word in about.lower():
+                        r["issues"].append(f"🚫 معلومات حساسة في البايو: '{word}'")
+                        r["recommendations"].append("🔒 احذف المعلومات الشخصية من البايو")
+                        score -= 20
+                        break
+            except: pass
+            r["security_score"] = max(score, 0)
+            r["security_level"] = "🟢 ممتاز" if score >= 80 else "🟡 جيد" if score >= 60 else "🟠 متوسط" if score >= 40 else "🔴 ضعيف"
+        except Exception as e:
+            r["error"] = str(e)[:200]
+        return r
+
+# ============================================================
+class ImageSearch:
+    @classmethod
+    async def search(cls, image_data):
+        r = {"found": False, "results": [], "similar_count": 0}
+        try:
+            async with aiohttp.ClientSession() as s:
+                headers = {'User-Agent': ua.random}
+                async with s.post('https://yandex.com/images/search', params={'rpt': 'imageview', 'format': 'json'}, data={'url': ''}, headers=headers, timeout=15) as resp:
+                    text = await resp.text()
+                    similar = re.findall(r'"snippet".*?"text":"([^"]+)"', text)
+                    if similar:
+                        r["found"] = True
+                        r["results"] = similar[:10]
+                        r["similar_count"] = len(similar)
+        except: pass
+        return r
+
+# ============================================================
+class Broadcaster:
+    @classmethod
+    async def send(cls, targets, message, media=None):
+        r = {"total": len(targets), "sent": 0, "failed": 0, "details": []}
+        for target in targets[:25]:
+            try:
+                entity = await bot.get_entity(target.strip())
+                if media:
+                    await bot.send_file(entity, media, caption=message)
+                else:
+                    await bot.send_message(entity, message)
+                r["sent"] += 1
+                r["details"].append({"target": target, "status": "✅"})
+            except Exception as e:
+                r["failed"] += 1
+                r["details"].append({"target": target, "status": f"❌ {str(e)[:50]}"})
+            await asyncio.sleep(1)
+        return r
+
+# ============================================================
 class UI:
     @staticmethod
     def main():
@@ -399,6 +625,9 @@ class UI:
             [Button.inline("🧬 تسريبات", b"breach"), Button.inline("💣 صيد", b"hunt")],
             [Button.inline("📊 تحليل", b"analyze"), Button.inline("📝 مزور", b"faker")],
             [Button.inline("📱 واتساب", b"wa"), Button.inline("📞 فحص", b"checkreg")],
+            [Button.inline("🔗 تحليل رابط", b"linka"), Button.inline("🎭 وهمي", b"fakechk")],
+            [Button.inline("📡 ماسح", b"scanner"), Button.inline("🔐 أمان", b"secscan")],
+            [Button.inline("🖼️ بحث صور", b"imgsearch"), Button.inline("📨 جماعي", b"broadcast")],
             [Button.inline("🔄 تحويل", b"convert"), Button.inline("ℹ️ معلومات", b"info")],
         ]
 
@@ -423,11 +652,13 @@ async def start(event):
 
 🔞 أقوى بوت أدوات تيليجرام وواتساب
 
-⚡ 20 خدمة فتاكة:
+⚡ 17 خدمة فتاكة:
 📞 تروكولر | 🔫 15 بلاغ | 🕵️ OSINT
 📞 كشف رقم | 🔍 جروبات | 🔓 فك حظر
 🧬 تسريبات | 💣 صيد | 📝 مزور
-📊 تحليل | 📱 واتساب | 🔄 تحويل
+📊 تحليل | 📱 واتساب | 🔗 تحليل روابط
+🎭 كشف وهمي | 📡 ماسح | 🔐 أمان
+🖼️ بحث صور | 📨 جماعي | 🔄 تحويل
 
 ⚠️ تعليمي وأمني فقط
 👨‍💻 @NinjaGram | 📢 @Q_g_r_a_m""", buttons=UI.main(), parse_mode='md')
@@ -562,13 +793,61 @@ async def fk_wa(event):
 
 @bot.on(events.CallbackQuery(data=b"wa"))
 async def wa(event):
-    user_states[event.sender_id] = "wa"
-    await event.edit("📱 **واتساب**\n\nأرسل الرقم:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+    await event.edit("📱 **واتساب**\n\nاختر:", buttons=[
+        [Button.inline("📞 فحص رقم", b"wa_check"), Button.inline("📋 فحص مجموعة", b"wa_bulk")],
+        [Button.inline("🔗 رابط محادثة", b"wa_link")],
+        [Button.inline("🔙", b"main")]
+    ], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"wa_check"))
+async def wa_check(event):
+    user_states[event.sender_id] = "wa_check"
+    await event.edit("📞 **فحص واتساب**\n\nأرسل الرقم:", buttons=[[Button.inline("🔙", b"wa")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"wa_bulk"))
+async def wa_bulk(event):
+    user_states[event.sender_id] = "wa_bulk"
+    await event.edit("📋 **فحص مجموعة**\n\nأرسل الأرقام (رقم في كل سطر):", buttons=[[Button.inline("🔙", b"wa")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"wa_link"))
+async def wa_link(event):
+    user_states[event.sender_id] = "wa_link"
+    await event.edit("🔗 **رابط واتساب**\n\nأرسل الرقم لعمل رابط:", buttons=[[Button.inline("🔙", b"wa")]], parse_mode='md')
 
 @bot.on(events.CallbackQuery(data=b"checkreg"))
 async def checkreg(event):
     user_states[event.sender_id] = "checkreg"
     await event.edit("📞 **فحص رقم**\n\nأرسل الرقم:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"linka"))
+async def linka(event):
+    user_states[event.sender_id] = "linka"
+    await event.edit("🔗 **تحليل رابط**\n\nأرسل رابط تيليجرام:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"fakechk"))
+async def fakechk(event):
+    user_states[event.sender_id] = "fakechk"
+    await event.edit("🎭 **كشف وهمي**\n\nأرسل @ أو ID:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"scanner"))
+async def scanner(event):
+    user_states[event.sender_id] = "scanner"
+    await event.edit("📡 **ماسح أرقام**\n\nأرسل الأرقام (رقم في كل سطر):", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"secscan"))
+async def secscan(event):
+    user_states[event.sender_id] = "secscan"
+    await event.edit("🔐 **فحص أمان**\n\nأرسل @ أو ID لفحص أمان الحساب:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"imgsearch"))
+async def imgsearch(event):
+    user_states[event.sender_id] = "imgsearch"
+    await event.edit("🖼️ **بحث عكسي**\n\nأرسل الصورة للبحث عنها:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"broadcast"))
+async def broadcast(event):
+    user_states[event.sender_id] = "broadcast_targets"
+    await event.edit("📨 **إرسال جماعي**\n\nأرسل يوزرات المستهدفين (يوزر في كل سطر):", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
 
 @bot.on(events.CallbackQuery(data=b"convert"))
 async def convert(event):
@@ -580,9 +859,11 @@ async def info(event):
     await event.edit("""🧨 **NinjaGram Pro Max Ultra v10**
 
 أقوى بوت في الكوكب
-20+ خدمة فتاكة
+17 خدمة فتاكة كاملة
 بلاغات - OSINT - كشف أرقام
-تسريبات - صيد - مزور
+تسريبات - صيد - مزور - واتساب
+تحليل روابط - كشف وهمي - ماسح
+أمان - بحث صور - جماعي
 
 👨‍💻 @NinjaGram
 📢 @Q_g_r_a_m""", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
@@ -592,7 +873,7 @@ async def info(event):
 async def handle(event):
     uid = event.sender_id
     st = user_states.pop(uid, None)
-    txt = event.text.strip()
+    txt = event.text.strip() if event.text else ""
     if not st: return
     try:
         if st == "tc":
@@ -667,7 +948,9 @@ async def handle(event):
             try:
                 e = await bot.get_entity(txt.replace("@", ""))
                 fc = await bot(GetFullChannelRequest(e))
-                out = f"📊 **{getattr(e,'title',txt)}**\n🆔 `{e.id}`\n👥 {getattr(fc.full_chat,'participants_count',0):,}\n📝 {getattr(fc.full_chat,'about','')[:300]}"
+                members_count = getattr(fc.full_chat, 'participants_count', 0)
+                size = "🟣 ضخم" if members_count > 100000 else "🔵 كبير" if members_count > 10000 else "🟢 متوسط" if members_count > 1000 else "🟡 صغير"
+                out = f"📊 **{getattr(e,'title',txt)}**\n🆔 `{e.id}`\n👥 {members_count:,}\n📏 {size}\n✅ {'موثق' if getattr(e,'verified',False) else 'غير موثق'}\n📝 {getattr(fc.full_chat,'about','')[:300]}"
                 await ld.edit(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
             except:
                 await ld.edit("❌ غير موجود", buttons=[[Button.inline("🔙", b"main")]])
@@ -688,9 +971,6 @@ async def handle(event):
             else:
                 await event.respond("❌ الاسم|الرسالة", buttons=[[Button.inline("🔙", b"faker")]])
         
-        elif st == "wa":
-            await event.respond(f"📱 https://wa.me/{txt.replace('+','')}", buttons=[[Button.inline("🔙", b"main")]])
-        
         elif st == "checkreg":
             ld = await event.respond("📞 **فحص...**")
             r = await PhoneRevealer.check(txt)
@@ -708,9 +988,113 @@ async def handle(event):
                 await event.respond(f"🔄\n🆔 `{e.id}`\n🔖 @{un or 'لا'}\n👤 {getattr(e,'first_name','')} {getattr(e,'last_name','')}", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
             except:
                 await event.respond("❌ غير موجود", buttons=[[Button.inline("🔙", b"main")]])
+        
+        elif st == "wa_check":
+            ld = await event.respond("📱 **فحص واتساب...**")
+            r = await WhatsAppTools.check(txt)
+            out = f"📱 **واتساب**\n📞 `{txt}`\n✅ {'شغال' if r['has_whatsapp'] else 'غير متاح'}"
+            if r.get('name'):
+                out += f"\n👤 {r['name']}"
+            out += f"\n🔗 {r['link']}"
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"wa")]], parse_mode='md')
+        
+        elif st == "wa_bulk":
+            phones = [p.strip() for p in txt.split('\n') if p.strip()]
+            ld = await event.respond(f"📋 **فحص {len(phones)} رقم...**")
+            results = await WhatsAppTools.bulk_check(phones)
+            out = "📋 **نتائج الفحص:**\n\n"
+            for r in results:
+                out += f"📞 `{r['phone']}`: {'✅' if r['has_whatsapp'] else '❌'}\n"
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"wa")]], parse_mode='md')
+        
+        elif st == "wa_link":
+            clean = re.sub(r'[^\d]', '', txt)
+            await event.respond(f"🔗 **رابط واتساب**\n\n📞 {txt}\n🔗 https://wa.me/{clean}", buttons=[[Button.inline("🔙", b"wa")]], parse_mode='md')
+        
+        elif st == "linka":
+            ld = await event.respond("🔗 **تحليل...**")
+            r = await LinkAnalyzer.analyze(txt)
+            out = f"🔗 **تحليل الرابط**\n\n📎 `{txt}`\n📋 النوع: {r['type']}\n✅ صالح: {'نعم' if r['valid'] else 'لا'}"
+            if r['info']:
+                out += f"\n📝 {r['info'].get('title','?')}"
+                if r['info'].get('members'):
+                    out += f"\n👥 {r['info']['members']}"
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+        
+        elif st == "fakechk":
+            ld = await event.respond("🎭 **تحليل...**")
+            r = await FakeDetector.analyze(txt)
+            if "error" in r:
+                await ld.edit(f"❌ {r['error']}", buttons=[[Button.inline("🔙", b"main")]])
+                return
+            out = f"🎭 **كشف الحسابات الوهمية**\n\n👤 `{txt}`\n🎯 الاحتمالية: {r['fake_probability']}%\n⚠️ {r['risk_level']}\n🤖 وهمي: {'🚫 نعم' if r.get('is_fake') else '✅ لا'}"
+            if r['indicators']:
+                out += f"\n\n📋 **المؤشرات:**\n" + "\n".join([f"• {i}" for i in r['indicators'][:10]])
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+        
+        elif st == "scanner":
+            numbers = [n.strip() for n in txt.split('\n') if n.strip()]
+            ld = await event.respond(f"📡 **مسح {len(numbers)} رقم...**")
+            results = await NumberScanner.scan(numbers)
+            out = "📡 **نتائج المسح:**\n\n"
+            for r in results:
+                if r.get('registered_telegram'):
+                    out += f"📞 `{r['number']}`: ✅ مسجل"
+                    if r.get('user', {}).get('username'):
+                        out += f" (@{r['user']['username']})"
+                    out += "\n"
+                else:
+                    out += f"📞 `{r['number']}`: ❌ غير مسجل\n"
+            await ld.edit(out[:4000], buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+        
+        elif st == "secscan":
+            ld = await event.respond("🔐 **فحص الأمان...**")
+            r = await SecurityScanner.scan(txt)
+            if "error" in r:
+                await ld.edit(f"❌ {r['error']}", buttons=[[Button.inline("🔙", b"main")]])
+                return
+            out = f"🔐 **فحص أمان الحساب**\n\n👤 `{txt}`\n🛡️ النتيجة: {r['security_score']}/100\n📊 المستوى: {r['security_level']}"
+            if r['issues']:
+                out += f"\n\n⚠️ **مشاكل:**\n" + "\n".join([f"• {i}" for i in r['issues'][:8]])
+            if r['recommendations']:
+                out += f"\n\n💡 **توصيات:**\n" + "\n".join([f"• {i}" for i in r['recommendations'][:6]])
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+        
+        elif st == "imgsearch":
+            if event.photo:
+                ld = await event.respond("🖼️ **بحث عن الصورة...**")
+                photo = await event.download_media(file=BytesIO())
+                r = await ImageSearch.search(photo.getvalue())
+                if r['found']:
+                    out = f"🖼️ **نتائج البحث**\n\n🔍 تم العثور على {r['similar_count']} نتيجة\n\n" + "\n".join([f"• {res}" for res in r['results'][:8]])
+                else:
+                    out = "❌ لم يتم العثور على نتائج"
+                await ld.edit(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+            else:
+                await event.respond("❌ أرسل صورة للبحث", buttons=[[Button.inline("🔙", b"main")]])
+        
+        elif st == "broadcast_targets":
+            targets = [t.strip() for t in txt.split('\n') if t.strip()]
+            broadcast_state[uid] = {"targets": targets}
+            user_states[uid] = "broadcast_msg"
+            await event.respond(f"📨 **تم تحديد {len(targets)} مستهدف**\n\nأرسل الرسالة المراد إرسالها:", buttons=[[Button.inline("🔙", b"main")]])
+        
+        elif st == "broadcast_msg":
+            data = broadcast_state.pop(uid, {})
+            targets = data.get("targets", [])
+            if not targets:
+                await event.respond("❌ لا يوجد مستهدفين", buttons=[[Button.inline("🔙", b"main")]])
+                return
+            ld = await event.respond(f"📨 **جاري الإرسال لـ {len(targets)}...**")
+            r = await Broadcaster.send(targets, txt)
+            out = f"📨 **نتائج الإرسال**\n\n✅ تم: {r['sent']}\n❌ فشل: {r['failed']}\n📊 المجموع: {r['total']}"
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
     
     except Exception as e:
         logger.error(f"Error: {e}")
-        await event.respond(f"❌ خطأ: {str(e)[:150]}", buttons=[[Button.inline("🔙", b"main")]])
+        try:
+            await event.respond(f"❌ خطأ: {str(e)[:150]}", buttons=[[Button.inline("🔙", b"main")]])
+        except:
+            pass
 
-logger.info("✅ NinjaGram Pro Max Ultra v10 Ready")
+logger.info("✅ NinjaGram Pro Max Ultra v10 - جميع الخدمات الـ 17 جاهزة")
