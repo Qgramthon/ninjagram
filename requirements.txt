@@ -13,3 +13,4 @@ aiofiles
 httpx[http2]
 pytube
 duckduckgo_search
+python-telegram-bot==20.7
