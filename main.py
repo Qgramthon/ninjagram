@@ -1479,6 +1479,22 @@ async def message_handler(event):
         logger.error(f"Handler error: {e}")
         await event.respond(f"❌ خطأ: {str(e)[:150]}", buttons=[[Button.inline("🔙", b"main")]])
 
+# ==================== WEB SERVER FOR HOSTING ====================
+from aiohttp import web
+
+async def handle(request):
+    return web.Response(text="NinjaGram Bot is Running! ✅")
+
+app = web.Application()
+app.router.add_get('/', handle)
+
+async def run_web():
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8080)
+    await site.start()
+    print("🌐 Web server started on port 8080")
+
 # ==================== RUN ====================
 if __name__ == '__main__':
     print("""
@@ -1492,5 +1508,11 @@ if __name__ == '__main__':
         await bot.start(bot_token=BOT_TOKEN)
         me = await bot.get_me()
         print(f"✅ Bot Online: @{me.username}")
-        await bot.run_until_disconnected()
+        
+        # تشغيل السيرفر والبوت معاً
+        await asyncio.gather(
+            run_web(),
+            bot.run_until_disconnected()
+        )
+    
     asyncio.run(main())
