@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# 🧨 NinjaGram Pro Max Ultra v10 - All In One
-import asyncio, uuid, os, re, random, time, io, textwrap, logging, json
+# 🧨 NinjaGram Pro Max Ultra v10 - All In One (Railway Fixed)
+import asyncio, uuid, os, re, random, time, io, textwrap, logging, json, threading
 from datetime import datetime, timedelta
 from urllib.parse import quote
 from typing import Dict, List, Optional
@@ -19,6 +19,7 @@ from telethon.tl.functions.channels import GetFullChannelRequest, JoinChannelReq
 from telethon.tl.functions.contacts import ImportContactsRequest, DeleteContactsRequest, ResolveUsernameRequest
 from telethon.tl.types import InputPhoneContact, InputPeerUser, InputPeerChannel
 from telethon.tl.functions.account import UpdateProfileRequest
+from aiohttp import web
 
 # ==================== CONFIG ====================
 DATA_DIR = './data'
@@ -27,6 +28,7 @@ BOT_TOKEN = '7998616214:AAFGroKKmwnrOtyAeJIHmrs_bKW5jXl0B20'
 API_ID = 2040
 API_HASH = 'b18441a1ff607e10a989891a5462e627'
 DEV_ID = 6443238809
+PORT = int(os.environ.get('PORT', 8080))
 
 user_states = {}
 pending_data = {}
@@ -618,9 +620,10 @@ class UsernameHunter:
     @classmethod
     async def hunt_fast(cls, limit: int = 300) -> List[str]:
         pool = set(); chars = "abcdefghijklmnopqrstuvwxyz"; digits = "0123456789"
+        lucky = ["111","222","333","444","555","666","777","888","999","69","007","420","000","123","321","100","200","300","400","500"]
         for _ in range(limit):
             c1, c2 = random.choice(chars), random.choice(chars)
-            pool.update([f"{c1}{c2}{random.choice(digits)}{random.choice(digits)}", f"{c1}{random.choice('aeiou')}{c2}{random.choice(digits)}", f"{c1}{c2}{random.choice(lucky) if 'lucky' in dir() else random.choice(digits)}{random.choice(digits)}{random.choice(digits)}"])
+            pool.update([f"{c1}{c2}{random.choice(digits)}{random.choice(digits)}", f"{c1}{random.choice('aeiou')}{c2}{random.choice(digits)}", f"{c1}{c2}{random.choice(lucky)}{random.choice(digits)}{random.choice(digits)}"])
         pool = {u for u in pool if 4 <= len(u) <= 12}; found = []
         async with aiohttp.ClientSession() as s:
             sem = asyncio.Semaphore(40)
@@ -1479,23 +1482,7 @@ async def message_handler(event):
         logger.error(f"Handler error: {e}")
         await event.respond(f"❌ خطأ: {str(e)[:150]}", buttons=[[Button.inline("🔙", b"main")]])
 
-# ==================== WEB SERVER FOR HOSTING ====================
-from aiohttp import web
-
-async def handle(request):
-    return web.Response(text="NinjaGram Bot is Running! ✅")
-
-app = web.Application()
-app.router.add_get('/', handle)
-
-async def run_web():
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 8080)
-    await site.start()
-    print("🌐 Web server started on port 8080")
-
-# ==================== RUN ====================
+# ==================== RUN (RAILWAY FIXED) ====================
 if __name__ == '__main__':
     print("""
 ╔══════════════════════════════════════╗
@@ -1504,15 +1491,30 @@ if __name__ == '__main__':
 ║   @NinjaGram | @Q_g_r_a_m         ║
 ╚══════════════════════════════════════╝
     """)
-    async def main():
-        await bot.start(bot_token=BOT_TOKEN)
-        me = await bot.get_me()
-        print(f"✅ Bot Online: @{me.username}")
-        
-        # تشغيل السيرفر والبوت معاً
-        await asyncio.gather(
-            run_web(),
-            bot.run_until_disconnected()
-        )
     
-    asyncio.run(main())
+    async def main():
+        try:
+            await bot.start(bot_token=BOT_TOKEN)
+            me = await bot.get_me()
+            print(f"✅ Bot Online: @{me.username}")
+            print(f"🌐 Web Server on port {PORT}")
+            print("🚀 NinjaGram is running on Railway...")
+            await bot.run_until_disconnected()
+        except Exception as e:
+            print(f"❌ Fatal Error: {e}")
+    
+    # تشغيل السيرفر في Thread منفصل
+    def run_web():
+        app_web = web.Application()
+        app_web.router.add_get('/', lambda r: web.Response(text="✅ NinjaGram Bot is Running!\n@NinjaGram | @Q_g_r_a_m"))
+        web.run_app(app_web, host='0.0.0.0', port=PORT)
+    
+    threading.Thread(target=run_web, daemon=True).start()
+    
+    # تشغيل البوت
+    try:
+        asyncio.run(main())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(main())
