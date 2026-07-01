@@ -1,1166 +1,1086 @@
-# Ultimate NinjaGram Pro Max Ultra Bot
-import asyncio, uuid, os, re, random, string, aiohttp, json, time, sys
-from datetime import datetime
-from urllib.parse import quote, urlencode
+#!/usr/bin/env python3
+# 🧨 NinjaGram Pro Max Ultra v10 - All In One
+import asyncio, uuid, os, re, random, time, io, textwrap, logging, json
+from datetime import datetime, timedelta
+from urllib.parse import quote
+from typing import Dict, List, Optional
+from collections import deque, defaultdict
+from io import BytesIO
+import aiohttp
+from PIL import Image, ImageDraw
+import phonenumbers
+from phonenumbers import geocoder, carrier, timezone as pn_timezone
+from fake_useragent import UserAgent
 from telethon import TelegramClient, events, Button, functions, types
 from telethon.errors import *
-from telethon.tl.functions.channels import InviteToChannelRequest, JoinChannelRequest
-from telethon.tl.functions.messages import ImportChatInviteRequest
-from collections import Counter, defaultdict, deque
-import hashlib, base64, struct
-from typing import Optional, Dict, List, Set, Tuple, Any
-from dataclasses import dataclass, field
-import logging
-from concurrent.futures import ThreadPoolExecutor
+from telethon.tl.functions.users import GetFullUserRequest
+from telethon.tl.functions.messages import SearchRequest, CheckChatInviteRequest
+from telethon.tl.functions.channels import GetFullChannelRequest, JoinChannelRequest
+from telethon.tl.functions.contacts import ImportContactsRequest, DeleteContactsRequest, ResolveUsernameRequest
+from telethon.tl.types import InputPhoneContact, InputPeerUser, InputPeerChannel
+from telethon.tl.functions.account import UpdateProfileRequest
 
-# ============================================
-# استيراد الإعدادات من ملف الشيرد
-# ============================================
-# تحميل متغيرات البيئة من الشيرد
-DATA_DIR = '/data' if os.path.exists('/data') else '.'
+# ==================== CONFIG ====================
+DATA_DIR = './data'
 os.makedirs(DATA_DIR, exist_ok=True)
-
-# استيراد المتغيرات من الشيرد مباشرة
 BOT_TOKEN = '7998616214:AAFGroKKmwnrOtyAeJIHmrs_bKW5jXl0B20'
-BOT_API_ID = 2040
-BOT_API_HASH = 'b18441a1ff607e10a989891a5462e627'
-DEV_USER_ID = 6443238809
+API_ID = 2040
+API_HASH = 'b18441a1ff607e10a989891a5462e627'
+DEV_ID = 6443238809
 
-# ============================================
-# تهيئة متقدمة
-# ============================================
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+user_states = {}
+pending_data = {}
+rate_limiter = defaultdict(lambda: deque(maxlen=10))
+cache = {}
+CACHE_TTL = 300
 
-bot = TelegramClient(f'bot_session_{uuid.uuid4().hex[:6]}', BOT_API_ID, BOT_API_HASH)
-START_IMAGE = "start.jpg"
-allowed_chats: Set[int] = set()
-user_states: Dict[int, str] = {}
-pending_data: Dict[int, Dict] = {}
-rate_limiter: Dict[int, deque] = defaultdict(lambda: deque(maxlen=10))
-CACHE_TTL = 300  # 5 دقائق
-username_cache: Dict[str, Tuple[float, Optional[str]]] = {}
-thread_pool = ThreadPoolExecutor(max_workers=20)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+logger = logging.getLogger('NinjaGram')
 
-# ============================================
-# دالة التحقق من المطور (متوافقة مع الشيرد)
-# ============================================
-def is_dev(user_id: int) -> bool:
-    """التحقق من صلاحيات المطور"""
-    return user_id == DEV_USER_ID
+bot = TelegramClient(f'{DATA_DIR}/session', API_ID, API_HASH)
+ua = UserAgent()
 
-# ============================================
-# دالة لوحة تحكم المطور
-# ============================================
-def dev_panel_markup():
-    """أزرار لوحة تحكم المطور"""
-    return [
-        [Button.inline("📊 إحصائيات البوت", b"bot_stats"),
-         Button.inline("👥 المستخدمين", b"bot_users")],
-        [Button.inline("📢 إرسال رسالة للكل", b"broadcast_start"),
-         Button.inline("⚙️ إعدادات متقدمة", b"advanced_settings")],
-        [Button.inline("🔙 القائمة الرئيسية", b"back_main")],
-    ]
+# ==================== SECURITY SYSTEM ====================
+class Security:
+    @staticmethod
+    def rate(uid, action, mx=10):
+        now = time.time(); k = f"{uid}:{action}"
+        if k not in rate_limiter: rate_limiter[k] = deque(maxlen=mx)
+        r = rate_limiter[k]
+        while r and r[0] < now - 60: r.popleft()
+        if len(r) >= mx: return False
+        r.append(now); return True
 
-# ============================================
-# هيكل البيانات المتقدم
-# ============================================
-@dataclass
-class HuntConfig:
-    platforms: List[str] = field(default_factory=lambda: ["tg", "ig", "tk", "fb", "gh", "x"])
-    min_length: int = 3
-    max_length: int = 15
-    count: int = 500
-    use_ai: bool = True
-    semantic_check: bool = True
-    parallel_checks: int = 50
+    @staticmethod
+    def valid_un(u): return bool(re.match(r'^[a-zA-Z][a-zA-Z0-9_]{3,31}$', u))
 
-@dataclass
-class UsernameResult:
-    username: str
-    platform: str
-    available: bool
-    quality_score: float = 0.0
-    length: int = 0
-    pattern: str = ""
-    timestamp: float = field(default_factory=time.time)
+    @staticmethod
+    def valid_ph(p):
+        try: return phonenumbers.is_valid_number(phonenumbers.parse(p))
+        except: return bool(re.match(r'^\+?[1-9]\d{7,14}$', p.replace(" ", "")))
 
-# ============================================
-# نظام توليد يوزرات ذكي متعدد الاستراتيجيات
-# ============================================
-class SmartUsernameGenerator:
-    """مولد يوزرات ذكي يستخدم 15 استراتيجية مختلفة"""
-    
-    VOWELS = "AEIOU"
-    CONSONANTS = "BCDFGHJKLMNPQRSTVWXYZ"
-    NUMBERS = "0123456789"
-    LUCKY = ["777", "888", "999", "111", "333", "555", "666", "222", "444"]
-    
-    PREMIUM_WORDS = [
-        "KING", "QUEEN", "BOSS", "GOD", "LEO", "ACE", "PRO", "VIP", "ELITE",
-        "GOLD", "ICE", "FIRE", "WOLF", "LION", "BEAR", "HAWK", "STAR", "MOON",
-        "NOVA", "ZEN", "LEGEND", "MYTH", "ICON", "TITAN", "GHOST", "DEMON",
-        "ANGEL", "NINJA", "SAMURAI", "PHANTOM", "SHADOW", "STORM", "THUNDER"
+    @staticmethod
+    def is_dev(uid): return uid == DEV_ID
+
+# ==================== 1. TRUECALLER SYSTEM ====================
+class Truecaller:
+    SEARCH_URLS = [
+        "https://www.google.com/search?q={}",
+        "https://duckduckgo.com/?q={}",
+        "https://search.yahoo.com/search?p={}",
+        "https://www.bing.com/search?q={}",
     ]
     
-    TRENDING_PREFIXES = ["x", "z", "v", "q", "nft", "web3", "ai", "defi", "dao", "meta"]
-    TRENDING_SUFFIXES = ["eth", "sol", "btc", "nft", "dao", "ai", "xyz", "io", "gg", "wtf"]
-    
+    SPAM_DB = [
+        "https://www.unknownphone.com/phone/{}",
+        "https://spamcalls.net/en/number/{}",
+        "https://www.shouldianswer.com/phone-number/{}",
+    ]
+
+    SPAM_KW = ['spam', 'scam', 'fraud', 'scammer', 'dangerous', 'warning',
+               'harassment', 'telemarketer', 'robocall', 'phishing',
+               'احتيال', 'مزعج', 'نصب', 'محتال', 'سبام', 'خطر', 'تحذير']
+
+    SOCIAL = ['facebook.com', 'instagram.com', 'twitter.com', 'x.com',
+              'telegram.me', 't.me', 'wa.me', 'whatsapp.com', 'linkedin.com',
+              'snapchat.com', 'tiktok.com', 'youtube.com', 'github.com',
+              'reddit.com', 'pinterest.com', 'vk.com', 'discord.com']
+
     @classmethod
-    def generate_pool(cls, count: int = 500, platform: str = "tg") -> List[str]:
-        """توليد مجموعة يوزرات باستخدام كل الاستراتيجيات"""
-        strategies = [
-            cls._pattern_based, cls._vowel_consonant, cls._lucky_numbers,
-            cls._premium_words, cls._trending_crypto, cls._minimalist,
-            cls._double_letters, cls._palindrome, cls._numeric_rare,
-            cls._word_combination, cls._leet_speak, cls._brandable,
-            cls._aesthetic, cls._emoji_inspired, cls._short_premium
-        ]
+    async def lookup(cls, phone: str) -> Dict:
+        r = {"phone": phone, "valid": False, "carrier": "?", "country": "?", 
+             "location": "?", "timezone": [], "line_type": "?", "social": [], 
+             "spam_reports": 0, "spam_score": 0, "risk_score": 0, "risk_level": "?"}
+        try:
+            p = phonenumbers.parse(phone)
+            r["valid"] = phonenumbers.is_valid_number(p)
+            r["possible"] = phonenumbers.is_possible_number(p)
+            r["carrier"] = carrier.name_for_number(p, "en") or "?"
+            r["country"] = geocoder.description_for_number(p, "en") or "?"
+            r["location"] = geocoder.description_for_number(p, "ar") or "?"
+            r["timezone"] = list(pn_timezone.time_zones_for_number(p))
+            r["line_type"] = str(phonenumbers.number_type(p)).split("_")[-1]
+            r["national_format"] = phonenumbers.format_number(p, phonenumbers.PhoneNumberFormat.NATIONAL)
+            r["international_format"] = phonenumbers.format_number(p, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
+        except: pass
         
-        pool = set()
-        weights = [3, 3, 2, 4, 3, 2, 2, 1, 2, 3, 1, 3, 2, 1, 5]
-        
-        for strategy, weight in zip(strategies, weights):
-            try:
-                results = strategy(count // len(strategies) * weight)
-                pool.update(results)
-            except Exception as e:
-                logger.error(f"Strategy error: {e}")
-        
-        pool = {u for u in pool if 3 <= len(u) <= 15}
-        return sorted(list(pool), key=lambda x: cls._quality_score(x), reverse=True)[:count]
-    
-    @classmethod
-    def _quality_score(cls, username: str) -> float:
-        """تقييم جودة اليوزر"""
-        score = 0.0
-        length = len(username)
-        
-        if 4 <= length <= 8:
-            score += 3
-        elif length <= 12:
-            score += 1
-        
-        if any(num in username for num in cls.LUCKY[:5]):
-            score += 2
-        
-        if re.search(r'(.)\1', username):
-            score += 1.5
-        
-        letters = sum(c.isalpha() for c in username)
-        digits = sum(c.isdigit() for c in username)
-        if letters > 0 and digits > 0:
-            ratio = letters / max(digits, 1)
-            if 1 <= ratio <= 4:
-                score += 2
-        
-        for word in cls.PREMIUM_WORDS:
-            if word in username.upper():
-                score += 5
-                break
-        
-        return score
-    
-    @classmethod
-    def _pattern_based(cls, count: int) -> Set[str]:
-        patterns = set()
-        vowels, consonants = cls.VOWELS, cls.CONSONANTS
-        nums = cls.NUMBERS
-        
-        for _ in range(count):
-            c1, c2 = random.choice(consonants), random.choice(consonants)
-            v1, v2 = random.choice(vowels), random.choice(vowels)
-            n1, n2 = random.choice("1379"), random.choice("02468")
+        clean = re.sub(r'[^\d]', '', phone)
+        async with aiohttp.ClientSession() as s:
+            tasks = [cls._fetch(s, u.format(clean)) for u in cls.SEARCH_URLS]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for text in results:
+                if isinstance(text, str):
+                    for kw in cls.SPAM_KW:
+                        if kw in text.lower(): r["spam_reports"] += 1
+                    for plat in cls.SOCIAL:
+                        if plat in text.lower() and plat.split('.')[0] not in r["social"]:
+                            r["social"].append(plat.split('.')[0])
             
-            patterns.update([
-                f"{c1}{v1}{c2}", f"{v1}{c1}{v2}",
-                f"{c1}{n1}{c2}", f"{n1}{c1}{n2}",
-                f"{c1}{v1}{n1}", f"{n1}{v1}{c1}",
-                f"{c1}{c2}{n1}{n2}", f"{n1}{n2}{c1}{c2}",
-                f"{v1}{c1}{n1}{n2}", f"{c1}{v1}{c2}{n1}"
-            ])
-        return patterns
-    
-    @classmethod
-    def _vowel_consonant(cls, count: int) -> Set[str]:
-        patterns = set()
-        for _ in range(count):
-            c = random.choice(cls.CONSONANTS)
-            v = random.choice(cls.VOWELS)
-            d = random.choice("1379")
-            patterns.update([f"{c}{v}{d}", f"{d}{c}{v}", f"{c}{d}{v}", f"{v}{d}{c}"])
-        return patterns
-    
-    @classmethod
-    def _lucky_numbers(cls, count: int) -> Set[str]:
-        patterns = set()
-        for _ in range(count):
-            lucky = random.choice(cls.LUCKY)
-            letter = random.choice(cls.CONSONANTS + cls.VOWELS)
-            patterns.update([f"{lucky}{letter}", f"{letter}{lucky}", f"{lucky}{letter}{letter}"])
-        return patterns
-    
-    @classmethod
-    def _premium_words(cls, count: int) -> Set[str]:
-        patterns = set()
-        for _ in range(count):
-            word = random.choice(cls.PREMIUM_WORDS)
-            suffix = random.choice([random.choice(cls.NUMBERS), random.choice(cls.CONSONANTS), ""])
-            prefix = random.choice([random.choice(cls.CONSONANTS), ""])
-            patterns.update([f"{word}{suffix}", f"{prefix}{word}", f"{word}{random.choice(cls.LUCKY)}"])
-        return patterns
-    
-    @classmethod
-    def _trending_crypto(cls, count: int) -> Set[str]:
-        patterns = set()
-        for _ in range(count):
-            pref = random.choice(cls.TRENDING_PREFIXES)
-            suff = random.choice(cls.TRENDING_SUFFIXES)
-            num = random.choice("1379")
-            patterns.update([f"{pref}{suff}", f"{pref}{num}{suff}", f"{pref}_{suff}"])
-        return patterns
-    
-    @classmethod
-    def _minimalist(cls, count: int) -> Set[str]:
-        patterns = set()
-        chars = cls.CONSONANTS + cls.VOWELS
-        for _ in range(count):
-            patterns.update([f"{random.choice(chars)}{random.choice(chars)}",
-                           f"{random.choice(chars)}{random.choice(chars)}{random.choice(chars)}"])
-        return patterns
-    
-    @classmethod
-    def _double_letters(cls, count: int) -> Set[str]:
-        patterns = set()
-        for _ in range(count):
-            c = random.choice(cls.CONSONANTS + cls.VOWELS)
-            v = random.choice(cls.VOWELS)
-            patterns.update([f"{c}{c}{v}", f"{v}{c}{c}", f"{c}{c}{c}", f"{c}{c}{random.choice(cls.LUCKY)}"])
-        return patterns
-    
-    @classmethod
-    def _palindrome(cls, count: int) -> Set[str]:
-        patterns = set()
-        for _ in range(count):
-            c1, c2 = random.choice(cls.CONSONANTS), random.choice(cls.CONSONANTS)
-            v = random.choice(cls.VOWELS)
-            patterns.update([f"{c1}{v}{c1}", f"{c1}{c2}{c2}{c1}", f"{c1}{c2}{v}{c2}{c1}"])
-        return patterns
-    
-    @classmethod
-    def _numeric_rare(cls, count: int) -> Set[str]:
-        patterns = set()
-        for _ in range(count):
-            chars = random.choices(cls.CONSONANTS + cls.VOWELS, k=2)
-            rare = random.choice(["69", "420", "007", "911", "1337", "404", "101"])
-            patterns.update([f"{chars[0]}{rare}", f"{rare}{chars[0]}", f"{chars[0]}{chars[1]}{rare}"])
-        return patterns
-    
-    @classmethod
-    def _word_combination(cls, count: int) -> Set[str]:
-        patterns = set()
-        pairs = [("ICE", "FIRE"), ("MOON", "STAR"), ("WOLF", "HAWK"), ("ZEN", "NOVA"),
-                 ("GOLD", "ACE"), ("NIGHT", "DAY"), ("DARK", "LIGHT"), ("BLACK", "WHITE")]
-        for _ in range(count):
-            w1, w2 = random.choice(pairs)
-            patterns.update([f"{w1}{w2}", f"{w1}_{w2}", f"{w1}{random.choice(cls.LUCKY)}"])
-        return patterns
-    
-    @classmethod
-    def _leet_speak(cls, count: int) -> Set[str]:
-        leet_map = {'A': '4', 'E': '3', 'I': '1', 'O': '0', 'S': '5', 'T': '7'}
-        patterns = set()
-        for _ in range(count):
-            word = random.choice(cls.PREMIUM_WORDS)
-            leet = ''.join(leet_map.get(c, c) for c in word)
-            if leet != word:
-                patterns.add(leet)
-        return patterns
-    
-    @classmethod
-    def _brandable(cls, count: int) -> Set[str]:
-        patterns = set()
-        syllables = ["ly", "fy", "io", "ia", "eo", "ux", "ix", "ox", "ex", "um", "on", "is"]
-        for _ in range(count):
-            s1, s2 = random.sample(syllables, 2)
-            patterns.update([f"{s1}{s2}", f"{s1}{s2}{random.choice('1379')}"])
-        return patterns
-    
-    @classmethod
-    def _aesthetic(cls, count: int) -> Set[str]:
-        patterns = set()
-        aesthetic_chars = "xzvq"
-        for _ in range(count):
-            c = random.choice(aesthetic_chars)
-            v = random.choice(cls.VOWELS)
-            patterns.update([f"{c}{v}{c}", f"{c}{c}{v}", f"{v}{c}{c}", f"{c}{random.choice(cls.LUCKY)}"])
-        return patterns
-    
-    @classmethod
-    def _emoji_inspired(cls, count: int) -> Set[str]:
-        emoji_words = ["fire", "ice", "star", "moon", "crown", "gem", "bolt", "wave", 
-                       "flame", "crystal", "diamond", "spark", "glow", "shine", "flash"]
-        patterns = set()
-        for _ in range(count):
-            word = random.choice(emoji_words)
-            num = random.choice("1379")
-            patterns.update([f"{word.upper()}{num}", f"{num}{word.upper()}", word.upper()])
-        return patterns
-    
-    @classmethod
-    def _short_premium(cls, count: int) -> Set[str]:
-        patterns = set()
-        for _ in range(count):
-            c1, c2 = random.choice(cls.CONSONANTS), random.choice(cls.CONSONANTS)
-            v = random.choice(cls.VOWELS)
-            lucky = random.choice(cls.LUCKY)
-            patterns.update([f"{c1}{v}", f"{c1}{c2}", f"{c1}{lucky}", f"{lucky}{c1}", f"{c1}{v}{lucky}"])
-        return patterns
-
-# ============================================
-# نظام فحص متقدم متعدد المنصات
-# ============================================
-class UltimateUsernameChecker:
-    """نظام فحص يوزرات متعدد المنصات مع كاش وتوازن تحميل"""
-    
-    USER_AGENTS = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/119.0.0.0",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-        "Mozilla/5.0 (Android 14; Mobile; rv:120.0) Gecko/120.0 Firefox/120.0"
-    ]
-    
-    CHECK_URLS = {
-        "tg": [
-            "https://t.me/{username}",
-            "https://fragment.com/username/{username}"
-        ],
-        "ig": [
-            "https://www.instagram.com/{username}/",
-            "https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
-        ],
-        "tk": [
-            "https://www.tiktok.com/@{username}",
-            "https://www.tiktok.com/api/user/detail/?uniqueId={username}"
-        ],
-        "fb": [
-            "https://www.facebook.com/{username}",
-            "https://mbasic.facebook.com/{username}"
-        ],
-        "gh": [
-            "https://github.com/{username}",
-            "https://api.github.com/users/{username}"
-        ],
-        "x": [
-            "https://x.com/{username}",
-            "https://twitter.com/{username}"
-        ]
-    }
-    
-    @classmethod
-    async def check_availability(cls, username: str, platform: str, session: aiohttp.ClientSession, sem: asyncio.Semaphore) -> Optional[UsernameResult]:
-        """فحص يوزر مع كاش متقدم"""
-        cache_key = f"{platform}:{username.lower()}"
-        
-        if cache_key in username_cache:
-            timestamp, result = username_cache[cache_key]
-            if time.time() - timestamp < CACHE_TTL:
-                return UsernameResult(username, platform, result is not None, 0, len(username)) if result else None
-        
-        async with sem:
-            try:
-                headers = {
-                    'User-Agent': random.choice(cls.USER_AGENTS),
-                    'Accept': 'text/html,application/json',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Cache-Control': 'no-cache'
-                }
-                
-                urls = cls.CHECK_URLS.get(platform, [])
-                available = False
-                
-                for url_template in urls:
-                    url = url_template.format(username=username.lower())
-                    try:
-                        async with session.get(url, headers=headers, timeout=8, allow_redirects=True) as resp:
-                            if platform == "tg":
-                                available = await cls._check_telegram(resp, username)
-                            elif platform == "ig":
-                                available = await cls._check_instagram(resp)
-                            elif platform == "tk":
-                                available = await cls._check_tiktok(resp)
-                            elif platform == "gh":
-                                available = await cls._check_github(resp)
-                            elif platform == "x":
-                                available = await cls._check_twitter(resp)
-                            elif platform == "fb":
-                                available = await cls._check_facebook(resp)
-                            
-                            if available:
-                                break
-                    except:
-                        continue
-                
-                username_cache[cache_key] = (time.time(), username if available else None)
-                
-                if available:
-                    quality = SmartUsernameGenerator._quality_score(username)
-                    return UsernameResult(
-                        username=username,
-                        platform=platform,
-                        available=True,
-                        quality_score=quality,
-                        length=len(username)
-                    )
-                
-            except Exception as e:
-                logger.debug(f"Check error {platform}:{username} - {e}")
-        
-        return None
-    
-    @classmethod
-    async def _check_telegram(cls, resp, username: str) -> bool:
-        """فحص تيليجرام متقدم"""
-        if resp.status == 404:
-            return True
-        if resp.status == 200:
-            text = await resp.text()
-            if any(x in text.lower() for x in ['tgme_page_extra', 'join tg', 'you can contact']):
-                return False
-            if 'fragment.com' in str(resp.url):
-                if 'status' in text.lower() and 'unavailable' in text.lower():
-                    return False
-                if 'ton' in text.lower() and ('buy' in text.lower() or 'auction' in text.lower()):
-                    return False
-                return True
-            if 'tgme_page_title' in text:
-                return False
-            return True
-        return False
-    
-    @classmethod
-    async def _check_instagram(cls, resp) -> bool:
-        if resp.status == 404:
-            return True
-        if resp.status == 200:
-            try:
-                data = await resp.json()
-                return data.get('status') == 'fail'
-            except:
-                text = await resp.text()
-                return 'page isn' in text.lower() or 'not found' in text.lower()
-        return False
-    
-    @classmethod
-    async def _check_tiktok(cls, resp) -> bool:
-        if resp.status == 404:
-            return True
-        if resp.status == 200:
-            text = await resp.text()
-            return 'couldn\'t find' in text.lower() or 'not found' in text.lower()
-        return False
-    
-    @classmethod
-    async def _check_github(cls, resp) -> bool:
-        return resp.status == 404
-    
-    @classmethod
-    async def _check_twitter(cls, resp) -> bool:
-        if resp.status == 404:
-            return True
-        if resp.status == 200:
-            text = await resp.text()
-            return 'doesn\'t exist' in text.lower() or 'not found' in text.lower()
-        return False
-    
-    @classmethod
-    async def _check_facebook(cls, resp) -> bool:
-        if resp.status == 404:
-            return True
-        return False
-
-# ============================================
-# نظام تحميل فيديو متعدد المصادر
-# ============================================
-class UltimateVideoDownloader:
-    """نظام تحميل فيديوهات من 10+ منصات"""
-    
-    APIS = {
-        "tiktok": [
-            "https://tikwm.com/api/?url={url}",
-            "https://api.tikmate.app/api/lookup?url={url}",
-            "https://www.tikwm.com/api/?url={url}"
-        ],
-        "instagram": [
-            "https://api.instasave.io/v1/media?url={url}",
-            "https://instasave.io/api/media?url={url}"
-        ],
-        "youtube": [
-            "https://api.yt-dl.org/api/youtube?url={url}",
-            "https://yt-api.p.rapidapi.com/dl?id={url}"
-        ],
-        "facebook": [
-            "https://api.fbdown.net/api/download?url={url}",
-            "https://fbdownloader.io/api/video?url={url}"
-        ],
-        "twitter": [
-            "https://api.twittervideodownloader.com/api/download?url={url}"
-        ],
-        "pinterest": [
-            "https://api.pinterestdownloader.io/api/download?url={url}"
-        ],
-        "likee": [
-            "https://api.likeedownloader.com/api/download?url={url}"
-        ],
-        "snapchat": [
-            "https://api.snapdown.net/api/download?url={url}"
-        ]
-    }
-    
-    @classmethod
-    async def download(cls, url: str, platform: str) -> Dict:
-        """تحميل فيديو مع تجربة APIs متعددة"""
-        apis = cls.APIS.get(platform, [])
-        
-        async with aiohttp.ClientSession() as session:
-            for api_url_template in apis:
+            for db in cls.SPAM_DB:
                 try:
-                    api_url = api_url_template.format(url=quote(url))
-                    async with session.get(api_url, timeout=20) as resp:
-                        data = await resp.json()
-                        
-                        result = cls._parse_response(data, platform)
-                        if result.get("success"):
-                            return result
-                except:
-                    continue
-        
-        return {"success": False, "error": "تعذر التحميل من جميع المصادر"}
-    
-    @classmethod
-    def _parse_response(cls, data: Dict, platform: str) -> Dict:
-        if platform == "tiktok":
-            video_url = (data.get("data", {}).get("play") or 
-                        data.get("video") or 
-                        data.get("download_url"))
-            if video_url:
-                return {
-                    "success": True,
-                    "video_url": video_url,
-                    "title": data.get("data", {}).get("title", ""),
-                    "duration": data.get("data", {}).get("duration", 0),
-                    "platform": "تيكتوك"
-                }
-        
-        elif platform == "instagram":
-            video_url = (data.get("video_url") or 
-                        data.get("media", [{}])[0].get("url") if data.get("media") else None)
-            if video_url:
-                return {"success": True, "video_url": video_url, "platform": "انستجرام"}
-        
-        elif platform == "youtube":
-            formats = data.get("formats", [])
-            if formats:
-                best = max(formats, key=lambda x: x.get("quality", 0) if isinstance(x.get("quality"), int) else 0)
-                return {"success": True, "video_url": best.get("url"), "platform": "يوتيوب"}
-        
-        return {"success": False}
+                    text = await cls._fetch(s, db.format(clean))
+                    if text:
+                        spams = re.findall(r'(?:spam|scam|fraud|report|complaint|warning|dangerous)', text.lower())
+                        r["spam_reports"] += len(spams)
+                except: pass
 
-# ============================================
-# نظام معلومات الحساب المتقدم
-# ============================================
-class AccountInfoFetcher:
-    """جالب معلومات حسابات متقدم"""
-    
+        r["spam_score"] = min(r["spam_reports"] * 10, 100)
+        risk = 0
+        if not r["valid"]: risk += 25
+        risk += min(r["spam_reports"] * 8, 50)
+        if len(r["social"]) == 0: risk += 15
+        r["risk_score"] = min(risk, 100)
+        r["risk_level"] = "🟢 آمن" if risk < 25 else "🟡 مشبوه" if risk < 55 else "🟠 خطر" if risk < 80 else "🔴 خطير جداً"
+        return r
+
     @classmethod
-    async def get_telegram_info(cls, username: str) -> Dict:
-        """معلومات حساب تيليجرام مفصلة"""
+    async def _fetch(cls, session, url):
         try:
-            async with aiohttp.ClientSession() as session:
-                headers = {'User-Agent': random.choice(UltimateUsernameChecker.USER_AGENTS)}
-                
-                async with session.get(f"https://t.me/{username}", headers=headers, timeout=10) as resp:
-                    text = await resp.text()
-                
-                info = {"username": username, "exists": resp.status == 200}
-                
-                if info["exists"]:
-                    title_match = re.search(r'<meta property="og:title" content="([^"]+)"', text)
-                    image_match = re.search(r'<meta property="og:image" content="([^"]+)"', text)
-                    desc_match = re.search(r'<meta property="og:description" content="([^"]+)"', text)
-                    
-                    info["display_name"] = title_match.group(1) if title_match else username
-                    info["profile_image"] = image_match.group(1) if image_match else None
-                    info["bio"] = desc_match.group(1) if desc_match else ""
-                    
-                    info["is_verified"] = "verified" in text.lower()
-                    info["is_premium"] = "premium" in text.lower()
-                    
-                    subs_match = re.search(r'(\d+[,\s]*\d*)\s*(subscribers|مشترك)', text, re.IGNORECASE)
-                    if subs_match:
-                        info["subscribers"] = subs_match.group(1)
-                
-                return info
-        except:
-            return {"exists": False, "error": "فشل جلب المعلومات"}
-    
-    @classmethod
-    async def get_instagram_info(cls, username: str) -> Dict:
-        """معلومات حساب انستجرام"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)',
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-                url = f"https://www.instagram.com/{username}/?__a=1"
-                async with session.get(url, headers=headers, timeout=10) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        user = data.get("graphql", {}).get("user", {})
-                        return {
-                            "exists": True,
-                            "username": user.get("username"),
-                            "full_name": user.get("full_name"),
-                            "followers": user.get("edge_followed_by", {}).get("count", 0),
-                            "following": user.get("edge_follow", {}).get("count", 0),
-                            "posts": user.get("edge_owner_to_timeline_media", {}).get("count", 0),
-                            "is_verified": user.get("is_verified", False),
-                            "is_private": user.get("is_private", False),
-                            "profile_image": user.get("profile_pic_url_hd"),
-                            "bio": user.get("biography", "")
-                        }
-        except:
-            pass
-        return {"exists": False}
+            async with session.get(url, headers={'User-Agent': ua.random}, timeout=12) as resp:
+                return await resp.text()
+        except: return None
 
-# ============================================
-# نظام الحماية ومكافحة السبام
-# ============================================
-class SecuritySystem:
-    """نظام حماية متقدم"""
-    
     @classmethod
-    def check_rate_limit(cls, user_id: int, action: str, max_per_minute: int = 10) -> bool:
-        """فحص معدل الاستخدام"""
-        now = time.time()
-        key = f"{user_id}:{action}"
-        if key not in rate_limiter:
-            rate_limiter[key] = deque(maxlen=max_per_minute)
-        user_requests = rate_limiter[key]
-        
-        while user_requests and user_requests[0] < now - 60:
-            user_requests.popleft()
-        
-        if len(user_requests) >= max_per_minute:
-            return False
-        
-        user_requests.append(now)
-        return True
-    
-    @classmethod
-    def validate_url(cls, url: str) -> bool:
-        """تحقق من صحة الرابط"""
-        url_pattern = re.compile(
-            r'^(https?://)?'
-            r'([\w\-]+\.)+[\w\-]+'
-            r'(/[\w\-./?%&=]*)?$'
-        )
-        return bool(url_pattern.match(url))
+    async def reverse(cls, name: str) -> List[Dict]:
+        res = []
+        async with aiohttp.ClientSession() as s:
+            for q in [f"{name} phone number", f"{name} رقم هاتف", f"{name} contact", f"{name} mobile"]:
+                try:
+                    text = await cls._fetch(s, f"https://www.google.com/search?q={quote(q)}")
+                    if text:
+                        for ph in re.findall(r'\+?[\d]{8,15}', text):
+                            if Security.valid_ph(ph) and not any(x["phone"] == ph for x in res):
+                                res.append({"phone": ph, "name": name, "source": "search"})
+                except: pass
+        return res[:30]
 
-# ============================================
-# واجهة المستخدم المتطورة
-# ============================================
-class UIManager:
-    """مدير واجهة المستخدم"""
-    
-    @classmethod
-    def main_menu(cls):
-        return [
-            [Button.inline(f"🎯 صيد يوزرات ذكي", b"hunt_menu"),
-             Button.inline(f"🎬 تحميل فيديو", b"video_menu")],
-            [Button.inline(f"🔍 معلومات حساب", b"info_menu"),
-             Button.inline(f"🔗 فتح بالآيدي", b"open_start")],
-            [Button.inline(f"🔄 تحويل يوزر/آيدي", b"resolve_start"),
-             Button.inline(f"✅ فحص يوزر متعدد", b"check_menu")],
-            [Button.inline(f"📊 إحصائيات", b"stats_menu"),
-             Button.inline(f"⚙️ إعدادات", b"settings_menu")],
-        ]
-    
-    @classmethod
-    def hunt_menu(cls):
-        return [
-            [Button.inline(f"📱 تيليجرام (ذكي)", b"hunt_tg_smart"),
-             Button.inline(f"📱 تيليجرام (سريع)", b"hunt_tg_fast")],
-            [Button.inline(f"📷 انستجرام", b"hunt_ig"),
-             Button.inline(f"🎵 تيكتوك", b"hunt_tk")],
-            [Button.inline(f"🐙 جيت هب", b"hunt_gh"),
-             Button.inline(f"🐦 إكس", b"hunt_x")],
-            [Button.inline(f"🌐 صيد شامل (كل المنصات)", b"hunt_all")],
-            [Button.inline(f"🔙 رجوع", b"back_main")],
-        ]
-    
-    @classmethod
-    def video_menu(cls):
-        return [
-            [Button.inline(f"🎵 تيكتوك", b"dl_tiktok"),
-             Button.inline(f"📷 انستجرام", b"dl_instagram")],
-            [Button.inline(f"▶️ يوتيوب", b"dl_youtube"),
-             Button.inline(f"📘 فيسبوك", b"dl_facebook")],
-            [Button.inline(f"🐦 تويتر", b"dl_twitter"),
-             Button.inline(f"📌 بنترست", b"dl_pinterest")],
-            [Button.inline(f"🎥 لايكي", b"dl_likee"),
-             Button.inline(f"👻 سناب شات", b"dl_snapchat")],
-            [Button.inline(f"🔙 رجوع", b"back_main")],
-        ]
-    
-    @classmethod
-    def info_menu(cls):
-        return [
-            [Button.inline(f"📱 تيليجرام", b"info_tg"),
-             Button.inline(f"📷 انستجرام", b"info_ig")],
-            [Button.inline(f"🔙 رجوع", b"back_main")],
-        ]
-    
-    @classmethod
-    def check_menu(cls):
-        return [
-            [Button.inline(f"📱 تيليجرام فقط", b"check_tg"),
-             Button.inline(f"📷 انستجرام فقط", b"check_ig")],
-            [Button.inline(f"🎵 تيكتوك فقط", b"check_tk"),
-             Button.inline(f"🌐 كل المنصات", b"check_all_platforms")],
-            [Button.inline(f"🔙 رجوع", b"back_main")],
-        ]
-
-# ============================================
-# نظام الأوامر المتقدم
-# ============================================
-@bot.on(events.NewMessage(pattern='/start'))
-async def bot_start(event):
-    allowed_chats.add(event.chat_id)
-    user_id = event.sender_id
-    
-    if is_dev(user_id):
-        caption = (
-            "🜲 **لوحة تحكم NinjaGram Pro**\n\n"
-            "👑 مرحباً بك في لوحة التحكم المتطورة"
-        )
-        await bot.send_message(event.chat_id, caption, buttons=dev_panel_markup(), parse_mode='md')
-        return
-    
-    caption = (
-        "🐙 **NinjaGram Pro Max Ultra**\n\n"
-        "🎯 **أقوى بوت صيد يوزرات وخدمات تيليجرام**\n\n"
-        "⚡ **المميزات:**\n"
-        "• صيد ذكي بـ 15 استراتيجية\n"
-        "• فحص 6 منصات مختلفة\n"
-        "• تحميل من 8+ منصات\n"
-        "• معلومات حسابات مفصلة\n"
-        "• حماية من السبام\n"
-        "• دعم كامل للغة العربية\n\n"
-        "📢 **Channel:** @Q_g_r_a_m\n"
-        "👨‍💻 **Developer:** @NinjaGram"
-    )
-    
-    buttons = UIManager.main_menu()
-    
-    if os.path.exists(START_IMAGE):
-        await bot.send_file(event.chat_id, START_IMAGE, caption=caption, buttons=buttons, parse_mode='md')
-    else:
-        await bot.send_message(event.chat_id, caption, buttons=buttons, parse_mode='md')
-
-# ============================================
-# نظام الصيد الذكي المتقدم
-# ============================================
-@bot.on(events.CallbackQuery(data=b"hunt_tg_smart"))
-async def hunt_telegram_smart(event):
-    """صيد تيليجرام ذكي باستخدام كل الاستراتيجيات"""
-    user_id = event.sender_id
-    
-    if not SecuritySystem.check_rate_limit(user_id, "hunt", 5):
-        await event.answer("⏳ انتظر قليلاً قبل المحاولة مرة أخرى (حد أقصى 5 صيدات في الدقيقة)", alert=True)
-        return
-    
-    await event.edit("🧠 **جاري الصيد الذكي...**\n📊 تحليل الأنماط وتوليد اليوزرات\n⏳ قد يستغرق 2-3 دقائق", parse_mode='md')
-    
-    usernames = SmartUsernameGenerator.generate_pool(500, "tg")
-    found = []
-    total = len(usernames)
-    checked = 0
-    start_time = time.time()
-    
-    async with aiohttp.ClientSession() as session:
-        sem = asyncio.Semaphore(30)
-        
-        async def check_and_update(u):
-            nonlocal checked, found
-            async with sem:
-                result = await UltimateUsernameChecker.check_availability(u, "tg", session, sem)
-                checked += 1
-                
-                if checked % 100 == 0:
-                    elapsed = time.time() - start_time
-                    speed = checked / elapsed if elapsed > 0 else 0
-                    try:
-                        await event.edit(
-                            f"🧠 **الصيد الذكي مستمر...**\n\n"
-                            f"✅ تم الفحص: {checked}/{total}\n"
-                            f"🎯 المتاح: {len(found)}\n"
-                            f"⚡ السرعة: {speed:.0f} يوزر/ثانية\n"
-                            f"⏱️ الوقت: {elapsed:.0f} ثانية",
-                            parse_mode='md'
-                        )
-                    except:
-                        pass
-                
-                if result:
-                    found.append(result)
-        
-        await asyncio.gather(*[check_and_update(u) for u in usernames])
-    
-    elapsed = time.time() - start_time
-    
-    if found:
-        found.sort(key=lambda x: x.quality_score, reverse=True)
-        
-        text = f"🎉 **اكتمل الصيد الذكي!**\n\n"
-        text += f"📊 **إحصائيات:**\n"
-        text += f"• تم الفحص: {total} يوزر\n"
-        text += f"• المتاح: {len(found)} يوزر\n"
-        text += f"• الوقت: {elapsed:.1f} ثانية\n"
-        text += f"• ⭐ متوسط الجودة: {sum(f.quality_score for f in found)/len(found):.1f}/10\n\n"
-        
-        text += "🏆 **أفضل اليوزرات المتاحة:**\n"
-        for i, result in enumerate(found[:20], 1):
-            stars = "⭐" * min(int(result.quality_score), 5)
-            text += f"{i}. @{result.username} {stars} ({result.quality_score:.1f})\n"
-        
-        if len(found) > 20:
-            text += f"\n📋 و {len(found)-20} يوزر آخر..."
-    else:
-        text = "❌ **لم يتم العثور على يوزرات متاحة**\n🔄 جرب مرة أخرى بصيغة مختلفة"
-    
-    await event.edit(text, buttons=[[Button.inline("🔄 صيد مرة أخرى", b"hunt_tg_smart"),
-                                      Button.inline("🔙 رجوع", b"back_main")]], parse_mode='md')
-
-@bot.on(events.CallbackQuery(data=b"hunt_tg_fast"))
-async def hunt_telegram_fast(event):
-    """صيد تيليجرام سريع"""
-    user_id = event.sender_id
-    
-    if not SecuritySystem.check_rate_limit(user_id, "hunt", 10):
-        await event.answer("⏳ انتظر قليلاً", alert=True)
-        return
-    
-    await event.edit("⚡ **جاري الصيد السريع...**", parse_mode='md')
-    
-    usernames = SmartUsernameGenerator.generate_pool(300, "tg")
-    found = []
-    
-    async with aiohttp.ClientSession() as session:
-        sem = asyncio.Semaphore(50)
-        
-        async def quick_check(u):
-            async with sem:
-                result = await UltimateUsernameChecker.check_availability(u, "tg", session, sem)
-                if result:
-                    found.append(result)
-        
-        await asyncio.gather(*[quick_check(u) for u in usernames])
-    
-    if found:
-        found.sort(key=lambda x: x.quality_score, reverse=True)
-        text = f"⚡ **الصيد السريع اكتمل!**\n\n🎯 المتاح: {len(found)} يوزر\n\n"
-        text += "\n".join([f"• @{r.username} ⭐{r.quality_score:.1f}" for r in found[:30]])
-    else:
-        text = "❌ لم يتم العثور على يوزرات"
-    
-    await event.edit(text, buttons=[[Button.inline("🔙 رجوع", b"hunt_menu")]], parse_mode='md')
-
-@bot.on(events.CallbackQuery(data=b"hunt_all"))
-async def hunt_all_platforms(event):
-    """صيد شامل كل المنصات"""
-    user_id = event.sender_id
-    
-    if not SecuritySystem.check_rate_limit(user_id, "hunt_all", 2):
-        await event.answer("⏳ الحد الأقصى 2 صيد شامل في الدقيقة", alert=True)
-        return
-    
-    await event.edit("🌐 **جاري الصيد الشامل...**\n🔍 فحص 6 منصات مختلفة\n⏳ قد يستغرق 3-5 دقائق", parse_mode='md')
-    
-    platforms = ["tg", "ig", "tk", "gh", "x"]
-    all_results = {p: [] for p in platforms}
-    usernames = SmartUsernameGenerator.generate_pool(200)
-    
-    async with aiohttp.ClientSession() as session:
-        sem = asyncio.Semaphore(20)
-        
-        async def check_all_platforms(u):
-            async with sem:
-                for platform in platforms:
-                    try:
-                        result = await UltimateUsernameChecker.check_availability(u, platform, session, sem)
-                        if result:
-                            all_results[platform].append(result)
-                    except:
-                        pass
-        
-        await asyncio.gather(*[check_all_platforms(u) for u in usernames])
-    
-    text = "🌐 **نتائج الصيد الشامل:**\n\n"
-    total_available = 0
-    
-    platform_names = {"tg": "📱 تيليجرام", "ig": "📷 انستجرام", "tk": "🎵 تيكتوك", "gh": "🐙 جيت هب", "x": "🐦 إكس"}
-    
-    for platform, results in all_results.items():
-        count = len(results)
-        total_available += count
-        text += f"{platform_names[platform]}: {count} يوزر متاح\n"
-    
-    text += f"\n📊 **الإجمالي: {total_available} يوزر متاح**\n\n"
-    
-    for platform, results in all_results.items():
-        if results:
-            results.sort(key=lambda x: x.quality_score, reverse=True)
-            text += f"**{platform_names[platform]} - الأفضل:**\n"
-            text += " • " + " • ".join([f"@{r.username}" for r in results[:5]]) + "\n"
-    
-    await event.edit(text, buttons=[[Button.inline("🔙 رجوع", b"hunt_menu")]], parse_mode='md')
-
-# ============================================
-# نظام تحميل الفيديو المتقدم
-# ============================================
-@bot.on(events.CallbackQuery(data=re.compile(b"dl_(.+)")))
-async def video_download_handler(event):
-    platform = event.data.decode().replace("dl_", "")
-    user_id = event.sender_id
-    
-    if not SecuritySystem.check_rate_limit(user_id, "download", 5):
-        await event.answer("⏳ انتظر قليلاً", alert=True)
-        return
-    
-    platforms_ar = {
-        "tiktok": "تيكتوك", "instagram": "انستجرام", "youtube": "يوتيوب",
-        "facebook": "فيسبوك", "twitter": "تويتر", "pinterest": "بنترست",
-        "likee": "لايكي", "snapchat": "سناب شات"
+# ==================== 2. REPORT SYSTEM (15 TYPES) ====================
+class Reporter:
+    TYPES = {
+        "spam": ("سبام - إرسال رسائل مزعجة", "abuse@telegram.org", "high",
+                 "This account is actively engaged in spam activities. User sends unsolicited promotional messages and phishing links across multiple groups. Violates Telegram ToS Section 3.1. Multiple users reported. Request immediate account suspension.",
+                 "This number is being used for spam messaging in violation of WhatsApp policies. User sends bulk unwanted advertisements. Please investigate and ban this account."),
+        "impersonation": ("انتحال شخصية - Impersonation", "abuse@telegram.org", "critical",
+                          "This account is impersonating a known individual/organization. User copied profile picture, display name, and bio to deceive others. This is identity theft. Immediate termination requested.",
+                          "This number is being used to impersonate someone on WhatsApp. User uses fake profile pictures and names to deceive people. Serious violation of WhatsApp identity policies."),
+        "threats": ("تهديدات - Threats", "abuse@telegram.org", "critical",
+                    "URGENT: This account sends direct threats of physical harm to users. Messages contain explicit violence threats, doxxing, and intimidation. This poses a real safety risk. Requires immediate intervention.",
+                    "URGENT: This number sends threatening messages and harasses users on WhatsApp. Physical harm threats documented. Immediate action required."),
+        "terrorism": ("إرهاب - Terrorism", "stopca@telegram.org", "critical",
+                      "CRITICAL: This account is spreading extremist content and terrorist propaganda. Material promotes violent extremism threatening public safety. Immediate security team review needed. Evidence preserved for authorities.",
+                      "CRITICAL: This number is spreading extremist content and terrorist-related material on WhatsApp. This poses a serious threat to public safety."),
+        "child_abuse": ("استغلال أطفال - Child Abuse", "stopca@telegram.org", "critical",
+                        "CRITICAL EMERGENCY: This account is suspected of involvement in child exploitation activities. Suspicious behavior related to minors observed. Requires immediate action and referral to authorities. All evidence preserved.",
+                        "CRITICAL: This number is suspected of child exploitation on WhatsApp. Being reported to authorities simultaneously. Immediate action required."),
+        "fraud": ("احتيال مالي - Financial Fraud", "abuse@telegram.org", "critical",
+                  "This account is running financial fraud operations. User scams people through fake investment schemes, cryptocurrency scams, and fraudulent payment requests. Multiple victims reported financial losses. Immediate investigation requested.",
+                  "This number is being used for financial fraud and scams on WhatsApp. User tricks people into sending money through fake promises and fraudulent schemes."),
+        "drugs": ("مخدرات - Drugs", "abuse@telegram.org", "critical",
+                  "This account is openly advertising and selling illegal drugs and controlled substances. User posts drug menus, prices, and delivery information. This is a serious criminal offense. Immediate account termination requested.",
+                  "This number is being used to sell illegal drugs through WhatsApp. User shares drug menus and coordinates sales. Immediate investigation required."),
+        "weapons": ("أسلحة - Weapons", "abuse@telegram.org", "critical",
+                     "This account is involved in illegal weapons trafficking. User is advertising firearms, ammunition, and prohibited weapons for sale. This is a serious criminal offense. All evidence documented.",
+                     "This number is being used for illegal weapons trading on WhatsApp. User advertises and sells prohibited weapons. Immediate investigation required."),
+        "violence": ("عنف وكراهية - Violence & Hate", "abuse@telegram.org", "high",
+                      "This account is spreading hate speech and violent content. User promotes violence against specific groups and shares graphic violent material. Violates Telegram hate speech policies. Account suspension requested.",
+                      "This number is spreading hate speech and violent content on WhatsApp. User promotes violence and shares graphic material."),
+        "harassment": ("مضايقة وتنمر - Harassment", "abuse@telegram.org", "high",
+                        "This account is engaged in systematic harassment of users. User sends repeated unwanted messages and engages in cyberbullying behavior. Creates hostile environment. Intervention requested to stop this harassment.",
+                        "This number is being used to harass users on WhatsApp with repeated unwanted messages and cyberbullying."),
+        "copyright": ("حقوق ملكية - Copyright/DMCA", "dmca@telegram.org", "high",
+                       "This account is distributing copyrighted content without authorization. User shares pirated software, movies, music, and other copyrighted materials. This is a DMCA violation. Content removal and account review requested.",
+                       "This number is distributing copyrighted content without permission on WhatsApp. User shares pirated materials through the platform."),
+        "account_theft": ("سرقة حساب - Account Theft", "recover@telegram.org", "critical",
+                           "URGENT: My account has been stolen/hijacked by unauthorized parties. I no longer have access to my account. The attacker is impersonating me and contacting my contacts. Please help me recover my account immediately.",
+                           "URGENT: My WhatsApp account has been stolen. Someone has taken control and is impersonating me. Please help me recover it."),
+        "malware": ("برمجيات خبيثة - Malware", "security@telegram.org", "critical",
+                     "This account is distributing malware and malicious software. User shares infected files, phishing links, and trojans designed to steal user data. This poses a significant security threat. Immediate action required.",
+                     "This number is sending malware and phishing links through WhatsApp. User shares infected files and malicious links designed to hack accounts."),
+        "phishing": ("تصيد - Phishing", "security@telegram.org", "critical",
+                      "This account is conducting phishing operations. User sends fake login pages and deceptive links to steal credentials. Multiple users reported receiving phishing messages. Serious security threat requiring immediate takedown.",
+                      "This number is sending phishing links through WhatsApp to steal login credentials and personal information from users."),
+        "pornography": ("محتوى إباحي غير قانوني - Pornography", "abuse@telegram.org", "high",
+                         "This account is distributing illegal adult content including non-consensual material. User shares explicit content without consent. This is illegal and violates platform policies.",
+                         "This number is distributing illegal adult content through WhatsApp. User shares explicit material without consent."),
     }
-    
-    user_states[user_id] = f"waiting_video_{platform}"
-    await event.edit(
-        f"🎬 **تحميل من {platforms_ar.get(platform, platform)}**\n\n"
-        f"📤 أرسل رابط الفيديو:",
-        buttons=[[Button.inline("🔙 رجوع", b"video_menu")]],
-        parse_mode='md'
-    )
 
-@bot.on(events.NewMessage(func=lambda e: e.sender_id in user_states and user_states[e.sender_id].startswith("waiting_video_")))
-async def handle_video_download(event):
-    user_id = event.sender_id
-    state = user_states.pop(user_id)
-    platform = state.replace("waiting_video_", "")
-    url = event.text.strip()
-    
-    if not SecuritySystem.validate_url(url):
-        await event.respond("❌ **رابط غير صالح**", buttons=[[Button.inline("🔙 رجوع", b"video_menu")]], parse_mode='md')
-        return
-    
-    loading_msg = await event.respond("⏳ **جاري التحميل...**\n🔍 البحث عن أفضل جودة", parse_mode='md')
-    
-    result = await UltimateVideoDownloader.download(url, platform)
-    
-    if result.get("success"):
-        await loading_msg.edit(
-            f"✅ **تم التحميل بنجاح!**\n\n"
-            f"📹 [اضغط هنا للمشاهدة/التحميل]({result['video_url']})\n"
-            f"📱 المنصة: {result.get('platform', platform)}",
-            buttons=[[Button.inline("🔙 رجوع", b"video_menu")]],
-            parse_mode='md'
-        )
-    else:
-        await loading_msg.edit(
-            f"❌ **فشل التحميل**\n{result.get('error', 'خطأ غير معروف')}",
-            buttons=[[Button.inline("🔄 حاول مرة أخرى", f"dl_{platform}".encode()),
-                      Button.inline("🔙 رجوع", b"video_menu")]],
-            parse_mode='md'
-        )
+    @classmethod
+    def generate(cls, rtype: str, target: str, platform: str = "telegram", evidence: str = "") -> Dict:
+        name, email, sev, tg_body, wa_body = cls.TYPES.get(rtype, cls.TYPES["spam"])
+        rid = uuid.uuid4().hex[:12].upper()
+        tdisp = f"@{target}" if not target.isdigit() else f"ID: {target}"
+        plink = f"https://t.me/{target}" if platform == "telegram" else f"https://wa.me/{target.replace('+', '')}"
+        body = tg_body if platform == "telegram" else wa_body
+        edisp = evidence if evidence else "• Screenshots available upon request\n• Chat logs documented with timestamps\n• Multiple witnesses available"
+        
+        full_report = f"""
+╔══════════════════════════════════════════╗
+║     🛡️ {'TELEGRAM' if platform=='telegram' else 'WHATSAPP'} ABUSE REPORT
+║     Report ID: #{rid}
+║     Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
+╚══════════════════════════════════════════╝
 
-# ============================================
-# نظام معلومات الحسابات المتقدم
-# ============================================
-@bot.on(events.CallbackQuery(data=b"info_tg"))
-async def info_telegram_start(event):
-    user_id = event.sender_id
-    user_states[user_id] = "waiting_info_tg"
-    await event.edit(
-        "🔍 **معلومات حساب تيليجرام**\n\n"
-        "📤 أرسل يوزر الحساب:\n"
-        "مثال: @username",
-        buttons=[[Button.inline("🔙 رجوع", b"info_menu")]],
-        parse_mode='md'
-    )
+📋 REPORT DETAILS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Violation: {name}
+• Severity: {sev.upper()}
+• Platform: {platform.upper()}
 
-@bot.on(events.NewMessage(func=lambda e: e.sender_id in user_states and user_states[e.sender_id] == "waiting_info_tg"))
-async def handle_telegram_info(event):
-    user_id = event.sender_id
-    user_states.pop(user_id, None)
-    username = event.text.strip().replace("@", "")
-    
-    loading_msg = await event.respond("🔍 **جاري جلب المعلومات...**", parse_mode='md')
-    
-    info = await AccountInfoFetcher.get_telegram_info(username)
-    
-    if info.get("exists"):
-        text = f"📱 **معلومات @{username}**\n\n"
-        text += f"👤 الاسم: {info.get('display_name', 'غير معروف')}\n"
+👤 REPORTED ACCOUNT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Target: {tdisp}
+• Link: {plink}
+
+📝 DESCRIPTION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{body}
+
+📎 EVIDENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{edisp}
+
+📧 SEND REPORT TO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Primary: {email}
+• {'CC: abuse@telegram.org' if platform=='telegram' else 'CC: support@whatsapp.com'}
+• {'Support: https://telegram.org/support' if platform=='telegram' else 'Contact: https://www.whatsapp.com/contact/'}
+
+⚠️ LEGAL NOTICE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This report is submitted in good faith under penalty of perjury.
+All information provided is truthful and accurate.
+I understand filing false reports may result in legal consequences.
+
+📌 Generated by NinjaGram Pro Max Ultra v10
+        """.strip()
         
-        if info.get("bio"):
-            text += f"📝 البايو: {info['bio'][:300]}\n"
-        
-        if info.get("is_verified"):
-            text += "✅ حساب موثق\n"
-        if info.get("is_premium"):
-            text += "⭐ حساب بريميوم\n"
-        if info.get("subscribers"):
-            text += f"👥 المشتركين: {info['subscribers']}\n"
-        
-        text += f"\n🔗 [فتح الحساب](https://t.me/{username})\n"
-        text += f"📱 [فتح في التطبيق](tg://resolve?domain={username})"
-        
-        if info.get("profile_image"):
+        return {
+            "id": rid,
+            "body": full_report,
+            "email": email,
+            "severity": sev,
+            "type": name,
+            "target": tdisp,
+            "platform": platform
+        }
+
+# ==================== 3. OSINT SYSTEM ====================
+class Osint:
+    @classmethod
+    async def deep_scan(cls, target: str) -> Dict:
+        r = {"basic": {}, "security": [], "activity": {}, "exposed": {}, "risk": 0, "risk_level": "?"}
+        try:
+            entity = await bot.get_entity(int(target) if target.lstrip('-').isdigit() else target.replace("@", ""))
+            
+            r["basic"] = {
+                "id": entity.id,
+                "username": getattr(entity, 'username', "لا يوجد"),
+                "first_name": getattr(entity, 'first_name', ''),
+                "last_name": getattr(entity, 'last_name', ''),
+                "full_name": f"{getattr(entity, 'first_name', '')} {getattr(entity, 'last_name', '')}".strip(),
+                "phone_visible": getattr(entity, 'phone', None) is not None,
+                "phone": getattr(entity, 'phone', '🔒 مخفي'),
+                "verified": "✅ نعم" if getattr(entity, 'verified', False) else "❌ لا",
+                "premium": "⭐ نعم" if getattr(entity, 'premium', False) else "❌ لا",
+                "bot": "🤖 نعم" if getattr(entity, 'bot', False) else "👤 لا",
+                "scam": "⚠️ نعم" if getattr(entity, 'scam', False) else "✅ لا",
+                "fake": "⚠️ نعم" if getattr(entity, 'fake', False) else "✅ لا",
+                "restricted": "🚫 نعم" if getattr(entity, 'restricted', False) else "✅ لا",
+                "mutual_contact": "👥 نعم" if getattr(entity, 'mutual_contact', False) else "❌ لا",
+                "is_contact": "📞 نعم" if getattr(entity, 'contact', False) else "❌ لا",
+            }
+            
+            cd = cls._estimate_date(entity.id)
+            if cd:
+                days = (datetime.now() - cd).days
+                r["activity"]["created_date"] = cd.strftime("%Y-%m-%d")
+                r["activity"]["age_days"] = days
+                r["activity"]["age"] = f"{days} يوم ({round(days/365, 1)} سنة)"
+            
+            risk = 0; issues = []
+            if not r["basic"]["username"] or r["basic"]["username"] == "لا يوجد":
+                issues.append("❌ لا يوجد يوزر عام - صعب التتبع ولكن أكثر عرضة للاختراق")
+                risk += 15
+            if r["basic"]["phone_visible"]:
+                issues.append("⚠️ رقم الهاتف مكشوف للعامة - خطر خصوصية كبير")
+                risk += 45
+            if getattr(entity, 'scam', False):
+                issues.append("🚫 هذا الحساب مُبلغ عنه كحساب احتيال رسمياً")
+                risk += 85
+            if getattr(entity, 'fake', False):
+                issues.append("⚠️ هذا الحساب مُبلغ عنه كحساب مزيف")
+                risk += 65
+            if getattr(entity, 'restricted', False):
+                issues.append("🚫 هذا الحساب مقيد من قبل تيليجرام")
+                risk += 70
+            if cd and days < 30:
+                issues.append(f"🆕 حساب جديد جداً ({days} يوم) - احتمال كبير يكون وهمي")
+                risk += 30
+            elif cd and days < 90:
+                issues.append(f"🆕 حساب حديث ({days} يوم)")
+                risk += 15
+            if not r["basic"]["phone_visible"] and not r["basic"]["username"]:
+                issues.append("⚠️ حساب شبه مجهول - لا يوزر ولا رقم ظاهر")
+                risk += 25
+            
+            r["security"] = issues
+            r["risk"] = min(risk, 100)
+            r["risk_level"] = "🟢 منخفض" if risk < 25 else "🟡 متوسط" if risk < 50 else "🟠 مرتفع" if risk < 75 else "🔴 خطير جداً"
+            
             try:
-                await bot.send_file(event.chat_id, info["profile_image"], caption=text, parse_mode='md')
-                await loading_msg.delete()
-                return
-            except:
-                pass
+                fu = await bot(GetFullUserRequest(entity))
+                r["activity"]["bio"] = getattr(fu.full_user, 'about', '')[:1000] or "لا يوجد"
+                r["activity"]["common_chats"] = getattr(fu.full_user, 'common_chats_count', 0)
+            except: pass
+            
+            if r["basic"]["username"] and r["basic"]["username"] != "لا يوجد":
+                async with aiohttp.ClientSession() as s:
+                    try:
+                        async with s.get(f"https://t.me/{r['basic']['username']}", headers={'User-Agent': ua.random}, timeout=15) as resp:
+                            text = await resp.text()
+                            emails = list(set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', text)))
+                            if emails: r["exposed"]["emails"] = emails[:15]
+                            phones = list(set(re.findall(r'\+?[\d]{8,15}', text)))
+                            if phones: r["exposed"]["phones"] = phones[:10]
+                            urls = list(set(re.findall(r'https?://[^\s<>"\']+', text)))
+                            if urls: r["exposed"]["links"] = urls[:20]
+                    except: pass
+                    
+                    platforms_check = {
+                        "GitHub": f"https://github.com/{r['basic']['username']}",
+                        "Twitter": f"https://twitter.com/{r['basic']['username']}",
+                        "Instagram": f"https://instagram.com/{r['basic']['username']}",
+                        "Reddit": f"https://reddit.com/user/{r['basic']['username']}",
+                    }
+                    r["exposed"]["other_platforms"] = {}
+                    for pname, purl in platforms_check.items():
+                        try:
+                            async with s.get(purl, headers={'User-Agent': ua.random}, timeout=8) as resp:
+                                if resp.status == 200:
+                                    r["exposed"]["other_platforms"][pname] = purl
+                        except: pass
+            
+        except ValueError:
+            r["error"] = "الحساب غير موجود"
+        except Exception as e:
+            r["error"] = str(e)[:200]
         
-        await loading_msg.edit(text, buttons=[[Button.inline("🔙 رجوع", b"info_menu")]], parse_mode='md')
-    else:
-        await loading_msg.edit(
-            f"❌ **الحساب @{username} غير موجود أو محذوف**",
-            buttons=[[Button.inline("🔙 رجوع", b"info_menu")]],
-            parse_mode='md'
-        )
+        return r
 
-# ============================================
-# نظام فحص اليوزرات المتقدم
-# ============================================
-@bot.on(events.CallbackQuery(data=b"check_all_platforms"))
-async def check_all_platforms_start(event):
-    user_id = event.sender_id
-    user_states[user_id] = "waiting_check_all"
-    await event.edit(
-        "🌐 **فحص يوزر في كل المنصات**\n\n"
-        "📤 أرسل اليوزر للفحص:\n"
-        "مثال: @username",
-        buttons=[[Button.inline("🔙 رجوع", b"check_menu")]],
-        parse_mode='md'
-    )
+    @staticmethod
+    def _estimate_date(uid: int) -> Optional[datetime]:
+        if uid < 1000000: return datetime(2013, 8, 14)
+        elif uid < 500000000: return datetime(2015, 1, 1)
+        elif uid < 1000000000: return datetime(2017, 1, 1)
+        elif uid < 3000000000: return datetime(2019, 1, 1)
+        elif uid < 5000000000: return datetime(2020, 6, 1)
+        elif uid < 6000000000: return datetime(2021, 6, 1)
+        elif uid < 7000000000: return datetime(2022, 6, 1)
+        elif uid < 8000000000: return datetime(2023, 6, 1)
+        else: return datetime(2024, 3, 1)
 
-@bot.on(events.NewMessage(func=lambda e: e.sender_id in user_states and user_states[e.sender_id] == "waiting_check_all"))
-async def handle_check_all(event):
-    user_id = event.sender_id
-    user_states.pop(user_id, None)
-    username = event.text.strip().replace("@", "").lower()
-    
-    loading_msg = await event.respond("🌐 **جاري الفحص الشامل...**\n🔍 فحص 6 منصات مختلفة", parse_mode='md')
-    
-    platforms = ["tg", "ig", "tk", "gh", "x", "fb"]
-    results = {}
-    available_count = 0
-    
-    async with aiohttp.ClientSession() as session:
-        sem = asyncio.Semaphore(10)
-        
-        async def check_platform(platform):
-            result = await UltimateUsernameChecker.check_availability(username, platform, session, sem)
-            return platform, result
-        
-        tasks = [check_platform(p) for p in platforms]
-        completed = await asyncio.gather(*tasks)
-        
-        for platform, result in completed:
-            if result and result.available:
-                results[platform] = "✅ متاح"
-                available_count += 1
+# ==================== 4. PHONE REVEALER (RUSSIAN METHOD) ====================
+class PhoneRevealer:
+    COUNTRIES = {
+        "20": ("مصر 🇪🇬", ["10", "11", "12", "15"]),
+        "966": ("السعودية 🇸🇦", ["50", "53", "54", "55", "56", "57", "58", "59"]),
+        "971": ("الإمارات 🇦🇪", ["50", "52", "54", "55", "56", "58"]),
+        "965": ("الكويت 🇰🇼", ["50", "55", "60", "65", "66", "67", "69", "90", "94", "97"]),
+        "974": ("قطر 🇶🇦", ["30", "33", "50", "55", "66", "70", "77"]),
+        "973": ("البحرين 🇧🇭", ["33", "34", "36", "38", "39", "66", "77"]),
+        "968": ("عمان 🇴🇲", ["91", "92", "93", "94", "95", "96", "97", "98", "99"]),
+        "962": ("الأردن 🇯🇴", ["77", "78", "79"]),
+        "964": ("العراق 🇮🇶", ["73", "75", "77", "78", "79"]),
+        "963": ("سوريا 🇸🇾", ["93", "94", "95", "96", "98", "99"]),
+        "961": ("لبنان 🇱🇧", ["03", "70", "71", "76", "78", "79", "81"]),
+    }
+
+    @classmethod
+    async def reveal(cls, username: str, cc: str = "20", fast: bool = False) -> Dict:
+        r = {"username": username, "found": False, "phone": None, "tries": 0, "time_taken": 0}
+        country_info = cls.COUNTRIES.get(cc, ("غير معروف", ["10"]))
+        prefixes = country_info[1]; country_name = country_info[0]
+        start = time.time()
+        try:
+            entity = await bot.get_entity(username.replace("@", "")); tid = entity.id
+            nums = []; batch_size = 50 if fast else 100; max_range = 1000 if fast else 5000
+            for pfx in prefixes[:3]:
+                step = max(1, max_range // batch_size)
+                for i in range(0, max_range, step):
+                    nums.append(f"+{cc}{pfx}{i:05d}" if cc in ["20", "966", "971", "965", "974", "973", "968", "962", "964", "963", "961"] else f"+{cc}{pfx}{i:04d}")
+            logger.info(f"Testing {len(nums)} numbers for @{username} in {country_name}")
+            for i in range(0, len(nums), batch_size):
+                batch = nums[i:i+batch_size]
+                try:
+                    contacts = [InputPhoneContact(client_id=random.randint(100000, 999999), phone=n, first_name=f"Scan{random.randint(1,9999)}", last_name="") for n in batch]
+                    imp = await bot(ImportContactsRequest(contacts))
+                    if imp and imp.users:
+                        for u in imp.users:
+                            if u.id == tid:
+                                for c, n in zip(contacts, batch):
+                                    if hasattr(u, 'phone') and u.phone:
+                                        r["found"] = True; r["phone"] = n
+                                        r["tries"] = i + len(batch)
+                                        r["time_taken"] = round(time.time() - start, 1)
+                                        try: await bot(DeleteContactsRequest([u]))
+                                        except: pass
+                                        return r
+                    if imp and imp.users:
+                        try: await bot(DeleteContactsRequest(imp.users))
+                        except: pass
+                    r["tries"] = i + len(batch)
+                    if i % 500 == 0: logger.info(f"Progress: {i}/{len(nums)}")
+                    await asyncio.sleep(1.5 if fast else 2)
+                except FloodWaitError as e:
+                    logger.warning(f"FloodWait: {e.seconds}s"); await asyncio.sleep(e.seconds)
+                except: continue
+        except Exception as e: r["error"] = str(e)[:200]
+        r["time_taken"] = round(time.time() - start, 1)
+        return r
+
+    @classmethod
+    async def check_registered(cls, phone: str) -> Dict:
+        r = {"phone": phone, "registered": False, "user": None}
+        try:
+            c = InputPhoneContact(client_id=random.randint(100000, 999999), phone=phone, first_name="Check", last_name="")
+            imp = await bot(ImportContactsRequest([c]))
+            if imp and imp.users:
+                u = imp.users[0]; r["registered"] = True
+                r["user"] = {"id": u.id, "username": getattr(u, 'username', None), "name": f"{getattr(u, 'first_name', '')} {getattr(u, 'last_name', '')}".strip()}
+                try: await bot(DeleteContactsRequest([u]))
+                except: pass
+        except: pass
+        return r
+
+# ==================== 5. GROUP SCRAPER ====================
+class GroupScraper:
+    @classmethod
+    async def search(cls, keyword: str, limit: int = 30) -> List[Dict]:
+        results = []
+        try:
+            sr = await bot(SearchRequest(q=keyword, filter=types.InputMessagesFilterEmpty(), min_date=None, max_date=None, offset_id=0, add_offset=0, limit=limit, max_id=0, min_id=0, hash=0))
+            if hasattr(sr, 'chats'):
+                for chat in sr.chats:
+                    if hasattr(chat, 'username') and chat.username:
+                        results.append({
+                            "id": chat.id, "username": chat.username,
+                            "title": getattr(chat, 'title', ''),
+                            "members": getattr(chat, 'participants_count', 0),
+                            "type": "قناة 📢" if getattr(chat, 'broadcast', False) else "جروب 👥",
+                            "link": f"https://t.me/{chat.username}",
+                            "verified": getattr(chat, 'verified', False),
+                        })
+        except Exception as e: logger.error(f"TG search error: {e}")
+        async with aiohttp.ClientSession() as s:
+            search_urls = [f"https://tgstat.com/search?q={quote(keyword)}", f"https://combot.org/telegram/top/chats?q={quote(keyword)}"]
+            for url in search_urls:
+                try:
+                    async with s.get(url, headers={'User-Agent': ua.random}, timeout=15) as resp:
+                        text = await resp.text()
+                        usernames = set(re.findall(r'@([a-zA-Z][a-zA-Z0-9_]{3,31})', text))
+                        for un in usernames:
+                            if not any(x.get('username') == un for x in results):
+                                results.append({"username": un, "link": f"https://t.me/{un}", "source": "web", "type": "غير معروف"})
+                except: pass
+        return results[:limit]
+
+# ==================== 6. UNBAN SYSTEM ====================
+class Unban:
+    TELEGRAM_EMAILS = ["recover@telegram.org", "login@telegram.org", "sms@telegram.org", "support@telegram.org"]
+    WHATSAPP_EMAILS = ["support@whatsapp.com", "android_web@support.whatsapp.com", "iphone_web@support.whatsapp.com"]
+
+    @classmethod
+    def telegram(cls, phone: str, username: str = "", reason: str = "unknown") -> str:
+        reasons = {"unknown": "أسباب غير معروفة - أعتقد أنه حظر خاطئ", "spam": "تم تصنيف رسائلي كسبام عن طريق الخطأ", "bot": "تم اعتبار حسابي بوت بشكل خاطئ", "vpn": "استخدام VPN تسبب في تقييد الحساب"}
+        return f"""
+Subject: Urgent Account Recovery Request - {phone}
+To: {', '.join(cls.TELEGRAM_EMAILS)}
+
+Dear Telegram Support Team,
+
+I am writing to urgently request the restoration of my Telegram account.
+
+📱 Account Details:
+• Phone: {phone}
+• Username: @{username or 'N/A'}
+• Date Restricted: {datetime.now().strftime('%Y-%m-%d')}
+
+🔍 Reason for Restriction: {reasons.get(reason, reason)}
+
+✅ I confirm:
+1. I have reviewed Telegram Terms of Service
+2. I will comply with all platform policies
+3. This account is essential for my personal and professional communications
+
+🙏 I respectfully request a manual review of my case.
+This account contains years of important conversations and contacts.
+
+Thank you for your prompt attention.
+
+Sincerely, Account Owner
+        """.strip()
+
+    @classmethod
+    def whatsapp(cls, phone: str) -> str:
+        return f"""
+Subject: WhatsApp Account Ban Appeal - {phone}
+To: {', '.join(cls.WHATSAPP_EMAILS)}
+
+Dear WhatsApp Support Team,
+
+I am writing to appeal the ban on my WhatsApp account: {phone}
+
+I have always used WhatsApp in compliance with Terms of Service.
+I believe this ban was applied in error.
+
+My account is essential for family and work communication.
+I request a thorough manual review and account restoration.
+
+Thank you for your consideration.
+
+Regards, Account Owner
+        """.strip()
+
+# ==================== 7. BREACH CHECKER ====================
+class Breach:
+    @classmethod
+    async def check_email(cls, email: str) -> Dict:
+        r = {"email": email, "count": 0, "breaches": [], "sources": []}
+        try:
+            async with aiohttp.ClientSession() as s:
+                headers = {'User-Agent': 'NinjaGram', 'hibp-api-key': 'your-key-here'}
+                try:
+                    async with s.get(f"https://haveibeenpwned.com/api/v3/breachedaccount/{email}", headers=headers, timeout=20) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            r["breaches"] = [{"name": b.get('Name', ''), "date": b.get('BreachDate', ''), "data_classes": b.get('DataClasses', [])} for b in data]
+                            r["count"] = len(data)
+                except: pass
+                try:
+                    async with s.get(f"https://leakcheck.io/api/public?key=demo&check={email}", timeout=20) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            if data.get("success") and data.get("found"):
+                                r["count"] += data.get("sources", 0); r["sources"].append("leakcheck.io")
+                except: pass
+                try:
+                    async with s.get(f"https://psbdmp.ws/api/v3/search/{email}", timeout=20) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            r["count"] += data.get("count", 0); r["sources"].append("psbdmp.ws")
+                except: pass
+        except: pass
+        return r
+
+    @classmethod
+    async def check_phone(cls, phone: str) -> Dict:
+        r = {"phone": phone, "found": False, "sources": []}
+        try:
+            async with aiohttp.ClientSession() as s:
+                try:
+                    async with s.get(f"https://leakcheck.io/api/public?key=demo&check={phone}", timeout=20) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            if data.get("success") and data.get("found"):
+                                r["found"] = True; r["sources"].append("leakcheck.io")
+                except: pass
+                try:
+                    async with s.get(f"https://www.google.com/search?q={phone}+leak+breach+database", headers={'User-Agent': ua.random}, timeout=15) as resp:
+                        text = await resp.text()
+                        if any(w in text.lower() for w in ['leak', 'breach', 'database', 'exposed']):
+                            r["found"] = True; r["sources"].append("web_mention")
+                except: pass
+        except: pass
+        return r
+
+# ==================== 8-17. ADDITIONAL SERVICES ====================
+class GroupAnalyzer:
+    @classmethod
+    async def analyze(cls, chat_username: str) -> Dict:
+        r = {}
+        try:
+            entity = await bot.get_entity(chat_username.replace("@", ""))
+            fc = await bot(GetFullChannelRequest(entity))
+            r = {
+                "id": entity.id, "username": getattr(entity, 'username', None),
+                "title": getattr(entity, 'title', ''),
+                "type": "قناة 📢" if getattr(entity, 'broadcast', False) else "جروب 👥",
+                "verified": "✅" if getattr(entity, 'verified', False) else "❌",
+                "members": getattr(fc.full_chat, 'participants_count', 0),
+                "description": getattr(fc.full_chat, 'about', '')[:500],
+                "can_view_participants": getattr(fc.full_chat, 'can_view_participants', False),
+            }
+            mc = r["members"]
+            r["size"] = "ضخم جداً 🌟" if mc > 100000 else "كبير 📊" if mc > 10000 else "متوسط 📈" if mc > 1000 else "صغير 📉"
+        except Exception as e: r["error"] = str(e)[:200]
+        return r
+
+class MessageFaker:
+    @classmethod
+    async def telegram_msg(cls, name: str, msg: str, time_str: str = None) -> BytesIO:
+        img = Image.new('RGB', (700, 200), color='#1a1a2e'); d = ImageDraw.Draw(img)
+        d.rectangle([(0, 0), (700, 50)], fill='#16213e')
+        d.text((15, 12), f"👤 {name}", fill='#00ff88')
+        t = time_str or datetime.now().strftime("%I:%M %p"); d.text((600, 12), t, fill='#888')
+        y = 60
+        for ln in textwrap.wrap(msg, width=55): d.text((15, y), ln, fill='#ffffff'); y += 25
+        d.rectangle([(0, 175), (700, 200)], fill='#0f3460')
+        d.text((15, 180), "⚠️ للأغراض التعليمية فقط - NinjaGram", fill='#ff4444')
+        o = BytesIO(); img.save(o, format='PNG'); o.seek(0); o.name = "fake_tg.png"; return o
+
+    @classmethod
+    async def whatsapp_msg(cls, name: str, msg: str) -> BytesIO:
+        img = Image.new('RGB', (650, 170), color='#075E54'); d = ImageDraw.Draw(img)
+        d.rectangle([(0, 0), (650, 45)], fill='#075E54')
+        d.text((15, 12), f"👤 {name}", fill='#fff'); d.text((550, 12), "WhatsApp", fill='#aaa')
+        d.rectangle([(10, 50), (640, 140)], fill='#DCF8C6'); y = 58
+        for ln in textwrap.wrap(msg, width=48): d.text((20, y), ln, fill='#000'); y += 22
+        d.text((15, 148), "⚠️ تعليمي - NinjaGram", fill='#f44')
+        o = BytesIO(); img.save(o, format='PNG'); o.seek(0); o.name = "fake_wa.png"; return o
+
+class LinkAnalyzer:
+    @classmethod
+    async def analyze(cls, link: str) -> Dict:
+        r = {"original": link, "is_telegram": False, "type": "unknown", "identifier": None, "resolved": None}
+        patterns = {
+            "public": r'(?:https?://)?t(?:elegram)?\.me/([a-zA-Z][a-zA-Z0-9_]{3,31})',
+            "private_old": r'(?:https?://)?t(?:elegram)?\.me/joinchat/([a-zA-Z0-9_-]+)',
+            "private_new": r'(?:https?://)?t(?:elegram)?\.me/\+(.+)',
+            "tg_resolve": r'tg://resolve\?domain=([a-zA-Z][a-zA-Z0-9_]+)',
+        }
+        for lt, pat in patterns.items():
+            m = re.search(pat, link)
+            if m:
+                r["is_telegram"] = True; r["type"] = lt; r["identifier"] = m.group(1)
+                if lt == "public":
+                    try:
+                        entity = await bot.get_entity(m.group(1))
+                        r["resolved"] = {"id": entity.id, "type": "بوت" if getattr(entity, 'bot', False) else "قناة" if getattr(entity, 'broadcast', False) else "جروب" if getattr(entity, 'megagroup', False) else "حساب"}
+                    except: r["resolved"] = "غير موجود"
+                elif lt in ["private_old", "private_new"]:
+                    try:
+                        check = await bot(CheckChatInviteRequest(m.group(1)))
+                        r["resolved"] = {"title": getattr(check, 'title', '?'), "members": getattr(check, 'participants_count', '?')}
+                    except InviteHashExpiredError: r["resolved"] = "منتهي"
+                    except: r["resolved"] = "غير صالح"
+                break
+        return r
+
+class FakeDetector:
+    @classmethod
+    async def analyze(cls, target: str) -> Dict:
+        r = {"fake_probability": 0, "indicators": [], "verdict": "?"}
+        try:
+            entity = await bot.get_entity(int(target) if target.lstrip('-').isdigit() else target.replace("@", ""))
+            prob = 0
+            if not getattr(entity, 'username', None): prob += 30; r["indicators"].append("لا يوجد يوزر")
+            if not getattr(entity, 'photo', None): prob += 25; r["indicators"].append("لا توجد صورة")
+            fn = getattr(entity, 'first_name', '') or ''
+            if len(fn) < 2 or bool(re.search(r'[�]', fn)): prob += 20; r["indicators"].append("اسم غريب")
+            if entity.id > 7000000000: prob += 15; r["indicators"].append("حساب جديد جداً")
+            if getattr(entity, 'scam', False): prob += 80; r["indicators"].append("مُبلغ عنه كاحتيال")
+            if getattr(entity, 'fake', False): prob += 70; r["indicators"].append("مُبلغ عنه كمزيف")
+            r["fake_probability"] = min(prob, 100)
+            r["verdict"] = "🟢 حقيقي" if prob < 25 else "🟡 مشبوه" if prob < 50 else "🟠 غالباً وهمي" if prob < 75 else "🔴 وهمي بالتأكيد"
+        except Exception as e: r["error"] = str(e)
+        return r
+
+class SecurityChecker:
+    @classmethod
+    async def check(cls, target: str) -> Dict:
+        r = {"security_score": 100, "issues": [], "recommendations": []}
+        try:
+            entity = await bot.get_entity(int(target) if target.lstrip('-').isdigit() else target.replace("@", ""))
+            score = 100
+            if getattr(entity, 'phone', None): score -= 30; r["issues"].append("رقم الهاتف مكشوف"); r["recommendations"].append("إخفاء رقم الهاتف من الإعدادات")
+            if not getattr(entity, 'username', None): score -= 10; r["issues"].append("لا يوجد يوزر")
+            r["security_score"] = max(score, 0)
+            r["level"] = "🟢 آمن" if score > 70 else "🟡 متوسط" if score > 40 else "🔴 ضعيف"
+        except Exception as e: r["error"] = str(e)
+        return r
+
+# ==================== UI ====================
+class UI:
+    @staticmethod
+    def main_menu():
+        return [
+            [Button.inline("📞 تروكولر", b"tc"), Button.inline("🔫 بلاغات (15)", b"rpt")],
+            [Button.inline("🕵️ OSINT فحص", b"osint"), Button.inline("📞 كشف رقم", b"reveal")],
+            [Button.inline("🔍 بحث جروبات", b"scrape"), Button.inline("🔓 فك حظر", b"unban")],
+            [Button.inline("🧬 تسريبات", b"breach"), Button.inline("💣 صيد يوزرات", b"hunt")],
+            [Button.inline("📊 تحليل جروب", b"analyze"), Button.inline("📝 مزور رسائل", b"faker")],
+            [Button.inline("📱 واتساب", b"wa"), Button.inline("📞 فحص رقم", b"checkreg")],
+            [Button.inline("🔗 تحليل رابط", b"link"), Button.inline("🎭 كشف وهمي", b"fake")],
+            [Button.inline("🔐 أمان حساب", b"security"), Button.inline("🔄 تحويل", b"convert")],
+            [Button.inline("ℹ️ معلومات", b"info")],
+        ]
+
+    @staticmethod
+    def report_menu():
+        btns = []; row = []
+        for k, v in Reporter.TYPES.items():
+            row.append(Button.inline(v[0][:25], f"rpt_{k}".encode()))
+            if len(row) == 2: btns.append(row); row = []
+        if row: btns.append(row)
+        btns.append([Button.inline("🔙 رجوع", b"main")]); return btns
+
+    @staticmethod
+    def country_menu():
+        return [
+            [Button.inline("🇪🇬 مصر", b"rev_20"), Button.inline("🇸🇦 السعودية", b"rev_966")],
+            [Button.inline("🇦🇪 الإمارات", b"rev_971"), Button.inline("🇰🇼 الكويت", b"rev_965")],
+            [Button.inline("🇶🇦 قطر", b"rev_974"), Button.inline("🇧🇭 البحرين", b"rev_973")],
+            [Button.inline("🇴🇲 عمان", b"rev_968"), Button.inline("🇯🇴 الأردن", b"rev_962")],
+            [Button.inline("🇮🇶 العراق", b"rev_964"), Button.inline("🇸🇾 سوريا", b"rev_963")],
+            [Button.inline("🇱🇧 لبنان", b"rev_961"), Button.inline("🔙 رجوع", b"main")],
+        ]
+
+# ==================== HANDLERS ====================
+@bot.on(events.NewMessage(pattern='/start'))
+async def start_handler(event):
+    await event.respond("""🧨 **NinjaGram Pro Max Ultra v10**
+
+🔞 أقوى بوت أدوات تيليجرام وواتساب في الكوكب
+
+⚡ **17 خدمة فتاكة:**
+📞 تروكولر حقيقي | 🔫 15 نوع بلاغات
+🕵️ OSINT فحص عميق | 📞 كشف رقم (Russian)
+🔍 تجميع جروبات عربي | 🔓 فك حظر
+🧬 فحص تسريبات | 💣 صيد يوزرات
+📊 تحليل جروب | 📝 مزور رسائل
+📱 أدوات واتساب | 🔗 تحليل روابط
+🎭 كشف وهمي | 🔐 فحص أمان
+
+⚠️ للأغراض التعليمية والأمنية فقط
+👨‍💻 @NinjaGram | 📢 @Q_g_r_a_m""", buttons=UI.main_menu(), parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"main"))
+async def back_main(event):
+    await event.edit("🧨 **القائمة الرئيسية**", buttons=UI.main_menu(), parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"info"))
+async def info_handler(event):
+    await event.edit("""🧨 **NinjaGram Pro Max Ultra v10**
+
+📊 **إحصائيات:**
+• 17 خدمة رئيسية
+• 15 نوع بلاغات
+• 3 APIs تسريبات
+• 4 طرق بحث عن جروبات
+• 2 منصة (تيليجرام + واتساب)
+• دعم 11+ دولة عربية
+• 100% واجهة عربية
+
+👨‍💻 @NinjaGram | 📢 @Q_g_r_a_m""", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+# Service handlers
+@bot.on(events.CallbackQuery(data=b"tc"))
+async def tc_start(event):
+    user_states[event.sender_id] = "tc"
+    await event.edit("📞 **تروكولر**\n\nأرسل رقم الهاتف أو الاسم للبحث:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"rpt"))
+async def rpt_menu(event):
+    await event.edit("🔫 **بلاغات (15 نوع)**\n\nاختر نوع البلاغ:", buttons=UI.report_menu(), parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=re.compile(rb"rpt_(.+)")))
+async def rpt_type_handler(event):
+    rt = event.data.decode().replace("rpt_", "")
+    pending_data[event.sender_id] = {"rtype": rt}
+    name = Reporter.TYPES.get(rt, ("?",))[0]
+    await event.edit(f"🔫 **{name}**\n\nاختر المنصة:", buttons=[
+        [Button.inline("📱 تيليجرام", f"rptplat_tg_{rt}".encode()), Button.inline("💬 واتساب", f"rptplat_wa_{rt}".encode())],
+        [Button.inline("🔙", b"rpt")]
+    ], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=re.compile(rb"rptplat_(.+)_(.+)")))
+async def rpt_plat_handler(event):
+    parts = event.data.decode().split("_")
+    platform = parts[1]; rt = "_".join(parts[2:])
+    pending_data[event.sender_id].update({"platform": platform, "rtype": rt})
+    user_states[event.sender_id] = "rpt_target"
+    pname = "تيليجرام" if platform == "tg" else "واتساب"
+    await event.edit(f"🔫 **{pname}**\n\nأرسل {'اليوزر @' if platform=='tg' else 'الرقم +'} الهدف:", buttons=[[Button.inline("🔙", b"rpt")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"osint"))
+async def osint_start(event):
+    user_states[event.sender_id] = "osint"
+    await event.edit("🕵️ **OSINT فحص عميق**\n\nأرسل اليوزر أو ID الحساب:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"reveal"))
+async def reveal_start(event):
+    await event.edit("📞 **كشف رقم الهاتف (Russian Method)**\n\nاختر الدولة:", buttons=UI.country_menu(), parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=re.compile(rb"rev_(.+)")))
+async def reveal_country(event):
+    cc = event.data.decode().replace("rev_", "")
+    pending_data[event.sender_id] = {"cc": cc}
+    user_states[event.sender_id] = "reveal_target"
+    await event.edit("📞 **كشف الرقم**\n\nأرسل يوزر الهدف:", buttons=[[Button.inline("🔙", b"reveal")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"scrape"))
+async def scrape_start(event):
+    user_states[event.sender_id] = "scrape"
+    await event.edit("🔍 **بحث جروبات**\n\nأرسل الكلمة المفتاحية (يدعم العربي):", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"unban"))
+async def unban_menu(event):
+    await event.edit("🔓 **فك الحظر**\n\nاختر المنصة:", buttons=[
+        [Button.inline("📱 تيليجرام", b"unban_tg"), Button.inline("💬 واتساب", b"unban_wa")],
+        [Button.inline("🔙", b"main")]
+    ], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"unban_tg"))
+async def unban_tg_start(event):
+    user_states[event.sender_id] = "unban_tg"
+    await event.edit("🔓 **فك حظر تيليجرام**\n\nأرسل رقم الهاتف:", buttons=[[Button.inline("🔙", b"unban")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"unban_wa"))
+async def unban_wa_start(event):
+    user_states[event.sender_id] = "unban_wa"
+    await event.edit("🔓 **فك حظر واتساب**\n\nأرسل رقم الهاتف:", buttons=[[Button.inline("🔙", b"unban")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"breach"))
+async def breach_start(event):
+    user_states[event.sender_id] = "breach"
+    await event.edit("🧬 **فحص التسريبات**\n\nأرسل الإيميل أو رقم الهاتف:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"hunt"))
+async def hunt_handler(event):
+    if not Security.rate(event.sender_id, "hunt", 3):
+        await event.answer("⏳ انتظر دقيقة", alert=True); return
+    await event.edit("💣 **جاري الصيد...**", parse_mode='md')
+    pool = set(); chars = "abcdefghijklmnopqrstuvwxyz"
+    lucky = ["111","222","333","444","555","666","777","888","999","69","007","420","000","123","321"]
+    for _ in range(300):
+        c1, c2, c3 = random.choice(chars), random.choice(chars), random.choice(chars)
+        pool.update([f"{c1}{c2}{random.choice(lucky)}", f"{c1}{random.choice('aeiou')}{c2}", f"{c1}{c2}{c3}"])
+    pool = {u for u in pool if 3 <= len(u) <= 12}; found = []
+    async with aiohttp.ClientSession() as s:
+        sem = asyncio.Semaphore(30)
+        async def chk(u):
+            async with sem:
+                try:
+                    async with s.get(f"https://t.me/{u}", headers={'User-Agent': ua.random}, timeout=5) as r:
+                        if r.status == 404: found.append(u)
+                except: pass
+        await asyncio.gather(*[chk(u) for u in list(pool)[:100]])
+    txt = f"💣 **تم الصيد!**\n\n🎯 {len(found)} يوزر متاح\n\n" + "\n".join([f"• @{u}" for u in sorted(found, key=len)[:25]]) if found else "❌ لم يتم العثور على يوزرات"
+    await event.edit(txt, buttons=[[Button.inline("🔄 صيد", b"hunt"), Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"analyze"))
+async def analyze_start(event):
+    user_states[event.sender_id] = "analyze"
+    await event.edit("📊 **تحليل جروب/قناة**\n\nأرسل يوزر الجروب @:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"faker"))
+async def faker_menu(event):
+    await event.edit("📝 **مزور رسائل**\n\nاختر المنصة:", buttons=[
+        [Button.inline("📱 تيليجرام", b"fk_tg"), Button.inline("💬 واتساب", b"fk_wa")],
+        [Button.inline("🔙", b"main")]
+    ], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"fk_tg"))
+async def fk_tg_start(event):
+    user_states[event.sender_id] = "fk_tg"
+    await event.edit("📝 **رسالة تيليجرام**\n\nأرسل: الاسم|الرسالة", buttons=[[Button.inline("🔙", b"faker")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"fk_wa"))
+async def fk_wa_start(event):
+    user_states[event.sender_id] = "fk_wa"
+    await event.edit("📝 **رسالة واتساب**\n\nأرسل: الاسم|الرسالة", buttons=[[Button.inline("🔙", b"faker")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"wa"))
+async def wa_start(event):
+    user_states[event.sender_id] = "wa"
+    await event.edit("📱 **أدوات واتساب**\n\nأرسل رقم الهاتف:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"checkreg"))
+async def checkreg_start(event):
+    user_states[event.sender_id] = "checkreg"
+    await event.edit("📞 **فحص رقم مسجل في تيليجرام**\n\nأرسل رقم الهاتف:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"link"))
+async def link_start(event):
+    user_states[event.sender_id] = "link"
+    await event.edit("🔗 **تحليل رابط تيليجرام**\n\nأرسل الرابط:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"fake"))
+async def fake_start(event):
+    user_states[event.sender_id] = "fake"
+    await event.edit("🎭 **كشف الحسابات الوهمية**\n\nأرسل يوزر أو ID:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"security"))
+async def security_start(event):
+    user_states[event.sender_id] = "security"
+    await event.edit("🔐 **فحص أمان الحساب**\n\nأرسل يوزر أو ID:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+@bot.on(events.CallbackQuery(data=b"convert"))
+async def convert_start(event):
+    user_states[event.sender_id] = "convert"
+    await event.edit("🔄 **تحويل ID ↔ يوزر**\n\nأرسل اليوزر @ أو ID:", buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+
+# ==================== MAIN MESSAGE HANDLER ====================
+@bot.on(events.NewMessage(func=lambda e: e.sender_id in user_states and not e.text.startswith('/')))
+async def message_handler(event):
+    uid = event.sender_id; st = user_states.pop(uid, None); txt = event.text.strip()
+    if not st: return
+    try:
+        if st == "tc":
+            ld = await event.respond("📞 **جاري البحث...**")
+            if txt.startswith('+') or any(c.isdigit() for c in txt[:3]):
+                r = await Truecaller.lookup(txt)
+                out = f"📞 **{r['phone']}**\n\n✅ صالح: {'نعم' if r['valid'] else 'لا'}\n📡 الناقل: {r['carrier']}\n🌍 البلد: {r['country']}\n📍 الموقع: {r['location']}\n⚠️ تقارير سبام: {r['spam_reports']}\n🎯 الخطورة: {r['risk_score']}/100\n📊 المستوى: {r['risk_level']}"
+                if r['social']: out += f"\n📱 منصات: {', '.join(r['social'][:8])}"
             else:
-                results[platform] = "❌ محجوز"
+                res = await Truecaller.reverse(txt)
+                out = f"🔍 **بحث عن: {txt}**\n\n" + ("\n".join([f"📞 {x['phone']}" for x in res[:15]]) if res else "❌ لا نتائج")
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+        
+        elif st == "rpt_target":
+            d = pending_data.pop(uid, {}); rt = d.get("rtype", "spam"); platform = "telegram" if d.get("platform") == "tg" else "whatsapp"
+            ld = await event.respond("🔫 **جاري إعداد البلاغ...**")
+            report = Reporter.generate(rt, txt, platform)
+            out = f"🔫 **بلاغ {report['type']}**\n\n📋 ID: `{report['id']}`\n⚠️ الخطورة: {report['severity'].upper()}\n📧 الإيميل: `{report['email']}`\n\n📝 **نص البلاغ:**\n```{report['body'][:2000]}```"
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"rpt")]], parse_mode='md')
+        
+        elif st == "osint":
+            ld = await event.respond("🕵️ **جاري الفحص العميق...**")
+            r = await Osint.deep_scan(txt)
+            if "error" in r:
+                await ld.edit(f"❌ {r['error']}", buttons=[[Button.inline("🔙", b"main")]]); return
+            out = f"🕵️ **تقرير OSINT**\n\n📋 **معلومات أساسية:**\n• ID: `{r['basic'].get('id')}`\n• يوزر: @{r['basic'].get('username')}\n• اسم: {r['basic'].get('full_name')}\n• هاتف: {r['basic'].get('phone')}\n• موثق: {r['basic'].get('verified')}\n• بريميوم: {r['basic'].get('premium')}\n• بوت: {r['basic'].get('bot')}\n• احتيال: {r['basic'].get('scam')}\n• مزيف: {r['basic'].get('fake')}"
+            if r['activity'].get('created_date'):
+                out += f"\n\n📅 **النشاط:**\n• تاريخ الإنشاء: {r['activity'].get('created_date')}\n• العمر: {r['activity'].get('age')}\n• البايو: {r['activity'].get('bio', 'لا يوجد')[:200]}"
+            if r['security']:
+                out += f"\n\n⚠️ **تحليل الأمان ({len(r['security'])} مشكلة):**\n" + "\n".join([f"• {i}" for i in r['security'][:10]])
+            out += f"\n\n🎯 **الخطورة:** {r['risk']}/100 - {r.get('risk_level', '?')}"
+            if r.get('exposed', {}).get('emails'):
+                out += f"\n\n📧 **إيميلات مكشوفة:** {', '.join(r['exposed']['emails'][:5])}"
+            if r.get('exposed', {}).get('other_platforms'):
+                out += f"\n\n🌐 **منصات أخرى:** {', '.join(r['exposed']['other_platforms'].keys())}"
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+        
+        elif st == "reveal_target":
+            d = pending_data.pop(uid, {}); cc = d.get("cc", "20")
+            ld = await event.respond("📞 **جاري كشف الرقم...**\n⏳ هذه العملية تستغرق وقتاً")
+            r = await PhoneRevealer.reveal(txt, cc)
+            if r["found"]:
+                out = f"✅ **تم العثور على الرقم!**\n\n📞 `{r['phone']}`\n🔢 عدد المحاولات: {r['tries']}\n⏱️ الوقت: {r['time_taken']} ثانية\n🛠️ الطريقة: Russian Contact Import"
+            else:
+                out = f"❌ **لم يتم العثور على الرقم**\n\n🔢 عدد المحاولات: {r['tries']}\n⏱️ الوقت: {r['time_taken']} ثانية\n💡 الرقم غير مكشوف ولم نتمكن من تحديده"
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"reveal")]], parse_mode='md')
+        
+        elif st == "scrape":
+            ld = await event.respond(f"🔍 **جاري البحث عن: {txt}**")
+            res = await GroupScraper.search(txt)
+            if res:
+                out = f"🔍 **نتائج البحث: {txt}**\n\n✅ {len(res)} نتيجة\n\n" + "\n".join([f"{i+1}. [{g.get('title', g.get('username'))}]({g.get('link')}) | 👥 {g.get('members', '?')} | {g.get('type', '')}" for i, g in enumerate(res[:15])])
+            else:
+                out = f"❌ لا نتائج لـ: {txt}"
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+        
+        elif st == "unban_tg":
+            await event.respond(Unban.telegram(txt), buttons=[[Button.inline("🔙", b"unban")]], parse_mode='md')
+        
+        elif st == "unban_wa":
+            await event.respond(Unban.whatsapp(txt), buttons=[[Button.inline("🔙", b"unban")]], parse_mode='md')
+        
+        elif st == "breach":
+            ld = await event.respond("🧬 **جاري الفحص...**")
+            if '@' in txt:
+                r = await Breach.check_email(txt)
+                out = f"🧬 **فحص: {txt}**\n\n🔢 عدد التسريبات: {r['count']}\n" + "\n".join([f"• {b['name']} ({b['date']})" for b in r.get('breaches', [])[:10]])
+            else:
+                r = await Breach.check_phone(txt)
+                out = f"🧬 **فحص: {txt}**\n\n🔍 موجود في تسريبات: {'⚠️ نعم' if r.get('found') else '✅ لا'}"
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+        
+        elif st == "analyze":
+            ld = await event.respond("📊 **جاري التحليل...**")
+            r = await GroupAnalyzer.analyze(txt)
+            if "error" in r:
+                out = f"❌ {r['error']}"
+            else:
+                out = f"📊 **تحليل: {r.get('title', txt)}**\n\n🆔 ID: `{r.get('id')}`\n📋 النوع: {r.get('type')}\n✅ موثق: {r.get('verified')}\n👥 الأعضاء: {r.get('members', 0):,}\n📊 الحجم: {r.get('size')}\n📝 الوصف: {r.get('description', 'لا يوجد')[:300]}"
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+        
+        elif st == "fk_tg":
+            if '|' in txt:
+                n, m = txt.split('|', 1); img = await MessageFaker.telegram_msg(n.strip(), m.strip())
+                await bot.send_file(event.chat_id, img, caption="📝 رسالة تيليجرام مزيفة\n⚠️ للأغراض التعليمية فقط", buttons=[[Button.inline("🔙", b"faker")]])
+            else:
+                await event.respond("❌ استخدم: الاسم|الرسالة", buttons=[[Button.inline("🔙", b"faker")]])
+        
+        elif st == "fk_wa":
+            if '|' in txt:
+                n, m = txt.split('|', 1); img = await MessageFaker.whatsapp_msg(n.strip(), m.strip())
+                await bot.send_file(event.chat_id, img, caption="📝 رسالة واتساب مزيفة\n⚠️ للأغراض التعليمية فقط", buttons=[[Button.inline("🔙", b"faker")]])
+            else:
+                await event.respond("❌ استخدم: الاسم|الرسالة", buttons=[[Button.inline("🔙", b"faker")]])
+        
+        elif st == "wa":
+            await event.respond(f"📱 **رابط واتساب:**\nhttps://wa.me/{txt.replace('+', '')}", buttons=[[Button.inline("🔙", b"main")]])
+        
+        elif st == "checkreg":
+            ld = await event.respond("📞 **جاري الفحص...**")
+            r = await PhoneRevealer.check_registered(txt)
+            if r["registered"]:
+                u = r["user"]
+                out = f"✅ **الرقم مسجل في تيليجرام**\n\n🆔 ID: `{u['id']}`\n👤 الاسم: {u['name']}\n🔖 يوزر: @{u.get('username', 'لا يوجد')}"
+            else:
+                out = "❌ الرقم غير مسجل في تيليجرام"
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+        
+        elif st == "link":
+            ld = await event.respond("🔗 **جاري التحليل...**")
+            r = await LinkAnalyzer.analyze(txt)
+            out = f"🔗 **تحليل الرابط**\n\n📎 {txt}\n📋 النوع: {r['type']}\n🔍 المعرف: {r.get('identifier', '?')}\n📊 النتيجة: {r.get('resolved', '?')}"
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+        
+        elif st == "fake":
+            ld = await event.respond("🎭 **جاري التحليل...**")
+            r = await FakeDetector.analyze(txt)
+            out = f"🎭 **كشف الحسابات الوهمية**\n\n🎯 احتمالية وهمي: {r['fake_probability']}%\n📊 التصنيف: {r['verdict']}"
+            if r.get('indicators'):
+                out += f"\n\n⚠️ المؤشرات:\n" + "\n".join([f"• {i}" for i in r['indicators']])
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+        
+        elif st == "security":
+            ld = await event.respond("🔐 **جاري الفحص...**")
+            r = await SecurityChecker.check(txt)
+            out = f"🔐 **فحص أمان الحساب**\n\n🛡️ درجة الأمان: {r['security_score']}/100\n📊 المستوى: {r['level']}"
+            if r.get('issues'):
+                out += f"\n\n⚠️ مشاكل:\n" + "\n".join([f"• {i}" for i in r['issues']])
+            if r.get('recommendations'):
+                out += f"\n\n💡 توصيات:\n" + "\n".join([f"• {i}" for i in r['recommendations']])
+            await ld.edit(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+        
+        elif st == "convert":
+            try:
+                entity = await bot.get_entity(int(txt) if txt.lstrip('-').isdigit() else txt.replace("@", ""))
+                un = getattr(entity, 'username', None)
+                out = f"🔄 **تحويل**\n\n🆔 ID: `{entity.id}`\n🔖 يوزر: @{un if un else 'لا يوجد'}\n👤 {getattr(entity, 'first_name', '')} {getattr(entity, 'last_name', '')}"
+                await event.respond(out, buttons=[[Button.inline("🔙", b"main")]], parse_mode='md')
+            except:
+                await event.respond("❌ غير موجود", buttons=[[Button.inline("🔙", b"main")]])
     
-    text = f"🌐 **نتائج فحص @{username}**\n\n"
-    text += f"📱 تيليجرام: {results.get('tg', '⚠️ خطأ')}\n"
-    text += f"📷 انستجرام: {results.get('ig', '⚠️ خطأ')}\n"
-    text += f"🎵 تيكتوك: {results.get('tk', '⚠️ خطأ')}\n"
-    text += f"🐙 جيت هب: {results.get('gh', '⚠️ خطأ')}\n"
-    text += f"🐦 إكس: {results.get('x', '⚠️ خطأ')}\n"
-    text += f"📘 فيسبوك: {results.get('fb', '⚠️ خطأ')}\n\n"
-    
-    if available_count > 0:
-        text += f"🎉 اليوزر متاح في {available_count} منصة!"
-    else:
-        text += "💀 اليوزر محجوز في كل المنصات"
-    
-    await loading_msg.edit(text, buttons=[[Button.inline("🔙 رجوع", b"check_menu")]], parse_mode='md')
+    except Exception as e:
+        logger.error(f"Handler error: {e}")
+        await event.respond(f"❌ خطأ: {str(e)[:150]}", buttons=[[Button.inline("🔙", b"main")]])
 
-# ============================================
-# نظام الإحصائيات
-# ============================================
-@bot.on(events.CallbackQuery(data=b"stats_menu"))
-async def stats_menu(event):
-    """عرض إحصائيات البوت"""
-    cache_size = len(username_cache)
-    active_users = len([uid for uid in user_states if user_states[uid]])
-    
-    text = (
-        "📊 **إحصائيات NinjaGram Pro**\n\n"
-        f"👥 المستخدمين النشطين: {active_users}\n"
-        f"💾 اليوزرات في الكاش: {cache_size}\n"
-        f"⏱️ مدة الكاش: {CACHE_TTL} ثانية\n"
-        f"🔒 معدل الحماية: 5 طلبات/دقيقة\n"
-        f"🌐 المنصات المدعومة: 6\n"
-        f"📥 منصات التحميل: 8+\n"
-        f"🧠 استراتيجيات الصيد: 15\n\n"
-        "⚡ **الإصدار:** Pro Max Ultra v3.0"
-    )
-    
-    await event.edit(text, buttons=[[Button.inline("🔙 رجوع", b"back_main")]], parse_mode='md')
-
-# ============================================
-# أحداث إضافية
-# ============================================
-@bot.on(events.CallbackQuery(data=b"back_main"))
-async def back_to_main(event):
-    caption = "🐙 **NinjaGram Pro Max Ultra**\n\nاختر الخدمة:"
-    await event.edit(caption, buttons=UIManager.main_menu(), parse_mode='md')
-
-@bot.on(events.CallbackQuery(data=b"hunt_menu"))
-async def hunt_menu_handler(event):
-    await event.edit("🎯 **صيد اليوزرات الذكي**\n\nاختر المنصة:", buttons=UIManager.hunt_menu(), parse_mode='md')
-
-@bot.on(events.CallbackQuery(data=b"video_menu"))
-async def video_menu_handler(event):
-    await event.edit("🎬 **تحميل الفيديوهات**\n\nاختر المنصة:", buttons=UIManager.video_menu(), parse_mode='md')
-
-@bot.on(events.CallbackQuery(data=b"info_menu"))
-async def info_menu_handler(event):
-    await event.edit("🔍 **معلومات الحسابات**\n\nاختر المنصة:", buttons=UIManager.info_menu(), parse_mode='md')
-
-@bot.on(events.CallbackQuery(data=b"check_menu"))
-async def check_menu_handler(event):
-    await event.edit("✅ **فحص اليوزرات**\n\nاختر نوع الفحص:", buttons=UIManager.check_menu(), parse_mode='md')
-
-# ============================================
-# بدء التشغيل
-# ============================================
-print("""
+# ==================== RUN ====================
+if __name__ == '__main__':
+    print("""
 ╔══════════════════════════════════════╗
-║     🐙 NinjaGram Pro Max Ultra      ║
-║     Ultimate Username Hunter Bot     ║
-║     Version: 3.0.0 Pro Max Ultra     ║
-║     Developer: @NinjaGram            ║
-║     Channel: @Q_g_r_a_m              ║
+║   🧨 NinjaGram Pro Max Ultra v10  ║
+║   17 Services | 15 Reports         ║
+║   @NinjaGram | @Q_g_r_a_m         ║
 ╚══════════════════════════════════════╝
-""")
-
-bot.start(bot_token=BOT_TOKEN)
-bot.run_until_disconnected()
+    """)
+    async def main():
+        await bot.start(bot_token=BOT_TOKEN)
+        me = await bot.get_me()
+        print(f"✅ Bot Online: @{me.username}")
+        await bot.run_until_disconnected()
+    asyncio.run(main())
