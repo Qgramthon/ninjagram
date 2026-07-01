@@ -8,6 +8,7 @@ yt-dlp
 SpeechRecognition
 pydub
 aiohttp
+psutil
 aiofiles
 httpx[http2]
 pytube
