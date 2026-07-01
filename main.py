@@ -24,7 +24,7 @@ from aiohttp import web
 # ==================== CONFIG ====================
 DATA_DIR = './data'
 os.makedirs(DATA_DIR, exist_ok=True)
-BOT_TOKEN = '7998616214:AAFGroKKmwnrOtyAeJIHmrs_bKW5jXl0B20'
+BOT_TOKEN = '7998616214:AAHJmfPpL8rzRgso3hxIO-CKHE2rlycyNwo'
 API_ID = 2040
 API_HASH = 'b18441a1ff607e10a989891a5462e627'
 DEV_ID = 6443238809
