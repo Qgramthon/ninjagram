@@ -1,3 +1,7 @@
+# NinjaGram Pro Max Ultra v9.0
+# ================================
+
+# أساسيات البوت
 flask
 telethon
 cryptg
@@ -14,3 +18,45 @@ httpx[http2]
 pytube
 duckduckgo_search
 python-telegram-bot==20.7
+python-dotenv
+pyrogram
+TgCrypto
+
+# أدوات الهكر والأمان
+holehe
+maigret
+sherlock-project
+theHarvester
+h8mail
+osint
+ghunt
+
+# تحليل البيانات
+beautifulsoup4
+lxml
+selenium
+cloudscraper
+fake-useragent
+
+# تحليل أرقام الهواتف
+phonenumbers
+
+# معالجة الصور والفيديو
+opencv-python
+exifread
+imagehash
+
+# التشفير
+cryptography
+pycryptodome
+
+# قواعد بيانات
+redis
+pymongo
+sqlalchemy
+
+# أدوات مساعدة
+colorama
+rich
+tqdm
+loguru
