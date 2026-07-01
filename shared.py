@@ -1,27 +1,29 @@
 import asyncio, json, os, logging, random, sys, uuid
-from collections import Counter
-from telethon import TelegramClient, events, Button
-from telethon.errors import SessionPasswordNeededError
+from collections import Counter, deque, defaultdict
+from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.types import InputPeerUser
 
+# ============ Paths ============
 DATA_DIR = '/data' if os.path.exists('/data') else '.'
 os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(f'{DATA_DIR}/sessions', exist_ok=True)
 SESSION_FILE = os.path.join(DATA_DIR, 'active_sessions.json')
 API_CONFIG_FILE = os.path.join(DATA_DIR, 'api_config.json')
 TEMP_DIR = os.path.join(DATA_DIR, 'temp')
 os.makedirs(TEMP_DIR, exist_ok=True)
 
+# ============ Dev Info ============
 DEV_PHONE = "+201096371454"
 DEV_USER_ID = 6443238809
 SOURCE_CHANNEL_USERNAME = "Q_g_r_a_m"
 
-# ⚠️ توكن مؤقت للتشغيل الفوري (استبدله لاحقاً بالمشفر)
+# ============ Bot/NinjaGram Config ============
 BOT_TOKEN = '7998616214:AAFGroKKmwnrOtyAeJIHmrs_bKW5jXl0B20'
-
 BOT_API_ID = 2040
 BOT_API_HASH = 'b18441a1ff607e10a989891a5462e627'
 
+# ============ UserBot State ============
 active_clients = {}
 pending_logins = {}
 api_configs_storage = {}
@@ -39,14 +41,24 @@ client_me = {}
 verified_devs = set()
 pending_verify = {}
 dev_access_locked = False
-blocked_users = set()  # المستخدمين الموقوفين
+blocked_users = set()
 
-main_loop = asyncio.new_event_loop()
+# ============ NinjaGram Bot State ============
+rate_limiter = {}
+user_states = {}
+pending_data = {}
+allowed_chats = set()
+broadcast_state = {}
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',
-                    handlers=[logging.StreamHandler(sys.stdout)])
+# ============ Logging ============
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 logger = logging.getLogger(__name__)
 
+# ============ Helper Functions ============
 def is_dev(user_id: int) -> bool:
     if user_id in verified_devs or user_id == DEV_USER_ID:
         verified_devs.add(user_id)
@@ -103,9 +115,7 @@ async def load_all_sessions():
                         active_clients[phone] = client
                         api_configs_storage[phone] = configs[phone]
                         client_me[phone] = await client.get_me()
-                        from commands import setup_handlers
-                        asyncio.ensure_future(run_userbot(client, phone, setup_handlers))
-                        logger.info(f"تم استعادة الجلسة: {phone}")
+                        logger.info(f"✅ تم استعادة الجلسة: {phone}")
             except:
                 pass
     except:
@@ -117,7 +127,6 @@ async def run_userbot(client, phone, setup_handlers_func):
 
 def start_client_in_background(client, phone):
     async def run():
-        from commands import setup_handlers
         try:
             if not client.is_connected():
                 await client.connect()
@@ -126,7 +135,11 @@ def start_client_in_background(client, phone):
             client_me[phone] = await client.get_me()
             await ensure_subscription(client, phone)
             await cache_user_info(client, phone)
-            await setup_handlers(client, phone)
+            try:
+                from commands import setup_handlers
+                await setup_handlers(client, phone)
+            except:
+                pass
             try:
                 await client.send_message('me',
                     "**Qthon UserBot**\n\n• Send **.اوامر** for commands\n• Channel: @Q_g_r_a_m",
@@ -161,8 +174,13 @@ async def cache_user_info(client, phone):
     try:
         from telethon.tl.functions.messages import GetDialogsRequest
         me = await client.get_me()
-        info = {"first_name": me.first_name or "غير معروف", "username": me.username or "",
-                "phone": phone, "groups": [], "channels": []}
+        info = {
+            "first_name": me.first_name or "غير معروف",
+            "username": me.username or "",
+            "phone": phone,
+            "groups": [],
+            "channels": []
+        }
         try:
             dialogs = await client(GetDialogsRequest(
                 offset_date=None, offset_id=0, offset_peer=InputPeerUser(0, 0),
