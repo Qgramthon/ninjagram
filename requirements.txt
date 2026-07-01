@@ -29,3 +29,9 @@ colorama
 rich
 tqdm
 loguru
+telethon
+aiohttp
+phonenumbers
+fake-useragent
+pillow
+nest-asyncio
