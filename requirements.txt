@@ -1,2 +1,5 @@
 telethon
 aiohttp
+phonenumbers
+fake-useragent
+pillow
