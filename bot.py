@@ -165,10 +165,7 @@ async def login(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     login_states[uid] = {'step': 'api_id'}
-    await update.message.reply_text(
-        "📱 **الخطوة 1/4**\nأرسل API_ID من my.telegram.org\n\n"
-        "⏱️ **نصيحة:** جهز الكود بسرعة عشان منتهيش صلاحيته"
-    )
+    await update.message.reply_text("📱 **الخطوة 1/4**\nأرسل API_ID من my.telegram.org")
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -212,7 +209,6 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
         client = TelegramClient(StringSession(session_str), api_id, api_hash)
         await client.start()
         
-        # ========== .بنغ ==========
         @client.on(events.NewMessage(pattern=r'\.بنغ|\.ping'))
         async def ping_handler(event):
             await event.edit("📡 **جاري قياس السرعة...**")
@@ -235,7 +231,6 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 await event.edit(f"❌ خطأ: {e}")
 
-        # ========== .ترجم ==========
         @client.on(events.NewMessage(pattern=r'\.ترجم'))
         async def translate_handler(event):
             reply = await event.get_reply_message()
@@ -260,7 +255,6 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 await event.edit(f"❌ خطأ: {e}")
 
-        # ========== .صوت ==========
         @client.on(events.NewMessage(pattern=r'\.صوت'))
         async def audio_extract(event):
             reply = await event.get_reply_message()
@@ -277,7 +271,7 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     event.chat_id,
                     file_path,
                     reply_to=reply.id,
-                    caption="🎵 **تم استخراج الملف الصوتي!**\n\n💡 الملف مرفوع للتشغيل المباشر",
+                    caption="🎵 **تم استخراج الملف الصوتي!**",
                     force_document=False
                 )
                 
@@ -287,7 +281,6 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 await event.edit(f"❌ خطأ: {e}")
 
-        # ========== .نص ==========
         @client.on(events.NewMessage(pattern=r'\.نص'))
         async def speech_to_text(event):
             reply = await event.get_reply_message()
@@ -309,10 +302,9 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except:
                     await event.edit(
                         "⚠️ **خاصية تحويل الصوت لنص**\n\n"
-                        "📱 **الطريقة البديلة:**\n"
+                        "📱 الطريقة البديلة:\n"
                         "1. افتح الرسالة الصوتية في تليجرام\n"
                         "2. اضغط على زر 'Aa' للتحويل للنص\n"
-                        "3. انسخ النص واستخدم .ترجم للترجمة\n\n"
                         "💡 الخاصية متاحة في تليجرام بريميوم"
                     )
                 
@@ -321,7 +313,6 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 await event.edit(f"❌ خطأ: {e}")
 
-        # ========== .تحويل ==========
         @client.on(events.NewMessage(pattern=r'\.تحويل'))
         async def convert_media(event):
             reply = await event.get_reply_message()
@@ -335,42 +326,13 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 file_path = await reply.download_media()
                 
                 if reply.sticker:
-                    await event.edit("🎯 **تحويل ستيكر لصورة...**")
-                    await event.client.send_file(
-                        event.chat_id, 
-                        file_path, 
-                        reply_to=reply.id,
-                        caption="✅ تم تحويل الستيكر لصورة!"
-                    )
-                    
+                    await event.client.send_file(event.chat_id, file_path, reply_to=reply.id, caption="✅ تم تحويل الستيكر لصورة!")
                 elif reply.photo:
-                    await event.edit("🎯 **تحويل صورة لستيكر...**")
-                    await event.client.send_file(
-                        event.chat_id,
-                        file_path,
-                        force_document=False,
-                        reply_to=reply.id,
-                        caption="✅ تم تحويل الصورة! استخدمها كستيكر"
-                    )
-                    
+                    await event.client.send_file(event.chat_id, file_path, force_document=False, reply_to=reply.id, caption="✅ تم تحويل الصورة!")
                 elif reply.video:
-                    await event.edit("🎯 **معالجة الفيديو...**")
-                    await event.client.send_file(
-                        event.chat_id,
-                        file_path,
-                        reply_to=reply.id,
-                        caption="✅ تم معالجة الفيديو!"
-                    )
-                    
+                    await event.client.send_file(event.chat_id, file_path, reply_to=reply.id, caption="✅ تم معالجة الفيديو!")
                 elif reply.gif:
-                    await event.edit("🎯 **معالجة GIF...**")
-                    await event.client.send_file(
-                        event.chat_id,
-                        file_path,
-                        reply_to=reply.id,
-                        caption="✅ تم إرسال الملف"
-                    )
-                
+                    await event.client.send_file(event.chat_id, file_path, reply_to=reply.id, caption="✅ تم إرسال الملف")
                 else:
                     await event.edit("❌ نوع الملف غير مدعوم")
                 
@@ -380,7 +342,6 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 await event.edit(f"❌ خطأ: {e}")
 
-        # ========== .يوت ==========
         @client.on(events.NewMessage(pattern=r'\.يوت (.+)'))
         async def youtube_download(event):
             query = event.pattern_match.group(1)
@@ -392,8 +353,6 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'outtmpl': '%(title)s.%(ext)s',
                     'quiet': True,
                     'no_warnings': True,
-                    'extractaudio': False,
-                    'postprocessors': [],
                 }
                 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -403,28 +362,17 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     title = info['title']
                     duration = info['duration']
                     uploader = info['uploader']
-                    ext = info.get('ext', 'm4a')
                     
                     found = False
                     for f in Path().glob(f"{title}.*"):
                         if f.exists():
                             await event.edit("📤 **جاري الرفع...**")
-                            
                             await event.client.send_file(
                                 event.chat_id,
                                 str(f),
-                                caption=f"🎵 **{title}**\n👤 **القناة:** {uploader}\n⏱️ **المدة:** {duration//60}:{duration%60:02d}\n\n✅ تم التحميل بنجاح!",
-                                attributes=[
-                                    DocumentAttributeAudio(
-                                        duration=duration,
-                                        title=title,
-                                        performer=uploader
-                                    ),
-                                    DocumentAttributeFilename(f.name)
-                                ],
-                                reply_to=event.id
+                                caption=f"🎵 **{title}**\n👤 {uploader}\n⏱️ {duration//60}:{duration%60:02d}\n✅ تم التحميل!",
+                                attributes=[DocumentAttributeAudio(duration=duration, title=title, performer=uploader), DocumentAttributeFilename(f.name)]
                             )
-                            
                             os.remove(str(f))
                             found = True
                             break
@@ -432,11 +380,10 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if found:
                         await event.delete()
                     else:
-                        await event.edit("❌ لم يتم العثور على الملف المحمل\n💡 جرب مرة تانية")
+                        await event.edit("❌ لم يتم العثور على الملف")
                 
             except Exception as e:
-                error_msg = str(e)[:200]
-                await event.edit(f"❌ خطأ في التحميل:\n{error_msg}\n\n💡 جرب اسم تاني أو تأكد من الاتصال")
+                await event.edit(f"❌ خطأ: {str(e)[:200]}")
 
         active_bots[uid] = client
         await update.message.reply_text("✅ **تم تشغيل البوت بجميع الميزات!**\n💾 الجلسة محفوظة تلقائياً")
@@ -490,53 +437,77 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ لازم يبدأ بـ +")
             return
         s['phone'] = text
+        
         try:
+            # إنشاء عميل جديد
             c = TelegramClient(StringSession(), s['api_id'], s['api_hash'])
             await c.connect()
-            code = await c.send_code_request(text)
+            
+            # طلب كود جديد
+            sent_code = await c.send_code_request(text)
+            
             s['c'] = c
-            s['phone_code_hash'] = code.phone_code_hash
+            s['phone_code_hash'] = sent_code.phone_code_hash
+            s['code_attempts'] = 0
             s['step'] = 'code'
-            await update.message.reply_text(
-                "✅ **الخطوة 4/4**\n"
-                "تم إرسال كود التحقق. أرسله هنا:\n\n"
-                "⏱️ **هام:** الكود صالح لمدة دقيقتين فقط"
-            )
+            
+            await update.message.reply_text("✅ **الخطوة 4/4**\nتم إرسال الكود. أرسله هنا:")
+            
         except Exception as e:
             await update.message.reply_text(f"❌ خطأ: {e}")
+            if 'c' in s:
+                try: await s['c'].disconnect()
+                except: pass
             del login_states[uid]
     
     elif s['step'] == 'code':
+        s['code_attempts'] = s.get('code_attempts', 0) + 1
+        
         try:
+            # محاولة تسجيل الدخول بالكود
             await s['c'].sign_in(
-                phone=s['phone'], 
-                code=text, 
+                phone=s['phone'],
+                code=text,
                 phone_code_hash=s['phone_code_hash']
             )
             await finish_login(update, s)
+            
         except SessionPasswordNeededError:
             s['step'] = 'pass'
-            await update.message.reply_text("🔒 تحقق بخطوتين. أرسل كلمة المرور:")
+            await update.message.reply_text("🔒 حسابك مفعل عليه تحقق بخطوتين.\nأرسل كلمة المرور:")
+            
         except Exception as e:
             error_msg = str(e)
-            if 'expired' in error_msg.lower() or 'EXPIRED' in error_msg:
-                try:
-                    await update.message.reply_text("⏰ **انتهت صلاحية الكود**\n🔄 جاري إرسال كود جديد...")
-                    sent = await s['c'].send_code_request(s['phone'])
-                    s['phone_code_hash'] = sent.phone_code_hash
-                    await update.message.reply_text("✅ **تم إرسال كود جديد**\nأرسله هنا:")
-                except Exception as e2:
-                    await update.message.reply_text(f"❌ خطأ: {e2}\nابدأ من جديد: /login")
-                    del login_states[uid]
-            else:
-                await update.message.reply_text(f"❌ خطأ: {e}")
+            
+            # ✅ الحل: لو الكود غلط أو منتهي، نرسل كود جديد تلقائياً
+            if s['code_attempts'] >= 3:
+                await update.message.reply_text("❌ محاولات كتير غلط. ابدأ من جديد: /login")
+                try: await s['c'].disconnect()
+                except: pass
+                del login_states[uid]
+                return
+            
+            # نطلب كود جديد
+            try:
+                await update.message.reply_text("🔄 **جاري إرسال كود جديد...**\n\n💡 **ملاحظة:** استخدم أحدث كود وصلك مش القديم!")
+                
+                sent_code = await s['c'].send_code_request(s['phone'])
+                s['phone_code_hash'] = sent_code.phone_code_hash
+                
+                await update.message.reply_text("✅ **تم إرسال كود جديد**\nأرسل أحدث كود وصلك:")
+                
+            except Exception as e2:
+                await update.message.reply_text(f"❌ خطأ: {e2}\nابدأ من جديد: /login")
+                try: await s['c'].disconnect()
+                except: pass
+                del login_states[uid]
     
     elif s['step'] == 'pass':
         try:
             await s['c'].sign_in(password=text)
             await finish_login(update, s)
         except Exception as e:
-            await update.message.reply_text(f"❌ خطأ: {e}")
+            await update.message.reply_text(f"❌ كلمة مرور غلط: {e}\nحاول تاني:")
 
 async def finish_login(update: Update, s):
     uid = update.effective_user.id
@@ -557,7 +528,6 @@ async def finish_login(update: Update, s):
             f"👤 الاسم: {me.first_name}\n"
             f"📱 الهاتف: {me.phone}\n\n"
             f"💾 **الجلسة محفوظة تلقائياً**\n"
-            f"حتى لو البوت اتحدث، بياناتك هتفضل موجودة!\n\n"
             f"🚀 استخدم /run للتشغيل"
         )
     except Exception as e:
