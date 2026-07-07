@@ -17,7 +17,7 @@ from pathlib import Path
 from telethon import TelegramClient, events, types
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
-from telethon.tl.types import DocumentAttributeVideo, DocumentAttributeAudio, DocumentAttributeFilename
+from telethon.tl.types import DocumentAttributeVideo, DocumentAttributeAudio
 from cryptography.fernet import Fernet
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -36,9 +36,14 @@ BOT_TOKEN = "8879863328:AAH_PB_1i50hIyU-UI58TcD-dflHl4dBFqo"
 # ==================== التشفير ====================
 
 def get_key():
+    """الحصول على مفتاح التشفير أو إنشاء واحد وحفظه"""
     key_file = Path("data/encryption_key.txt")
+    
+    # لو المفتاح موجود في ملف، نستخدمه
     if key_file.exists():
         return key_file.read_text().strip().encode()
+    
+    # لو موجود في متغيرات البيئة
     key = os.environ.get("ENCRYPTION_KEY", "")
     if key:
         try:
@@ -46,6 +51,8 @@ def get_key():
             return key.encode()
         except:
             pass
+    
+    # إنشاء مفتاح جديد وحفظه
     Path("data").mkdir(parents=True, exist_ok=True)
     new_key = Fernet.generate_key()
     key_file.write_text(new_key.decode())
@@ -59,12 +66,15 @@ def dec(t): return cipher.decrypt(t.encode()).decode() if t else None
 # ==================== قاعدة بيانات بسيطة ====================
 
 class SessionDB:
+    """قاعدة بيانات بسيطة لحفظ الجلسات"""
+    
     def __init__(self, filepath="data/sessions.json"):
         self.filepath = Path(filepath)
         self.filepath.parent.mkdir(parents=True, exist_ok=True)
         self.data = self._load()
     
     def _load(self):
+        """تحميل البيانات من الملف"""
         if self.filepath.exists():
             try:
                 return json.loads(self.filepath.read_text())
@@ -73,24 +83,33 @@ class SessionDB:
         return {}
     
     def _save(self):
+        """حفظ البيانات للملف"""
         self.filepath.write_text(json.dumps(self.data, indent=2))
     
     def get(self, user_id):
+        """استرجاع بيانات مستخدم"""
         return self.data.get(str(user_id))
     
     def set(self, user_id, data):
+        """حفظ بيانات مستخدم"""
         self.data[str(user_id)] = data
         self._save()
     
     def delete(self, user_id):
+        """حذف بيانات مستخدم"""
         if str(user_id) in self.data:
             del self.data[str(user_id)]
             self._save()
     
     def get_all(self):
+        """استرجاع كل المستخدمين"""
         return self.data
 
+# تهيئة قاعدة البيانات
 db = SessionDB()
+
+# ==================== تخزين مؤقت ====================
+
 active_bots = {}
 login_states = {}
 
@@ -115,6 +134,7 @@ def translate_text(text, source='auto', target='en'):
 # ==================== أوامر البوت ====================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """رسالة الترحيب"""
     uid = update.effective_user.id
     user_data = db.get(uid)
     
@@ -137,7 +157,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 .تحويل - تحويل صورة لستيكر والعكس
 .بنغ - قياس سرعة النت
 .يوت + اسم - تحميل صوت من يوتيوب
-.نص - استخراج النص من الصوت
 
 🛠️ /logout - /cancel - /help
 """)
@@ -151,21 +170,27 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 3️⃣ **.تحويل** - صورة↔ستيكر (رد على الوسائط)
 4️⃣ **.بنغ** - قياس سرعة الإنترنت الحقيقية
 5️⃣ **.يوت اغنية** - تحميل الصوت من يوتيوب
-6️⃣ **.نص** - استخراج النص من رسالة صوتية
 
 💾 **الجلسات محفوظة تلقائياً!**
+حتى لو البوت اتحدث، بياناتك هتفضل موجودة.
 """)
 
 async def login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تسجيل الدخول"""
     uid = update.effective_user.id
     user_data = db.get(uid)
     
     if user_data:
-        await update.message.reply_text("✅ أنت مسجل دخول بالفعل!\n🔄 استخدم /logout لو عايز تسجل بحساب تاني.")
+        await update.message.reply_text(
+            "✅ أنت مسجل دخول بالفعل!\n"
+            "🔄 استخدم /logout لو عايز تسجل بحساب تاني."
+        )
         return
     
     login_states[uid] = {'step': 'api_id'}
-    await update.message.reply_text("📱 **الخطوة 1/4**\nأرسل API_ID من my.telegram.org")
+    await update.message.reply_text(
+        "📱 **الخطوة 1/4**\nأرسل API_ID من my.telegram.org"
+    )
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -179,6 +204,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("لا توجد عملية جارية")
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """حالة الجلسة"""
     uid = update.effective_user.id
     user_data = db.get(uid)
     
@@ -190,6 +216,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔴 **غير مسجل دخول** ❌\n📱 استخدم /login")
 
 async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تشغيل اليوزربوت"""
     uid = update.effective_user.id
     user_data = db.get(uid)
     
@@ -202,14 +229,17 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     try:
+        # فك تشفير البيانات
         api_id = int(dec(user_data['api_id']))
         api_hash = dec(user_data['api_hash'])
         session_str = dec(user_data['session'])
         
+        # إنشاء عميل جديد
         client = TelegramClient(StringSession(session_str), api_id, api_hash)
         await client.start()
         
-        # ========== .بنغ ==========
+        # ========== الأوامر ==========
+        
         @client.on(events.NewMessage(pattern=r'\.بنغ|\.ping'))
         async def ping_handler(event):
             await event.edit("📡 **جاري قياس السرعة...**")
@@ -231,8 +261,7 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await event.edit(result)
             except Exception as e:
                 await event.edit(f"❌ خطأ: {e}")
-
-        # ========== .ترجم ==========
+        
         @client.on(events.NewMessage(pattern=r'\.ترجم'))
         async def translate_handler(event):
             reply = await event.get_reply_message()
@@ -256,71 +285,33 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await event.edit(result)
             except Exception as e:
                 await event.edit(f"❌ خطأ: {e}")
-
-        # ========== .صوت (مصلح - بدون ffmpeg) ==========
+        
         @client.on(events.NewMessage(pattern=r'\.صوت'))
         async def audio_extract(event):
             reply = await event.get_reply_message()
-            if not reply or (not reply.video and not reply.document):
+            if not reply or not reply.video:
                 await event.reply("❌ استخدم الأمر كرد على فيديو")
                 return
             
-            await event.edit("🎵 **جاري معالجة الملف...**")
+            await event.edit("🎵 **جاري استخراج الصوت...**")
             
             try:
-                file_path = await reply.download_media()
-                
-                # إرسال الملف مباشرة كصوت بدون تحويل
-                await event.client.send_file(
-                    event.chat_id,
-                    file_path,
-                    reply_to=reply.id,
-                    caption="🎵 **تم استخراج الملف الصوتي!**\n\n💡 الملف مرفوع للتشغيل المباشر",
-                    force_document=False
-                )
-                
-                os.remove(file_path)
-                await event.delete()
-                
-            except Exception as e:
-                await event.edit(f"❌ خطأ: {e}")
-
-        # ========== .نص (مصلح) ==========
-        @client.on(events.NewMessage(pattern=r'\.نص'))
-        async def speech_to_text(event):
-            reply = await event.get_reply_message()
-            if not reply or (not reply.voice and not reply.audio):
-                await event.reply("❌ استخدم الأمر كرد على رسالة صوتية")
-                return
-            
-            await event.edit("🎙️ **جاري استخراج النص...**")
-            
-            try:
-                voice_path = await reply.download_media()
+                video_path = await reply.download_media()
+                audio_path = video_path.rsplit('.', 1)[0] + '.mp3'
                 
                 try:
-                    # محاولة استخدام خاصية تليجرام للتحويل
-                    result = await client.transcribe_voice(event.chat_id, reply.id)
-                    if result:
-                        await event.edit(f"📝 **النص المستخرج:**\n\n{result}")
-                    else:
-                        raise Exception("No result")
+                    cmd = f'ffmpeg -i "{video_path}" -q:a 0 -map a "{audio_path}" -y'
+                    subprocess.run(cmd, shell=True, check=True, capture_output=True)
+                    await event.client.send_file(event.chat_id, audio_path, reply_to=reply.id, caption="🎵 تم استخراج الصوت!")
+                    os.remove(audio_path)
                 except:
-                    await event.edit(
-                        "⚠️ **خاصية تحويل الصوت لنص**\n\n"
-                        "📱 **الطريقة البديلة:**\n"
-                        "1. افتح الرسالة الصوتية في تليجرام\n"
-                        "2. اضغط على زر 'Aa' للتحويل للنص\n"
-                        "3. انسخ النص واستخدم .ترجم للترجمة\n\n"
-                        "💡 الخاصية متاحة في تليجرام بريميوم"
-                    )
+                    await event.client.send_file(event.chat_id, video_path, reply_to=reply.id, caption="⚠️ ffmpeg غير متوفر")
                 
-                os.remove(voice_path)
-                
+                os.remove(video_path)
+                await event.delete()
             except Exception as e:
                 await event.edit(f"❌ خطأ: {e}")
-
-        # ========== .تحويل (مصلح - بدون ffmpeg) ==========
+        
         @client.on(events.NewMessage(pattern=r'\.تحويل'))
         async def convert_media(event):
             reply = await event.get_reply_message()
@@ -334,70 +325,36 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 file_path = await reply.download_media()
                 
                 if reply.sticker:
-                    # ستيكر لصورة
-                    await event.edit("🎯 **تحويل ستيكر لصورة...**")
-                    await event.client.send_file(
-                        event.chat_id, 
-                        file_path, 
-                        reply_to=reply.id,
-                        caption="✅ تم تحويل الستيكر لصورة!"
-                    )
-                    
+                    await event.client.send_file(event.chat_id, file_path, reply_to=reply.id)
                 elif reply.photo:
-                    # صورة لستيكر
-                    await event.edit("🎯 **تحويل صورة لستيكر...**")
-                    await event.client.send_file(
-                        event.chat_id,
-                        file_path,
-                        force_document=False,
-                        reply_to=reply.id,
-                        caption="✅ تم تحويل الصورة! استخدمها كستيكر"
-                    )
-                    
+                    await event.client.send_file(event.chat_id, file_path, force_document=False, reply_to=reply.id)
                 elif reply.video:
-                    # فيديو - نرسله كما هو مع إشعار
-                    await event.edit("🎯 **معالجة الفيديو...**")
-                    await event.client.send_file(
-                        event.chat_id,
-                        file_path,
-                        reply_to=reply.id,
-                        caption="✅ تم معالجة الفيديو!\n💡 للتحويل لـ GIF استخدم برنامج تحويل"
-                    )
-                    
-                elif reply.gif:
-                    # GIF - نرسله كما هو
-                    await event.edit("🎯 **معالجة GIF...**")
-                    await event.client.send_file(
-                        event.chat_id,
-                        file_path,
-                        reply_to=reply.id,
-                        caption="✅ تم إرسال الملف"
-                    )
-                
-                else:
-                    await event.edit("❌ نوع الملف غير مدعوم")
+                    gif_path = file_path.rsplit('.', 1)[0] + '.gif'
+                    try:
+                        cmd = f'ffmpeg -i "{file_path}" -vf "fps=10,scale=320:-1:flags=lanczos" "{gif_path}" -y'
+                        subprocess.run(cmd, shell=True, check=True, capture_output=True)
+                        await event.client.send_file(event.chat_id, gif_path, reply_to=reply.id)
+                        os.remove(gif_path)
+                    except:
+                        await event.client.send_file(event.chat_id, file_path, reply_to=reply.id)
                 
                 os.remove(file_path)
                 await event.delete()
-                
             except Exception as e:
                 await event.edit(f"❌ خطأ: {e}")
-
-        # ========== .يوت (مصلح - بدون ffmpeg) ==========
+        
         @client.on(events.NewMessage(pattern=r'\.يوت (.+)'))
         async def youtube_download(event):
             query = event.pattern_match.group(1)
             await event.edit(f"🔍 **جاري البحث عن:** {query}")
             
             try:
-                # تحميل مباشر بدون تحويل - صيغة m4a أو webm
                 ydl_opts = {
-                    'format': 'bestaudio[ext=m4a]/bestaudio/best',
+                    'format': 'bestaudio/best',
+                    'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
                     'outtmpl': '%(title)s.%(ext)s',
                     'quiet': True,
                     'no_warnings': True,
-                    'extractaudio': False,
-                    'postprocessors': [],
                 }
                 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -407,42 +364,23 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     title = info['title']
                     duration = info['duration']
                     uploader = info['uploader']
-                    ext = info.get('ext', 'm4a')
+                    mp3_path = f"{title}.mp3"
                     
-                    # البحث عن الملف
-                    found = False
-                    for f in Path().glob(f"{title}.*"):
-                        if f.exists():
-                            await event.edit("📤 **جاري الرفع...**")
-                            
-                            await event.client.send_file(
-                                event.chat_id,
-                                str(f),
-                                caption=f"🎵 **{title}**\n👤 **القناة:** {uploader}\n⏱️ **المدة:** {duration//60}:{duration%60:02d}\n\n✅ تم التحميل بنجاح!",
-                                attributes=[
-                                    DocumentAttributeAudio(
-                                        duration=duration,
-                                        title=title,
-                                        performer=uploader
-                                    ),
-                                    DocumentAttributeFilename(f.name)
-                                ],
-                                reply_to=event.id
-                            )
-                            
-                            os.remove(str(f))
-                            found = True
-                            break
-                    
-                    if found:
+                    if os.path.exists(mp3_path):
+                        await event.edit("📤 **جاري الرفع...**")
+                        await event.client.send_file(
+                            event.chat_id,
+                            mp3_path,
+                            caption=f"🎵 **{title}**\n👤 {uploader}\n⏱️ {duration//60}:{duration%60:02d}",
+                            attributes=[DocumentAttributeAudio(duration=duration, title=title, performer=uploader)]
+                        )
+                        os.remove(mp3_path)
                         await event.delete()
                     else:
-                        await event.edit("❌ لم يتم العثور على الملف المحمل\n💡 جرب مرة تانية")
-                
+                        await event.edit("❌ لم يتم العثور على الملف")
             except Exception as e:
-                error_msg = str(e)[:200]
-                await event.edit(f"❌ خطأ في التحميل:\n{error_msg}\n\n💡 جرب اسم تاني أو تأكد من الاتصال")
-
+                await event.edit(f"❌ خطأ: {str(e)[:200]}")
+        
         active_bots[uid] = client
         await update.message.reply_text("✅ **تم تشغيل البوت بجميع الميزات!**\n💾 الجلسة محفوظة تلقائياً")
         
@@ -450,6 +388,7 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ خطأ: {e}")
 
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إيقاف اليوزربوت"""
     uid = update.effective_user.id
     if uid in active_bots:
         await active_bots[uid].disconnect()
@@ -459,6 +398,7 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("البوت متوقف بالفعل")
 
 async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تسجيل الخروج"""
     uid = update.effective_user.id
     if uid in active_bots:
         try: await active_bots[uid].disconnect()
@@ -469,6 +409,7 @@ async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ تم تسجيل الخروج وحذف الجلسة")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة خطوات تسجيل الدخول"""
     uid = update.effective_user.id
     text = update.message.text
     
@@ -525,10 +466,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ خطأ: {e}")
 
 async def finish_login(update: Update, s):
+    """إكمال تسجيل الدخول وحفظ الجلسة"""
     uid = update.effective_user.id
     try:
         session_string = s['c'].session.save()
         
+        # حفظ مشفر في قاعدة البيانات
         db.set(uid, {
             'api_id': enc(str(s['api_id'])),
             'api_hash': enc(s['api_hash']),
@@ -556,9 +499,11 @@ async def finish_login(update: Update, s):
 # ==================== تشغيل ====================
 
 def main():
+    """تشغيل البوت مع استعادة الجلسات السابقة"""
     print("=" * 50)
     print("🚀 جاري تشغيل البوت...")
     
+    # استعادة الجلسات المحفوظة
     all_sessions = db.get_all()
     print(f"💾 تم تحميل {len(all_sessions)} جلسة محفوظة")
     
@@ -582,3 +527,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
