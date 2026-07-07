@@ -8,6 +8,7 @@ import os
 import sys
 import asyncio
 import logging
+import base64
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
@@ -22,11 +23,28 @@ logger = logging.getLogger(__name__)
 # توكن البوت
 BOT_TOKEN = "8879863328:AAH_PB_1i50hIyU-UI58TcD-dflHl4dBFqo"
 
-# مفتاح التشفير
-ENCRYPTION_KEY = "Z0FBQUFBQm5YdG5fV2xYd0Z0TjJ0cGxYdG5fV2xYd0Z0TjJ0cGxYdG5fV2xYd0Z0TjI="
+# ==================== التشفير ====================
+
+def get_encryption_key():
+    """الحصول على مفتاح تشفير صالح أو إنشاء واحد جديد"""
+    key = os.environ.get("ENCRYPTION_KEY", "")
+    
+    if key:
+        try:
+            # محاولة استخدام المفتاح الموجود
+            Fernet(key.encode() if isinstance(key, str) else key)
+            return key.encode() if isinstance(key, str) else key
+        except:
+            logger.warning("مفتاح التشفير غير صالح، جاري إنشاء مفتاح جديد...")
+    
+    # إنشاء مفتاح جديد صالح
+    new_key = Fernet.generate_key()
+    logger.info(f"تم إنشاء مفتاح تشفير جديد: {new_key.decode()}")
+    return new_key
 
 # إعداد التشفير
-cipher = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
+ENCRYPTION_KEY = get_encryption_key()
+cipher = Fernet(ENCRYPTION_KEY)
 
 # تخزين مؤقت للجلسات والبيانات
 sessions = {}  # user_id: session_string
@@ -37,11 +55,23 @@ login_states = {}  # user_id: dict
 
 def encrypt(text):
     """تشفير النص"""
-    return cipher.encrypt(text.encode()).decode() if text else None
+    if not text:
+        return None
+    try:
+        return cipher.encrypt(text.encode()).decode()
+    except Exception as e:
+        logger.error(f"خطأ في التشفير: {e}")
+        return None
 
 def decrypt(encrypted_text):
     """فك التشفير"""
-    return cipher.decrypt(encrypted_text.encode()).decode() if encrypted_text else None
+    if not encrypted_text:
+        return None
+    try:
+        return cipher.decrypt(encrypted_text.encode()).decode()
+    except Exception as e:
+        logger.error(f"خطأ في فك التشفير: {e}")
+        return None
 
 # ==================== البوت ====================
 
@@ -144,6 +174,10 @@ async def run_bot(event):
         api_hash = decrypt(data['api_hash'])
         session_str = decrypt(data['session'])
         
+        if not all([api_id, api_hash, session_str]):
+            await event.reply("❌ بيانات الجلسة تالفة. سجل دخول مرة أخرى: /login")
+            return
+        
         # إنشاء عميل جديد
         client = TelegramClient(StringSession(session_str), api_id, api_hash)
         await client.start()
@@ -159,6 +193,7 @@ async def run_bot(event):
         
     except Exception as e:
         await event.reply(f"❌ خطأ: {e}")
+        logger.error(f"Error starting bot: {e}")
 
 @bot.on(events.NewMessage(pattern='/stop'))
 async def stop_bot(event):
@@ -318,16 +353,28 @@ async def finish_login(event, state):
 
 async def main():
     """تشغيل البوت"""
+    print("=" * 50)
     print("جاري تشغيل البوت...")
-    await bot.start(bot_token=BOT_TOKEN)
-    me = await bot.get_me()
-    print(f"✅ البوت شغال: @{me.username}")
-    await bot.run_until_disconnected()
+    
+    try:
+        await bot.start(bot_token=BOT_TOKEN)
+        me = await bot.get_me()
+        
+        print(f"✅ البوت شغال: @{me.username}")
+        print(f"🆔 Bot ID: {me.id}")
+        print("=" * 50)
+        
+        await bot.run_until_disconnected()
+        
+    except Exception as e:
+        logger.error(f"خطأ في التشغيل: {e}")
+        print(f"❌ خطأ: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nتم إيقاف البوت")
+        print("\n🛑 تم إيقاف البوت")
     except Exception as e:
-        print(f"خطأ: {e}")
+        print(f"❌ خطأ: {e}")
