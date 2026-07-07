@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-بوت تليجرام متعدد المهام - Railway Optimized
-مع كل الحلول لمشاكل انتهاء الجلسة والكود
+بوت تليجرام متعدد المهام - إصلاح مشكلة إرسال الكود
 """
 
 import os
@@ -28,13 +27,13 @@ import yt_dlp
 import speedtest
 import requests
 
-# ==================== مجلد البيانات أول حاجة ====================
+# ==================== مجلد البيانات ====================
 Path("data").mkdir(parents=True, exist_ok=True)
 
 # ==================== الإعدادات ====================
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('data/session_errors.log', encoding='utf-8'),
         logging.StreamHandler(sys.stdout)
@@ -137,13 +136,13 @@ def analyze_session_error(error):
     }
     
     if isinstance(error, errors.rpcerrorlist.AuthKeyUnregisteredError):
-        analysis['solution'] = "🔑 الجلسة انتهت - استخدم /logout ثم /login"
+        analysis['solution'] = "🔑 الجلسة انتهت - /logout ثم /login"
         analysis['severity'] = 'critical'
     elif isinstance(error, errors.rpcerrorlist.AuthKeyDuplicatedError):
-        analysis['solution'] = "👥 جلسة مكررة - استخدم /stop ثم /run"
+        analysis['solution'] = "👥 جلسة مكررة - /stop ثم /run"
         analysis['severity'] = 'critical'
     elif isinstance(error, errors.rpcerrorlist.SessionRevokedError):
-        analysis['solution'] = "🚫 الجلسة اتلغت - استخدم /logout ثم /login"
+        analysis['solution'] = "🚫 الجلسة اتلغت - /logout ثم /login"
         analysis['severity'] = 'critical'
     elif isinstance(error, errors.rpcerrorlist.UserDeactivatedBanError):
         analysis['solution'] = "⛔ الحساب محظور"
@@ -154,12 +153,6 @@ def analyze_session_error(error):
     elif isinstance(error, errors.rpcerrorlist.FloodWaitError):
         seconds = getattr(error, 'seconds', 0)
         analysis['solution'] = f"⏳ استنى {seconds} ثانية"
-        analysis['severity'] = 'warning'
-    elif isinstance(error, asyncio.TimeoutError):
-        analysis['solution'] = "⏱️ النت ضعيف - حاول تاني"
-        analysis['severity'] = 'warning'
-    elif isinstance(error, ConnectionError):
-        analysis['solution'] = "🔌 مشكلة في النت"
         analysis['severity'] = 'warning'
     else:
         analysis['solution'] = f"❓ خطأ: {error_msg[:100]}"
@@ -180,15 +173,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"""
 👋 **أهلاً بيك!**{status_text}
 
-📋 **الأوامر الأساسية:**
+📋 **الأوامر:**
 /login - تسجيل الدخول
-/resendcode - إرسال كود جديد
 /run - تشغيل اليوزربوت
 /stop - إيقاف اليوزربوت
 /status - حالة الجلسة
 /logout - تسجيل الخروج
-/logs - آخر السجلات
-/cancel - إلغاء العملية
+/logs - السجلات
+/cancel - إلغاء
 
 🎯 **الميزات:**
 .ترجم - .صوت - .تحويل
@@ -198,70 +190,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("""
 📚 **شرح الأوامر:**
-
 1. .ترجم - رد على رسالة للترجمة
-2. .صوت - رد على فيديو لتحويله لـ MP3
+2. .صوت - رد على فيديو لـ MP3
 3. .تحويل - صورة↔ستيكر
-4. .بنغ - قياس سرعة النت
+4. .بنغ - سرعة النت
 5. .يوت اسم - تحميل من يوتيوب
-6. .نص - استخراج النص من الصوت
-
-💡 لو الكود انتهى: /resendcode
+6. .نص - صوت لنص
 """)
 
 async def login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    user_data = db.get(uid)
     
-    if user_data:
-        await update.message.reply_text("✅ مسجل دخول بالفعل!\n🔄 /logout لو عايز تغير الحساب")
+    if db.get(uid):
+        await update.message.reply_text("✅ مسجل دخول!\n🔄 /logout لو عايز تغير")
         return
     
     login_states[uid] = {'step': 'api_id'}
     await update.message.reply_text(
-        "📱 **تسجيل الدخول - الخطوة 1/4**\n\n"
-        "أرسل API_ID من my.telegram.org\n\n"
-        "للحصول عليه:\n"
-        "1. افتح my.telegram.org\n"
-        "2. سجل برقمك\n"
-        "3. اضغط على API development tools\n"
-        "4. انسخ api_id و api_hash"
+        "📱 **تسجيل الدخول - الخطوة 1/3**\n\n"
+        "أرسل API_ID و API_HASH في رسالة واحدة\n"
+        "مفصولين بمسافة:\n\n"
+        "مثال:\n"
+        "123456 a1b2c3d4e5f6...\n\n"
+        "احصل عليهم من: my.telegram.org"
     )
-
-async def resend_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """إرسال كود تحقق جديد"""
-    uid = update.effective_user.id
-    
-    if uid not in login_states:
-        await update.message.reply_text("❌ مفيش عملية تسجيل دلوقتي\nاستخدم /login الأول")
-        return
-    
-    s = login_states[uid]
-    
-    if s.get('step') != 'code':
-        await update.message.reply_text("❌ مش في مرحلة إدخال الكود")
-        return
-    
-    try:
-        await update.message.reply_text("🔄 **جاري إرسال كود جديد...**")
-        
-        # إرسال كود جديد
-        sent = await s['c'].send_code_request(s['phone'])
-        s['phone_code_hash'] = sent.phone_code_hash
-        s['code_attempts'] = 0  # نعيد العداد
-        
-        await update.message.reply_text(
-            "✅ **تم إرسال كود جديد**\n\n"
-            f"📱 الرقم: {s['phone']}\n"
-            "⏰ الكود صالح لمدة 5 دقائق\n"
-            "📨 أرسل الكود هنا\n\n"
-            "💡 استخدم الكود الجديد فقط!"
-        )
-    except errors.rpcerrorlist.FloodWaitError as e:
-        await update.message.reply_text(f"⏳ استنى {e.seconds} ثانية قبل ما تطلب كود تاني")
-    except Exception as e:
-        logger.error(f"خطأ في إرسال الكود: {e}")
-        await update.message.reply_text(f"❌ فشل: {e}\nجرب /login من جديد")
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -272,7 +224,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         del login_states[uid]
         await update.message.reply_text("✅ تم الإلغاء")
     else:
-        await update.message.reply_text("لا توجد عملية جارية")
+        await update.message.reply_text("لا توجد عملية")
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -285,7 +237,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         txt = "متصل" if is_connected else "منفصل"
         await update.message.reply_text(f"{icon} **شغال** ({txt}) ✅")
     elif user_data:
-        await update.message.reply_text("🟡 **متوقف** ⏸️\n🚀 /run للتشغيل")
+        await update.message.reply_text("🟡 **متوقف** ⏸️\n🚀 /run")
     else:
         await update.message.reply_text("🔴 **غير مسجل** ❌\n📱 /login")
 
@@ -314,11 +266,11 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if uid in active_bots:
-        await update.message.reply_text("✅ شغال بالفعل!")
+        await update.message.reply_text("✅ شغال!")
         return
     
     if uid in session_locks:
-        await update.message.reply_text("⏳ استنى شوية...")
+        await update.message.reply_text("⏳ استنى...")
         return
     
     session_locks[uid] = True
@@ -333,42 +285,34 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         try:
             await client.start()
-            logger.info(f"✅ المستخدم {uid} اتصل بنجاح")
-        except errors.rpcerrorlist.AuthKeyUnregisteredError as e:
-            analysis = analyze_session_error(e)
-            await msg.edit_text(f"❌ **الجلسة انتهت**\n\n{analysis['solution']}")
+        except errors.rpcerrorlist.AuthKeyUnregisteredError:
+            await msg.edit_text("❌ الجلسة انتهت - /logout ثم /login")
             db.delete(uid)
             return
-        except errors.rpcerrorlist.AuthKeyDuplicatedError as e:
-            analysis = analyze_session_error(e)
-            await msg.edit_text(f"❌ **جلسة مكررة**\n\n{analysis['solution']}")
+        except errors.rpcerrorlist.AuthKeyDuplicatedError:
+            await msg.edit_text("❌ جلسة مكررة - /stop ثم /run")
             return
-        except errors.rpcerrorlist.SessionRevokedError as e:
-            analysis = analyze_session_error(e)
-            await msg.edit_text(f"❌ **الجلسة اتلغت**\n\n{analysis['solution']}")
+        except errors.rpcerrorlist.SessionRevokedError:
+            await msg.edit_text("❌ الجلسة اتلغت - /logout ثم /login")
             db.delete(uid)
             return
         except Exception as e:
-            analysis = analyze_session_error(e)
-            logger.error(f"خطأ تشغيل {uid}: {e}")
-            await msg.edit_text(f"❌ **فشل التشغيل**\n\n{analysis['solution']}")
+            await msg.edit_text(f"❌ فشل: {e}")
             return
         
         me = await client.get_me()
-        logger.info(f"✅ {me.first_name} شغال")
         
-        # ==================== الأوامر ====================
-        
+        # الأوامر
         @client.on(events.NewMessage(pattern=r'\.بنغ|\.ping'))
         async def ping_handler(event):
             try:
-                await event.edit("📡 **قياس السرعة...**")
+                await event.edit("📡 **قياس...**")
                 st = speedtest.Speedtest()
                 st.get_best_server()
                 dl = st.download() / 1_000_000
                 ul = st.upload() / 1_000_000
                 p = st.results.ping
-                await event.edit(f"🏓 **النتائج:**\n📥 {dl:.1f} Mbps\n📤 {ul:.1f} Mbps\n🕐 {p:.0f} ms")
+                await event.edit(f"🏓 📥 {dl:.1f} 📤 {ul:.1f} 🕐 {p:.0f}")
             except Exception as e:
                 await event.edit(f"❌ {e}")
 
@@ -384,10 +328,10 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 lang = detect_language(text)
                 if lang == 'ar':
                     result = translate_text(text, target='en')
-                    await event.edit(f"🇬🇧 **الإنجليزية:**\n\n{result}")
+                    await event.edit(f"🇬🇧 {result}")
                 else:
                     result = translate_text(text, target='ar')
-                    await event.edit(f"🇸🇦 **العربية:**\n\n{result}")
+                    await event.edit(f"🇸🇦 {result}")
             except Exception as e:
                 await event.edit(f"❌ {e}")
 
@@ -418,11 +362,11 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
                     result = await client.transcribe_voice(event.chat_id, reply.id)
                     if result:
-                        await event.edit(f"📝 **النص:**\n\n{result}")
+                        await event.edit(f"📝 {result}")
                     else:
                         raise Exception("No result")
                 except:
-                    await event.edit("⚠️ استخدم زر Aa في تليجرام بريميوم")
+                    await event.edit("⚠️ استخدم زر Aa في تيليجرام بريميوم")
                 if os.path.exists(path):
                     os.remove(path)
             except Exception as e:
@@ -437,17 +381,7 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await event.edit("🔄 **تحويل...**")
             try:
                 path = await reply.download_media()
-                if reply.sticker:
-                    await event.client.send_file(event.chat_id, path, reply_to=reply.id, caption="✅ ستيكر→صورة")
-                elif reply.photo:
-                    await event.client.send_file(event.chat_id, path, reply_to=reply.id, caption="✅ تم!")
-                elif reply.video:
-                    await event.client.send_file(event.chat_id, path, reply_to=reply.id, caption="✅ تم!")
-                else:
-                    await event.edit("❌ مش مدعوم")
-                    if os.path.exists(path):
-                        os.remove(path)
-                    return
+                await event.client.send_file(event.chat_id, path, reply_to=reply.id, caption="✅ تم!")
                 if os.path.exists(path):
                     os.remove(path)
                 await event.delete()
@@ -477,25 +411,11 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             os.remove(str(f))
                             await event.delete()
                             return
-                    await event.edit("❌ مش لاقي الملف")
+                    await event.edit("❌ مش لاقي")
             except Exception as e:
                 await event.edit(f"❌ {str(e)[:200]}")
 
-        # ==================== مراقبة الاتصال ====================
-        
-        @client.on(events.Disconnect)
-        async def on_disconnect(event):
-            logger.warning(f"⚠️ انقطع اتصال {uid}")
-            await asyncio.sleep(5)
-            if uid in active_bots:
-                try:
-                    if not active_bots[uid].is_connected():
-                        logger.info(f"🔄 إعادة اتصال {uid}")
-                        await active_bots[uid].connect()
-                        logger.info(f"✅ تم إعادة اتصال {uid}")
-                except Exception as e:
-                    logger.error(f"❌ فشلت إعادة الاتصال: {e}")
-
+        # مراقبة الاتصال
         async def keep_alive():
             while uid in active_bots:
                 await asyncio.sleep(30)
@@ -503,57 +423,19 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if uid in active_bots:
                         client = active_bots[uid]
                         if not client.is_connected():
-                            logger.warning(f"🔄 محاولة إعادة اتصال {uid}")
                             try:
                                 await client.connect()
-                                logger.info(f"✅ اتصال {uid} ناجح")
-                            except errors.rpcerrorlist.AuthKeyUnregisteredError:
-                                logger.error(f"🔴 جلسة {uid} منتهية")
-                                if uid in active_bots:
-                                    del active_bots[uid]
-                                db.delete(uid)
-                                try:
-                                    await update.message.reply_text("🚫 **الجلسة انتهت** - /login من جديد")
-                                except:
-                                    pass
-                                break
-                            except errors.rpcerrorlist.SessionRevokedError:
-                                logger.error(f"🔴 جلسة {uid} ملغاة")
-                                if uid in active_bots:
-                                    del active_bots[uid]
-                                db.delete(uid)
-                                try:
-                                    await update.message.reply_text("🚫 **الجلسة اتلغت** - /login من جديد")
-                                except:
-                                    pass
-                                break
-                            except Exception as e:
-                                logger.error(f"❌ فشل اتصال {uid}: {e}")
-                        else:
-                            try:
-                                await client.get_me()
                             except:
-                                logger.warning(f"⚠️ {uid} محتاج إعادة اتصال")
-                                try:
-                                    await client.connect()
-                                except:
-                                    pass
-                except Exception as e:
-                    logger.error(f"خطأ في keep_alive: {e}")
+                                pass
+                except:
+                    pass
         
         asyncio.ensure_future(keep_alive())
         active_bots[uid] = client
         
-        await msg.edit_text(
-            f"✅ **شغال!**\n"
-            f"👤 {me.first_name}\n"
-            f"📱 {me.phone}\n"
-            f"🛡️ حماية تلقائية مفعلة\n\n"
-            f"/status - /stop - /logs"
-        )
+        await msg.edit_text(f"✅ **شغال!**\n👤 {me.first_name}\n📱 {me.phone}")
         
     except Exception as e:
-        logger.error(f"فشل تشغيل {uid}: {e}\n{traceback.format_exc()}")
         await msg.edit_text(f"❌ فشل: {e}")
     finally:
         if uid in session_locks:
@@ -569,7 +451,7 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
         del active_bots[uid]
         await update.message.reply_text("✅ تم الإيقاف")
     else:
-        await update.message.reply_text("متوقف بالفعل")
+        await update.message.reply_text("متوقف")
 
 async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -580,73 +462,107 @@ async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         del active_bots[uid]
     db.delete(uid)
-    await update.message.reply_text("✅ تم الخروج وحذف الجلسة")
+    await update.message.reply_text("✅ تم الخروج")
 
-# ==================== معالج الرسائل (تسجيل الدخول) ====================
+# ==================== معالج الرسائل - تسجيل الدخول المبسط ====================
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    text = update.message.text
+    text = update.message.text.strip()
     
     if uid not in login_states:
         return
     
     s = login_states[uid]
     
+    # الخطوة 1: استقبال api_id و api_hash مع بعض
     if s['step'] == 'api_id':
+        parts = text.split()
+        if len(parts) != 2:
+            await update.message.reply_text(
+                "❌ **أرسل القيمتين مع بعض**\n\n"
+                "api_id وبعده api_hash\n"
+                "مفصولين بمسافة:\n\n"
+                "مثال: 123456 a1b2c3d4e5f6"
+            )
+            return
+        
         try:
-            s['api_id'] = int(text)
-            s['step'] = 'api_hash'
-            await update.message.reply_text("✅ **الخطوة 2/4**\nأرسل API_HASH:")
+            api_id = int(parts[0])
+            api_hash = parts[1]
+            
+            s['api_id'] = api_id
+            s['api_hash'] = api_hash
+            s['step'] = 'phone'
+            
+            await update.message.reply_text(
+                "✅ **تم استلام API**\n\n"
+                "📱 **الخطوة 2/3**\n"
+                "أرسل رقم الهاتف:\n"
+                "مثال: +201234567890"
+            )
         except:
-            await update.message.reply_text("❌ رقم غلط - أرسل API_ID الصحيح:")
+            await update.message.reply_text("❌ api_id لازم يكون رقم")
     
-    elif s['step'] == 'api_hash':
-        s['api_hash'] = text
-        s['step'] = 'phone'
-        await update.message.reply_text("✅ **الخطوة 3/4**\nأرسل رقم الهاتف:\nمثال: +201234567890")
-    
+    # الخطوة 2: استقبال رقم الهاتف وإرسال الكود
     elif s['step'] == 'phone':
         if not text.startswith('+'):
             await update.message.reply_text("❌ لازم يبدأ بـ +")
             return
         
         s['phone'] = text
-        status_msg = await update.message.reply_text("🔄 **جاري إرسال كود التحقق...**")
+        status_msg = await update.message.reply_text("🔄 **جاري إرسال الكود...**")
         
         try:
+            # ✨ الأهم: إنشاء العميل وإرسال الكود
             c = TelegramClient(StringSession(), s['api_id'], s['api_hash'])
             await c.connect()
             
-            sent = await c.send_code_request(text)
+            # ✨ إرسال الكود
+            sent_code = await c.send_code_request(text)
             
             s['c'] = c
-            s['phone_code_hash'] = sent.phone_code_hash
-            s['code_attempts'] = 0
+            s['phone_code_hash'] = sent_code.phone_code_hash
             s['step'] = 'code'
             
             await status_msg.edit_text(
-                "✅ **الخطوة 4/4**\n\n"
-                "📱 تم إرسال كود التحقق إلى:\n"
+                "✅ **الخطوة 3/3**\n\n"
+                "📱 تم إرسال الكود إلى:\n"
                 f"**{text}**\n\n"
-                "📨 أرسل الكود هنا\n"
-                "⏰ الكود صالح لمدة 5 دقائق\n\n"
-                "💡 لو الكود انتهى: /resendcode"
+                "📨 شوف تيليجرام أو رسايل SMS\n"
+                "⏰ الكود صالح 5 دقائق\n\n"
+                "أرسل الكود هنا:"
             )
+            
         except errors.rpcerrorlist.FloodWaitError as e:
-            await status_msg.edit_text(f"⏳ **طلبات كثيرة**\nاستنى {e.seconds} ثانية\nثم استخدم /login")
+            await status_msg.edit_text(f"⏳ استنى {e.seconds} ثانية\nثم /login")
+            if 'c' in s:
+                try: await s['c'].disconnect()
+                except: pass
             del login_states[uid]
         except Exception as e:
-            logger.error(f"خطأ إرسال الكود: {e}")
-            await status_msg.edit_text(f"❌ **فشل إرسال الكود:**\n{e}\n\nتأكد من:\n• صحة api_id و api_hash\n• رقم الهاتف صحيح\n• الحساب مش محظور\n\n🔄 /login للمحاولة")
+            error_msg = str(e)
+            logger.error(f"خطأ إرسال الكود: {error_msg}")
+            
+            if 'PHONE_NUMBER_INVALID' in error_msg:
+                await status_msg.edit_text("❌ رقم الهاتف غير صحيح\nتأكد من الصيغة: +201234567890")
+            elif 'PHONE_PASSWORD_FLOOD' in error_msg:
+                await status_msg.edit_text("⏳ محاولات كتير - استنى شوية")
+            elif 'API_ID_INVALID' in error_msg:
+                await status_msg.edit_text("❌ api_id غير صحيح\nتأكد من my.telegram.org")
+            elif 'API_ID_PUBLISHED_FLOOD' in error_msg:
+                await status_msg.edit_text("❌ الـ api_id منتشر - استخدم واحد جديد")
+            else:
+                await status_msg.edit_text(f"❌ خطأ:\n{error_msg[:200]}\n\nتأكد من:\n• api_id و api_hash صح\n• الرقم صحيح\n\n🔄 /login للمحاولة")
+            
             if 'c' in s:
                 try: await s['c'].disconnect()
                 except: pass
             del login_states[uid]
     
+    # الخطوة 3: استقبال الكود
     elif s['step'] == 'code':
-        s['code_attempts'] = s.get('code_attempts', 0) + 1
-        status_msg = await update.message.reply_text("🔄 **جاري التحقق من الكود...**")
+        status_msg = await update.message.reply_text("🔄 **جاري التحقق...**")
         
         try:
             await s['c'].sign_in(phone=s['phone'], code=text, phone_code_hash=s['phone_code_hash'])
@@ -654,74 +570,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await finish_login(update, s)
             
         except SessionPasswordNeededError:
-            await status_msg.edit_text("🔒 **حسابك مفعل عليه تحقق بخطوتين**\nأرسل كلمة المرور:")
-            s['step'] = 'pass'
-            
-        except errors.rpcerrorlist.SessionPasswordNeededError:
-            await status_msg.edit_text("🔒 **تحقق بخطوتين**\nأرسل كلمة المرور:")
+            await status_msg.edit_text("🔒 تحقق بخطوتين - أرسل كلمة المرور:")
             s['step'] = 'pass'
             
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"خطأ الكود للمستخدم {uid}: {error_msg}")
+            logger.error(f"خطأ الكود: {error_msg}")
             
-            # الكود منتهي الصلاحية
             if 'expired' in error_msg.lower():
-                if s['code_attempts'] >= 5:
-                    await status_msg.edit_text(
-                        "❌ **الكود بينتهي كتير**\n\n"
-                        "جرب:\n"
-                        "1. افتح تليجرام على جهازك\n"
-                        "2. استنى الكود يوصل\n"
-                        "3. انسخه فوراً وابعته هنا\n\n"
-                        "🔄 /login للبدء من جديد"
-                    )
-                    try: await s['c'].disconnect()
-                    except: pass
-                    del login_states[uid]
-                    return
-                
                 await status_msg.edit_text(
-                    "⏰ **انتهت صلاحية الكود**\n\n"
-                    "الكود اللي استخدمته قديم أو انتهى\n\n"
-                    "🔄 استخدم /resendcode لإرسال كود جديد\n"
-                    "أو اكتب /login للبدء من جديد"
+                    "⏰ **الكود انتهى**\n\n"
+                    "الكود اللي استخدمته قديم\n\n"
+                    "🔄 استخدم /login من جديد\n"
+                    "وهنبعت كود جديد"
                 )
-            
-            # الكود غلط
-            elif 'invalid' in error_msg.lower() or 'wrong' in error_msg.lower() or 'incorrect' in error_msg.lower():
-                remaining = 5 - s['code_attempts']
-                if remaining <= 0:
-                    await status_msg.edit_text("❌ **محاولات كتير غلط**\n🔄 /login للبدء من جديد")
-                    try: await s['c'].disconnect()
-                    except: pass
-                    del login_states[uid]
-                    return
-                
+                try: await s['c'].disconnect()
+                except: pass
+                del login_states[uid]
+            elif 'invalid' in error_msg.lower():
                 await status_msg.edit_text(
-                    f"❌ **الكود مش صحيح**\n\n"
-                    f"• تأكد من كتابة الكود صح\n"
-                    f"• استخدم أحدث كود وصلك\n"
-                    f"• متبعتش الكود القديم\n\n"
-                    f"🔄 متبقي {remaining} محاولات\n"
-                    f"📨 أرسل الكود الصحيح\n"
-                    f"💡 /resendcode لكود جديد"
+                    "❌ **الكود غلط**\n\n"
+                    "• تأكد من كتابة الكود صح\n"
+                    "• استخدم أحدث كود وصلك\n\n"
+                    "أرسل الكود الصحيح:"
                 )
-            
-            # أي خطأ تاني
             else:
-                await status_msg.edit_text(
-                    f"❌ **خطأ:** {error_msg[:150]}\n\n"
-                    f"حاول تاني بالكود الصحيح\n"
-                    f"💡 /resendcode لكود جديد"
-                )
+                await status_msg.edit_text(f"❌ خطأ: {error_msg[:150]}\nحاول تاني:")
     
+    # الخطوة 4: كلمة المرور (التحقق بخطوتين)
     elif s['step'] == 'pass':
         try:
             await s['c'].sign_in(password=text)
             await finish_login(update, s)
         except Exception as e:
-            await update.message.reply_text(f"❌ **كلمة مرور غلط:** {e}\nحاول تاني:")
+            await update.message.reply_text(f"❌ كلمة مرور غلط: {e}\nحاول تاني:")
 
 async def finish_login(update: Update, s):
     uid = update.effective_user.id
@@ -738,16 +620,16 @@ async def finish_login(update: Update, s):
         
         me = await s['c'].get_me()
         await update.message.reply_text(
-            f"✅ **تم تسجيل الدخول بنجاح!**\n\n"
-            f"👤 **الاسم:** {me.first_name}\n"
-            f"📱 **الهاتف:** {me.phone}\n"
-            f"💾 **الجلسة محفوظة**\n\n"
-            f"🚀 استخدم /run لتشغيل البوت"
+            f"✅ **تم بنجاح!**\n\n"
+            f"👤 {me.first_name}\n"
+            f"📱 {me.phone}\n\n"
+            f"💾 الجلسة محفوظة\n"
+            f"🚀 /run للتشغيل"
         )
         logger.info(f"✅ {uid} سجل دخول كـ {me.first_name}")
     except Exception as e:
         logger.error(f"خطأ حفظ {uid}: {e}")
-        await update.message.reply_text(f"❌ خطأ في الحفظ: {e}")
+        await update.message.reply_text(f"❌ {e}")
     finally:
         try: await s['c'].disconnect()
         except: pass
@@ -757,23 +639,19 @@ async def finish_login(update: Update, s):
 
 def main():
     print("=" * 50)
-    print("🚀 بوت تليجرام متعدد المهام")
-    print("💾 نظام حفظ الجلسات")
-    print("🛡️ مراقبة الأخطاء")
+    print("🚀 بوت تليجرام")
     print("=" * 50)
     
     Path("data").mkdir(parents=True, exist_ok=True)
     
     all_sessions = db.get_all()
-    print(f"💾 {len(all_sessions)} جلسة محملة")
+    print(f"💾 {len(all_sessions)} جلسة")
     
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # أوامر البوت
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("login", login))
-    app.add_handler(CommandHandler("resendcode", resend_code))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("run", run))
@@ -782,7 +660,7 @@ def main():
     app.add_handler(CommandHandler("logs", logs_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("✅ البوت شغال!")
+    print("✅ شغال!")
     print("=" * 50)
     
     app.run_polling()
