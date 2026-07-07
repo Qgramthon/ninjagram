@@ -1,7 +1,8 @@
+
 #!/usr/bin/env python3
 """
 بوت تسجيل دخول تليجرام بسيط
-بيشتغل بالتوكن فقط - مش محتاج API_ID ولا API_HASH
+بيشتغل بالتوكن فقط بدون API_ID أو API_HASH
 """
 
 import os
@@ -12,19 +13,15 @@ from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 from cryptography.fernet import Fernet
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # ==================== الإعدادات ====================
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# توكن البوت فقط
 BOT_TOKEN = "8879863328:AAH_PB_1i50hIyU-UI58TcD-dflHl4dBFqo"
-
-# API_ID و API_HASH للبوت - ممكن أي قيم صالحة
-# لو مش عايز تحطهم، استخدم القيم الافتراضية دي
-API_ID = int(os.environ.get("API_ID", "2040"))  # رقم افتراضي معروف
-API_HASH = os.environ.get("API_HASH", "b18441a1ff607e10a989891a5462e28b")  # هاش افتراضي معروف
 
 # ==================== التشفير ====================
 
@@ -41,24 +38,22 @@ def get_key():
 
 cipher = Fernet(get_key())
 
-# تخزين
-sessions = {}
-active_bots = {}
-login_states = {}
-
 def enc(t): 
     return cipher.encrypt(t.encode()).decode() if t else None
 
 def dec(t): 
     return cipher.decrypt(t.encode()).decode() if t else None
 
-# ==================== البوت ====================
+# ==================== تخزين ====================
 
-bot = TelegramClient('bot', api_id=API_ID, api_hash=API_HASH)
+sessions = {}
+active_bots = {}
+login_states = {}
 
-@bot.on(events.NewMessage(pattern='/start'))
-async def start(event):
-    await event.reply("""
+# ==================== أوامر البوت ====================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("""
 👋 **مرحباً بك!**
 
 📋 **الأوامر:**
@@ -71,46 +66,47 @@ async def start(event):
 /help - مساعدة
 """)
 
-@bot.on(events.NewMessage(pattern='/login'))
-async def login(event):
-    uid = event.sender_id
+async def login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
     if uid in sessions:
-        return await event.reply("✅ مسجل دخول بالفعل!")
+        await update.message.reply_text("✅ مسجل دخول بالفعل!")
+        return
     
     login_states[uid] = {'step': 'api_id'}
-    await event.reply(
+    await update.message.reply_text(
         "📱 **الخطوة 1/4**\n"
-        "أرسل API_ID:\n"
-        "احصل عليه من my.telegram.org"
+        "أرسل API_ID الخاص بك\n"
+        "احصل عليه من: https://my.telegram.org"
     )
 
-@bot.on(events.NewMessage(pattern='/cancel'))
-async def cancel(event):
-    uid = event.sender_id
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
     if uid in login_states:
         if 'c' in login_states[uid]:
             try: await login_states[uid]['c'].disconnect()
             except: pass
         del login_states[uid]
-        await event.reply("✅ تم الإلغاء")
-
-@bot.on(events.NewMessage(pattern='/status'))
-async def status(event):
-    uid = event.sender_id
-    if uid in sessions and uid in active_bots:
-        await event.reply("🟢 مسجل دخول والبوت شغال")
-    elif uid in sessions:
-        await event.reply("🟡 مسجل دخول والبوت متوقف")
+        await update.message.reply_text("✅ تم الإلغاء")
     else:
-        await event.reply("🔴 غير مسجل")
+        await update.message.reply_text("لا توجد عملية جارية")
 
-@bot.on(events.NewMessage(pattern='/run'))
-async def run(event):
-    uid = event.sender_id
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if uid in sessions and uid in active_bots:
+        await update.message.reply_text("🟢 مسجل دخول والبوت شغال")
+    elif uid in sessions:
+        await update.message.reply_text("🟡 مسجل دخول والبوت متوقف")
+    else:
+        await update.message.reply_text("🔴 غير مسجل")
+
+async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
     if uid not in sessions:
-        return await event.reply("❌ سجل دخول أولاً: /login")
+        await update.message.reply_text("❌ سجل دخول أولاً: /login")
+        return
     if uid in active_bots:
-        return await event.reply("✅ شغال بالفعل")
+        await update.message.reply_text("✅ شغال بالفعل")
+        return
     
     try:
         d = sessions[uid]
@@ -126,34 +122,31 @@ async def run(event):
             await e.reply('🏓 Pong!')
         
         active_bots[uid] = client
-        await event.reply("✅ **تم التشغيل!**\nجرب إرسال `.ping`")
+        await update.message.reply_text("✅ **تم التشغيل!**\nجرب إرسال `.ping`")
     except Exception as e:
-        await event.reply(f"❌ خطأ: {e}")
+        await update.message.reply_text(f"❌ خطأ: {e}")
 
-@bot.on(events.NewMessage(pattern='/stop'))
-async def stop(event):
-    uid = event.sender_id
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
     if uid in active_bots:
         await active_bots[uid].disconnect()
         del active_bots[uid]
-        await event.reply("✅ تم الإيقاف")
+        await update.message.reply_text("✅ تم الإيقاف")
     else:
-        await event.reply("متوقف بالفعل")
+        await update.message.reply_text("متوقف بالفعل")
 
-@bot.on(events.NewMessage(pattern='/logout'))
-async def logout(event):
-    uid = event.sender_id
+async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
     if uid in active_bots:
         try: await active_bots[uid].disconnect()
         except: pass
         del active_bots[uid]
     if uid in sessions:
         del sessions[uid]
-    await event.reply("✅ تم تسجيل الخروج")
+    await update.message.reply_text("✅ تم تسجيل الخروج")
 
-@bot.on(events.NewMessage(pattern='/help'))
-async def help_cmd(event):
-    await event.reply("""
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("""
 📚 **الخطوات:**
 1. /login
 2. أرسل API_ID
@@ -163,65 +156,64 @@ async def help_cmd(event):
 6. /run لتشغيل البوت
 """)
 
-@bot.on(events.NewMessage())
-async def handle(event):
-    uid = event.sender_id
-    if not event.text or event.text.startswith('/'):
-        return
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    text = update.message.text
+    
     if uid not in login_states:
         return
     
     s = login_states[uid]
-    t = event.text.strip()
     
     if s['step'] == 'api_id':
         try:
-            s['api_id'] = int(t)
+            s['api_id'] = int(text)
             s['step'] = 'api_hash'
-            await event.reply("✅ **الخطوة 2/4**\nأرسل API_HASH:")
+            await update.message.reply_text("✅ **الخطوة 2/4**\nأرسل API_HASH:")
         except:
-            await event.reply("❌ رقم خطأ. حاول تاني:")
+            await update.message.reply_text("❌ رقم خطأ. حاول تاني:")
     
     elif s['step'] == 'api_hash':
-        s['api_hash'] = t
+        s['api_hash'] = text
         s['step'] = 'phone'
-        await event.reply("✅ **الخطوة 3/4**\nأرسل رقم الهاتف:\nمثال: +201234567890")
+        await update.message.reply_text("✅ **الخطوة 3/4**\nأرسل رقم الهاتف:\nمثال: +201234567890")
     
     elif s['step'] == 'phone':
-        if not t.startswith('+'):
-            return await event.reply("❌ لازم يبدأ بـ +")
-        s['phone'] = t
+        if not text.startswith('+'):
+            await update.message.reply_text("❌ لازم يبدأ بـ +")
+            return
+        s['phone'] = text
         try:
             c = TelegramClient(StringSession(), s['api_id'], s['api_hash'])
             await c.connect()
-            code = await c.send_code_request(t)
+            code = await c.send_code_request(text)
             s['c'] = c
             s['hash'] = code.phone_code_hash
             s['step'] = 'code'
-            await event.reply("✅ **الخطوة 4/4**\nتم إرسال الكود. أرسله هنا:")
+            await update.message.reply_text("✅ **الخطوة 4/4**\nتم إرسال الكود. أرسله هنا:")
         except Exception as e:
-            await event.reply(f"❌ خطأ: {e}")
+            await update.message.reply_text(f"❌ خطأ: {e}")
             del login_states[uid]
     
     elif s['step'] == 'code':
         try:
-            await s['c'].sign_in(phone=s['phone'], code=t, phone_code_hash=s['hash'])
-            await done(event, s)
+            await s['c'].sign_in(phone=s['phone'], code=text, phone_code_hash=s['hash'])
+            await finish_login(update, s)
         except SessionPasswordNeededError:
             s['step'] = 'pass'
-            await event.reply("🔒 تحقق بخطوتين. أرسل كلمة المرور:")
+            await update.message.reply_text("🔒 تحقق بخطوتين. أرسل كلمة المرور:")
         except Exception as e:
-            await event.reply(f"❌ خطأ: {e}")
+            await update.message.reply_text(f"❌ خطأ: {e}")
     
     elif s['step'] == 'pass':
         try:
-            await s['c'].sign_in(password=t)
-            await done(event, s)
+            await s['c'].sign_in(password=text)
+            await finish_login(update, s)
         except Exception as e:
-            await event.reply(f"❌ خطأ: {e}")
+            await update.message.reply_text(f"❌ خطأ: {e}")
 
-async def done(event, s):
-    uid = event.sender_id
+async def finish_login(update: Update, s):
+    uid = update.effective_user.id
     try:
         ss = s['c'].session.save()
         sessions[uid] = {
@@ -231,9 +223,14 @@ async def done(event, s):
             's': enc(ss)
         }
         me = await s['c'].get_me()
-        await event.reply(f"✅ **تم بنجاح!**\n👤 {me.first_name}\n📱 {me.phone}\n🚀 /run للتشغيل")
+        await update.message.reply_text(
+            f"✅ **تم بنجاح!**\n"
+            f"👤 {me.first_name}\n"
+            f"📱 {me.phone}\n"
+            f"🚀 /run للتشغيل"
+        )
     except Exception as e:
-        await event.reply(f"❌ خطأ: {e}")
+        await update.message.reply_text(f"❌ خطأ: {e}")
     finally:
         try: await s['c'].disconnect()
         except: pass
@@ -241,12 +238,21 @@ async def done(event, s):
 
 # ==================== تشغيل ====================
 
-async def main():
-    print("جاري التشغيل...")
-    await bot.start(bot_token=BOT_TOKEN)
-    me = await bot.get_me()
-    print(f"✅ شغال: @{me.username}")
-    await bot.run_until_disconnected()
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("login", login))
+    app.add_handler(CommandHandler("cancel", cancel))
+    app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("run", run))
+    app.add_handler(CommandHandler("stop", stop))
+    app.add_handler(CommandHandler("logout", logout))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    print("✅ البوت شغال...")
+    app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
