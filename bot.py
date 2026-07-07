@@ -19,7 +19,7 @@ from telethon.tl.types import DocumentAttributeVideo, DocumentAttributeAudio
 from cryptography.fernet import Fernet
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 import yt_dlp
 import speedtest
 import requests
@@ -56,15 +56,26 @@ login_states = {}
 
 # ==================== المترجم ====================
 
-translator = Translator()
+def detect_language(text):
+    """اكتشاف اللغة"""
+    arabic_chars = len(re.findall(r'[\u0600-\u06FF]', text))
+    return 'ar' if arabic_chars > len(text) * 0.3 else 'en'
 
-async def detect_language(text):
+def translate_text(text, source='auto', target='en'):
+    """ترجمة النص"""
     try:
-        detection = translator.detect(text)
-        return detection.lang
+        if target == 'en':
+            return GoogleTranslator(source='ar', target='en').translate(text)
+        else:
+            return GoogleTranslator(source='en', target='ar').translate(text)
     except:
-        arabic_chars = len(re.findall(r'[\u0600-\u06FF]', text))
-        return 'ar' if arabic_chars > len(text) / 2 else 'en'
+        try:
+            if target == 'en':
+                return GoogleTranslator(source='auto', target='en').translate(text)
+            else:
+                return GoogleTranslator(source='auto', target='ar').translate(text)
+        except Exception as e:
+            return f"❌ خطأ في الترجمة: {e}"
 
 # ==================== أوامر البوت ====================
 
@@ -158,17 +169,12 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await client.start()
         
-        # ========== الأوامر المتقدمة ==========
-        
         @client.on(events.NewMessage(pattern=r'\.بنغ|\.ping'))
         async def ping_handler(event):
-            """قياس سرعة الإنترنت الحقيقية"""
             await event.edit("📡 **جاري قياس السرعة...**")
-            
             try:
                 st = speedtest.Speedtest()
                 st.get_best_server()
-                
                 download_speed = st.download() / 1_000_000
                 upload_speed = st.upload() / 1_000_000
                 ping = st.results.ping
@@ -183,13 +189,11 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🌐 **السيرفر:** {st.results.server['sponsor']}
 """
                 await event.edit(result)
-                
             except Exception as e:
                 await event.edit(f"❌ خطأ: {e}")
         
         @client.on(events.NewMessage(pattern=r'\.ترجم'))
         async def translate_handler(event):
-            """ترجمة النص"""
             reply = await event.get_reply_message()
             if not reply or not reply.text:
                 await event.reply("❌ استخدم الأمر كرد على رسالة")
@@ -199,23 +203,21 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             try:
                 text = reply.text
-                lang = await detect_language(text)
+                lang = detect_language(text)
                 
                 if lang == 'ar':
-                    translated = translator.translate(text, dest='en')
-                    result = f"🇬🇧 **الترجمة للإنجليزية:**\n\n{translated.text}"
+                    result_text = translate_text(text, target='en')
+                    result = f"🇬🇧 **الترجمة للإنجليزية:**\n\n{result_text}"
                 else:
-                    translated = translator.translate(text, dest='ar')
-                    result = f"🇸🇦 **الترجمة للعربية:**\n\n{translated.text}"
+                    result_text = translate_text(text, target='ar')
+                    result = f"🇸🇦 **الترجمة للعربية:**\n\n{result_text}"
                 
                 await event.edit(result)
-                
             except Exception as e:
                 await event.edit(f"❌ خطأ في الترجمة: {e}")
         
         @client.on(events.NewMessage(pattern=r'\.صوت'))
         async def audio_extract(event):
-            """تحويل الفيديو لصوت"""
             reply = await event.get_reply_message()
             if not reply or not reply.video:
                 await event.reply("❌ استخدم الأمر كرد على فيديو")
@@ -224,22 +226,18 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await event.edit("🎵 **جاري استخراج الصوت...**")
             
             try:
-                # تحميل الفيديو
                 video_path = await reply.download_media()
                 audio_path = video_path.rsplit('.', 1)[0] + '.mp3'
                 
-                # استخدام ffmpeg لو موجود
                 try:
                     cmd = f'ffmpeg -i "{video_path}" -q:a 0 -map a "{audio_path}" -y'
                     subprocess.run(cmd, shell=True, check=True, capture_output=True)
                 except:
-                    # لو ffmpeg مش موجود، نرسل الفيديو زي ما هو
                     await event.edit("⚠️ ffmpeg غير متوفر. جاري إرسال الملف كما هو...")
                     await event.client.send_file(event.chat_id, video_path, reply_to=reply.id)
                     os.remove(video_path)
                     return
                 
-                # إرسال الصوت
                 await event.client.send_file(
                     event.chat_id,
                     audio_path,
@@ -256,7 +254,6 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         @client.on(events.NewMessage(pattern=r'\.نص'))
         async def speech_to_text(event):
-            """استخراج النص من الصوت"""
             reply = await event.get_reply_message()
             if not reply or not reply.voice:
                 await event.reply("❌ استخدم الأمر كرد على رسالة صوتية")
@@ -265,34 +262,22 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await event.edit("🎙️ **جاري استخراج النص...**")
             
             try:
-                # نحمل الصوت ونستخدم Telegram API للتحويل
                 voice_path = await reply.download_media()
-                
-                # نرسل الصوت لـ Telegram API للتحويل
-                result = await event.client.transcribe_voice(
-                    event.chat_id,
-                    reply.id
-                )
-                
-                if result:
-                    await event.edit(f"📝 **النص المستخرج:**\n\n{result}")
-                else:
-                    await event.edit("❌ لم يتم التعرف على النص. جرب في بيئة هادئة.")
+                try:
+                    result = await event.client.transcribe_voice(event.chat_id, reply.id)
+                    if result:
+                        await event.edit(f"📝 **النص المستخرج:**\n\n{result}")
+                    else:
+                        await event.edit("❌ لم يتم التعرف على النص")
+                except:
+                    await event.edit("⚠️ خاصية تحويل الصوت لنص غير متوفرة حالياً")
                 
                 os.remove(voice_path)
-                
-            except AttributeError:
-                await event.edit("""
-⚠️ **خاصية تحويل الصوت لنص غير متوفرة حالياً**
-
-📱 **بديل:** استخدم تطبيق تليجرام الرسمي - فيه خاصية تحويل الصوت لنص مدمجة.
-                """)
             except Exception as e:
                 await event.edit(f"❌ خطأ: {e}")
         
         @client.on(events.NewMessage(pattern=r'\.تحويل'))
         async def convert_media(event):
-            """تحويل الصور والستيكرات"""
             reply = await event.get_reply_message()
             if not reply or not reply.media:
                 await event.reply("❌ استخدم الأمر كرد على صورة أو ستيكر")
@@ -304,20 +289,10 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 file_path = await reply.download_media()
                 
                 if reply.sticker:
-                    # ستيكر ← صورة
                     await event.client.send_file(event.chat_id, file_path, reply_to=reply.id)
-                    
                 elif reply.photo:
-                    # صورة ← ستيكر
-                    await event.client.send_file(
-                        event.chat_id,
-                        file_path,
-                        force_document=False,
-                        reply_to=reply.id
-                    )
-                    
+                    await event.client.send_file(event.chat_id, file_path, force_document=False, reply_to=reply.id)
                 elif reply.video:
-                    # فيديو ← GIF/ستيكر متحرك
                     gif_path = file_path.rsplit('.', 1)[0] + '.gif'
                     try:
                         cmd = f'ffmpeg -i "{file_path}" -vf "fps=10,scale=320:-1:flags=lanczos" "{gif_path}" -y'
@@ -326,8 +301,6 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         os.remove(gif_path)
                     except:
                         await event.client.send_file(event.chat_id, file_path, reply_to=reply.id)
-                else:
-                    await event.edit("❌ نوع الملف غير مدعوم")
                 
                 os.remove(file_path)
                 await event.delete()
@@ -337,19 +310,13 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         @client.on(events.NewMessage(pattern=r'\.يوت (.+)'))
         async def youtube_download(event):
-            """تحميل من يوتيوب"""
             query = event.pattern_match.group(1)
-            
             await event.edit(f"🔍 **جاري البحث عن:** {query}")
             
             try:
                 ydl_opts = {
                     'format': 'bestaudio/best',
-                    'postprocessors': [{
-                        'key': 'FFmpegExtractAudio',
-                        'preferredcodec': 'mp3',
-                        'preferredquality': '192',
-                    }],
+                    'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
                     'outtmpl': '%(title)s.%(ext)s',
                     'quiet': True,
                     'no_warnings': True,
@@ -362,36 +329,20 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     title = info['title']
                     duration = info['duration']
                     uploader = info['uploader']
-                    
                     mp3_path = f"{title}.mp3"
                     
                     if os.path.exists(mp3_path):
                         await event.edit("📤 **جاري الرفع...**")
-                        
                         await event.client.send_file(
                             event.chat_id,
                             mp3_path,
-                            caption=f"""
-🎵 **{title}**
-👤 **القناة:** {uploader}
-⏱️ **المدة:** {duration//60}:{duration%60:02d}
-
-✅ تم التحميل بنجاح!
-""",
-                            attributes=[
-                                DocumentAttributeAudio(
-                                    duration=duration,
-                                    title=title,
-                                    performer=uploader
-                                )
-                            ]
+                            caption=f"🎵 **{title}**\n👤 **القناة:** {uploader}\n⏱️ **المدة:** {duration//60}:{duration%60:02d}\n\n✅ تم التحميل بنجاح!",
+                            attributes=[DocumentAttributeAudio(duration=duration, title=title, performer=uploader)]
                         )
-                        
                         os.remove(mp3_path)
                         await event.delete()
                     else:
                         await event.edit("❌ لم يتم العثور على الملف")
-                
             except Exception as e:
                 await event.edit(f"❌ خطأ في التحميل: {str(e)[:200]}")
         
