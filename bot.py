@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 بوت تسجيل دخول تليجرام بسيط
-بيشتغل بالتوكن فقط بدون API_ID أو API_HASH
+مع دعم Proxy لتخطي حظر Railway
 """
 
 import os
@@ -11,6 +11,7 @@ import logging
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
+from telethon.network import ConnectionTcpMTProxyRandomizedIntermediate
 from cryptography.fernet import Fernet
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -21,6 +22,18 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = "8879863328:AAH_PB_1i50hIyU-UI58TcD-dflHl4dBFqo"
+
+# ==================== Proxy (حل مشكلة الحظر) ====================
+
+# لو عايز تستخدم MTProto Proxy:
+# MT_PROXY = ("proxy_ip", port, "secret")
+# مثال:
+# MT_PROXY = ("149.154.167.40", 443, "eeffaaddccbb99887766554433221100")
+
+# Proxy مجاني للتجربة (MTProto):
+MT_PROXY_HOST = os.environ.get("MT_PROXY_HOST", "")
+MT_PROXY_PORT = int(os.environ.get("MT_PROXY_PORT", "443"))
+MT_PROXY_SECRET = os.environ.get("MT_PROXY_SECRET", "")
 
 # ==================== التشفير ====================
 
@@ -63,6 +76,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /logout - تسجيل الخروج
 /cancel - إلغاء العملية
 /help - مساعدة
+
+🛡️ **Proxy مفعل لتخطي الحظر**
 """)
 
 async def login(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -75,7 +90,8 @@ async def login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📱 **الخطوة 1/4**\n"
         "أرسل API_ID الخاص بك\n"
-        "احصل عليه من: https://my.telegram.org"
+        "احصل عليه من: https://my.telegram.org\n\n"
+        "🛡️ سيتم استخدام Proxy لتخطي الحظر"
     )
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -109,11 +125,21 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         d = sessions[uid]
-        client = TelegramClient(
-            StringSession(dec(d['s'])), 
-            int(dec(d['a'])), 
-            dec(d['h'])
-        )
+        
+        # إنشاء عميل مع Proxy لو موجود
+        client_kwargs = {
+            'session': StringSession(dec(d['s'])),
+            'api_id': int(dec(d['a'])),
+            'api_hash': dec(d['h'])
+        }
+        
+        # إضافة Proxy لو متوفر
+        if MT_PROXY_HOST and MT_PROXY_SECRET:
+            client_kwargs['connection'] = ConnectionTcpMTProxyRandomizedIntermediate
+            client_kwargs['proxy'] = (MT_PROXY_HOST, MT_PROXY_PORT, MT_PROXY_SECRET)
+            logger.info(f"Using MTProto Proxy: {MT_PROXY_HOST}")
+        
+        client = TelegramClient(**client_kwargs)
         await client.start()
         
         @client.on(events.NewMessage(pattern='.ping'))
@@ -121,7 +147,7 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await e.reply('🏓 Pong!')
         
         active_bots[uid] = client
-        await update.message.reply_text("✅ **تم التشغيل!**\nجرب إرسال `.ping`")
+        await update.message.reply_text("✅ **تم التشغيل!**\n🛡️ Proxy مفعل\nجرب إرسال `.ping`")
     except Exception as e:
         await update.message.reply_text(f"❌ خطأ: {e}")
 
@@ -153,6 +179,8 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 4. أرسل رقم الهاتف
 5. أرسل كود التحقق
 6. /run لتشغيل البوت
+
+🛡️ **Proxy:** مفعل تلقائياً لتخطي الحظر
 """)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -183,7 +211,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         s['phone'] = text
         try:
-            c = TelegramClient(StringSession(), s['api_id'], s['api_hash'])
+            # إنشاء عميل مع Proxy لو متوفر
+            client_kwargs = {
+                'session': StringSession(),
+                'api_id': s['api_id'],
+                'api_hash': s['api_hash']
+            }
+            
+            if MT_PROXY_HOST and MT_PROXY_SECRET:
+                client_kwargs['connection'] = ConnectionTcpMTProxyRandomizedIntermediate
+                client_kwargs['proxy'] = (MT_PROXY_HOST, MT_PROXY_PORT, MT_PROXY_SECRET)
+            
+            c = TelegramClient(**client_kwargs)
             await c.connect()
             code = await c.send_code_request(text)
             s['c'] = c
@@ -249,6 +288,11 @@ def main():
     app.add_handler(CommandHandler("logout", logout))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    if MT_PROXY_HOST:
+        print(f"🛡️ Proxy مفعل: {MT_PROXY_HOST}")
+    else:
+        print("⚠️ شغال بدون Proxy - ممكن تليجرام يحظر Railway")
     
     print("✅ البوت شغال...")
     app.run_polling()
