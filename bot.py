@@ -29,6 +29,9 @@ import requests
 
 # ==================== الإعدادات ====================
 
+# ✅ إنشاء مجلد البيانات أولاً قبل أي شيء
+Path("data").mkdir(parents=True, exist_ok=True)
+
 # إعداد التسجيل المتقدم
 logging.basicConfig(
     level=logging.INFO,
@@ -566,8 +569,6 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # ==================== مراقبة الأخطاء أثناء التشغيل ====================
         
-        original_is_connected = client.is_connected
-        
         @client.on(events.Disconnect)
         async def disconnection_handler(event):
             logger.warning(f"⚠️ انقطع اتصال اليوزربوت للمستخدم {uid}")
@@ -608,7 +609,6 @@ async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 )
                             except:
                                 pass
-                            # إيقاف البوت تلقائياً
                             if uid in active_bots:
                                 try:
                                     await active_bots[uid].disconnect()
