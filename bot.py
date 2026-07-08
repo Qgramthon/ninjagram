@@ -1,366 +1,174 @@
 #!/usr/bin/env python3
 """
-╔══════════════════════════════════════════════════════════╗
-║              بوت تيليجرام متكامل - OSINT                ║
-║         المستخدم يتحمل المسؤولية القانونية كاملة         ║
-╚══════════════════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════════════╗
+║              🔥 SHADOW OSINT - موقع ويب متكامل 🔥               ║
+║           المستخدم يتحمل المسؤولية القانونية كاملة                ║
+╚══════════════════════════════════════════════════════════════════╝
+
+📦 التثبيت:
+pip install flask>=3.0.0 httpx~=0.25.2 beautifulsoup4>=4.12.0 lxml>=5.1.0 aiosqlite>=0.20.0 fake-useragent>=1.5.0 phonenumbers>=8.13.0 gunicorn>=21.2.0
+
+🚀 التشغيل:
+python bot.py
 """
 
 import os
-import sys
-import asyncio
-import logging
-import json
-import random
 import re
+import json
 import time
-import base64
-import hashlib
 import socket
 import ssl
+import hashlib
+import secrets
+import asyncio
+import logging
 import threading
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List, Tuple
-from urllib.parse import urlencode, quote
+from typing import Optional, Dict, Any, List
+from urllib.parse import urlparse, quote
+from functools import wraps
 
-# مكتبات الطرف الثالث
 import httpx
 import aiosqlite
-import aiofiles
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
-from flask import Flask, request, jsonify
 import phonenumbers
 from phonenumbers import carrier, geocoder, timezone as ph_timezone
-from cryptography.fernet import Fernet
-
-# تيليجرام
-from telethon import TelegramClient, events
-from telethon.errors import (
-    SessionPasswordNeededError, FloodWaitError, 
-    PhoneNumberInvalidError, PhoneCodeInvalidError
+from flask import (
+    Flask, render_template_string, request, jsonify,
+    session, redirect, url_for, make_response
 )
-from telethon.sessions import StringSession
-from telethon.tl.functions.contacts import (
-    ImportContactsRequest, DeleteContactsRequest, 
-    GetContactsRequest
-)
-from telethon.tl.types import InputPhoneContact
-from telethon.tl.functions.account import UpdateProfileRequest
-from telethon.tl.functions.users import GetFullUserRequest
-
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
-    CallbackQueryHandler, ContextTypes, filters
-)
-from telegram.constants import ParseMode
 
 # ==================== التهيئة ====================
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger("MEGA_BOT")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("SHADOW_OSINT")
 
-# Flask للتشغيل الدائم
 web_app = Flask(__name__)
-PORT = int(os.environ.get("PORT", 8080))
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8879863328:AAH_PB_1i50hIyU-UI58TcD-dflHl4dBFqo")
+web_app.secret_key = secrets.token_hex(32)
 
-# مفاتيح API اختيارية
+PORT = int(os.environ.get("PORT", 8080))
 NUMVERIFY_KEY = os.environ.get("NUMVERIFY_KEY", "")
 ABSTRACT_API_KEY = os.environ.get("ABSTRACT_API_KEY", "")
 VIRUSTOTAL_KEY = os.environ.get("VIRUSTOTAL_KEY", "")
 SHODAN_KEY = os.environ.get("SHODAN_KEY", "")
 IPINFO_TOKEN = os.environ.get("IPINFO_TOKEN", "")
+DB_PATH = "shadow_osint.db"
 
 ua = UserAgent()
 
 # ==================== قاعدة البيانات ====================
-DB_PATH = "mega_bot.db"
-
-async def init_database():
-    """إنشاء جداول قاعدة البيانات"""
+async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                session_string TEXT,
-                phone TEXT,
-                api_id TEXT,
-                api_hash TEXT,
-                is_admin INTEGER DEFAULT 0,
-                credits INTEGER DEFAULT 100,
-                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-            
-            CREATE TABLE IF NOT EXISTS scan_history (
+            CREATE TABLE IF NOT EXISTS scans (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
                 target TEXT,
                 scan_type TEXT,
                 result TEXT,
+                ip_address TEXT,
+                user_agent TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
-            
             CREATE TABLE IF NOT EXISTS api_keys (
-                user_id INTEGER,
-                service TEXT,
-                api_key TEXT,
-                PRIMARY KEY (user_id, service)
-            );
-            
-            CREATE TABLE IF NOT EXISTS sms_services (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT,
-                url TEXT,
-                method TEXT DEFAULT 'POST',
-                phone_param TEXT,
-                headers TEXT,
-                body_template TEXT,
-                success_indicator TEXT,
-                is_active INTEGER DEFAULT 1,
-                country TEXT DEFAULT 'GLOBAL',
-                category TEXT DEFAULT 'general'
-            );
-            
-            CREATE TABLE IF NOT EXISTS target_lists (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                list_name TEXT,
-                targets TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                service TEXT PRIMARY KEY,
+                api_key TEXT
             );
         """)
         await db.commit()
 
-# ==================== التشفير ====================
-fernet_key = Fernet.generate_key()
-cipher = Fernet(fernet_key)
+def run_async(coro):
+    """تشغيل async في sync"""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
-def encrypt(data: str) -> str:
-    return cipher.encrypt(data.encode()).decode()
-
-def decrypt(data: str) -> str:
-    return cipher.decrypt(data.encode()).decode()
-
-# ==================== إدارة الجلسات ====================
-class SessionManager:
+# ==================== محرك الفحص ====================
+class OSINTScanner:
     def __init__(self):
-        self.active_sessions = {}
-        self.login_states = {}
-        self.user_clients = {}
+        self.ua = UserAgent()
     
-    async def save_session(self, user_id: int, session: str, phone: str, 
-                          api_id: str, api_hash: str):
-        async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(
-                """INSERT OR REPLACE INTO users 
-                   (user_id, session_string, phone, api_id, api_hash) 
-                   VALUES (?, ?, ?, ?, ?)""",
-                (user_id, encrypt(session), encrypt(phone), 
-                 encrypt(api_id), encrypt(api_hash))
-            )
-            await db.commit()
-    
-    async def get_session(self, user_id: int) -> Optional[Dict]:
-        async with aiosqlite.connect(DB_PATH) as db:
-            async with db.execute(
-                "SELECT * FROM users WHERE user_id = ?", (user_id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row:
-                    return {
-                        "user_id": row[0],
-                        "session_string": decrypt(row[2]) if row[2] else None,
-                        "phone": decrypt(row[3]) if row[3] else None,
-                        "api_id": decrypt(row[4]) if row[4] else None,
-                        "api_hash": decrypt(row[5]) if row[5] else None,
-                        "credits": row[7]
-                    }
-        return None
-    
-    async def delete_session(self, user_id: int):
-        async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
-            await db.commit()
-    
-    async def get_client(self, user_id: int) -> Optional[TelegramClient]:
-        if user_id in self.user_clients:
-            client = self.user_clients[user_id]
-            if client.is_connected():
-                return client
-        
-        session_data = await self.get_session(user_id)
-        if not session_data:
-            return None
-        
-        try:
-            client = TelegramClient(
-                StringSession(session_data["session_string"]),
-                int(session_data["api_id"]),
-                session_data["api_hash"]
-            )
-            await client.connect()
-            
-            if await client.is_user_authorized():
-                self.user_clients[user_id] = client
-                return client
-        except:
-            pass
-        
-        return None
-
-session_manager = SessionManager()
-
-# ==================== محرك الفحص الاستخباراتي ====================
-class OSINTEngine:
-    def __init__(self):
-        self.results = {}
-        self.sources = {}
-    
-    async def full_scan(self, target: str, scan_type: str = "phone") -> Dict:
-        """تشغيل جميع الفحوصات المتاحة"""
-        self.results = {"target": target, "type": scan_type, "timestamp": datetime.now().isoformat()}
-        
-        if scan_type == "phone":
-            await self.phone_scan(target)
-        elif scan_type == "email":
-            await self.email_scan(target)
-        elif scan_type == "username":
-            await self.username_scan(target)
-        elif scan_type == "ip":
-            await self.ip_scan(target)
-        elif scan_type == "url":
-            await self.url_scan(target)
-        
-        return self.results
-    
-    async def phone_scan(self, phone: str):
+    async def scan_phone(self, phone: str) -> Dict:
         """فحص رقم الهاتف من جميع المصادر"""
+        results = {
+            "phone": phone,
+            "timestamp": datetime.now().isoformat(),
+            "telegram": {},
+            "whatsapp": {},
+            "viber": {},
+            "signal": {},
+            "truecaller": {},
+            "carrier": {},
+            "facebook": {},
+            "google": {},
+            "numverify": {}
+        }
+        
+        # تشغيل كل الفحوصات بالتوازي
         tasks = [
-            self.check_telegram(phone),
-            self.check_whatsapp(phone),
-            self.check_viber(phone),
-            self.check_signal(phone),
-            self.check_truecaller(phone),
-            self.check_getcontact(phone),
-            self.check_numverify(phone),
-            self.check_carrier_info(phone),
-            self.check_facebook_reset(phone),
-            self.check_google_account(phone),
-            self.check_breaches(phone),
+            self._check_whatsapp(phone),
+            self._check_viber(phone),
+            self._check_signal(phone),
+            self._check_truecaller(phone),
+            self._check_carrier(phone),
+            self._check_facebook(phone),
+            self._check_numverify(phone),
         ]
         
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
         
-        for result in results:
-            if isinstance(result, dict):
-                self.results.update(result)
+        for r in results_list:
+            if isinstance(r, dict):
+                results.update(r)
+        
+        return results
     
-    async def check_telegram(self, phone: str, client: TelegramClient = None):
-        """فحص تيليجرام"""
-        try:
-            if not client:
-                self.results["telegram"] = {"error": "No client available"}
-                return
-            
-            contact = InputPhoneContact(
-                client_id=0, phone=phone, 
-                first_name="OSINT_BOT", last_name=""
-            )
-            
-            result = await client(ImportContactsRequest([contact]))
-            
-            if result.users:
-                user = result.users[0]
-                full_user = await client(GetFullUserRequest(user))
-                
-                user_data = {
-                    "exists": True,
-                    "user_id": user.id,
-                    "username": user.username,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "phone_visible": bool(user.phone) if hasattr(user, 'phone') else False,
-                    "is_premium": getattr(user, 'premium', False),
-                    "is_verified": getattr(user, 'verified', False),
-                    "is_bot": getattr(user, 'bot', False),
-                    "language": getattr(user, 'lang_code', None),
-                    "bio": full_user.full_user.about if hasattr(full_user.full_user, 'about') else None,
-                    "common_chats": getattr(full_user, 'common_chats_count', 0),
-                    "profile_photos_count": full_user.full_user.profile_photo.id if full_user.full_user.profile_photo else 0
-                }
-                
-                self.results["telegram"] = user_data
-                
-                # حذف جهة الاتصال بعد الفحص
-                await client(DeleteContactsRequest(id=[user.id]))
-            else:
-                self.results["telegram"] = {"exists": False}
-                
-        except Exception as e:
-            self.results["telegram"] = {"error": str(e), "exists": False}
-    
-    async def check_whatsapp(self, phone: str):
-        """فحص واتساب"""
+    async def _check_whatsapp(self, phone: str) -> Dict:
         clean = phone.replace("+", "").replace(" ", "").replace("-", "")
         methods = {}
         
         try:
-            # طريقة 1: wa.me
-            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-                headers = {"User-Agent": ua.random}
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+                headers = {"User-Agent": self.ua.random}
                 resp = await client.get(f"https://wa.me/{clean}", headers=headers)
                 methods["wa_me"] = "Continue to Chat" in resp.text
         except:
             methods["wa_me"] = None
         
         try:
-            # طريقة 2: WhatsApp Business API
             async with httpx.AsyncClient(timeout=10) as client:
-                headers = {
-                    "User-Agent": "WhatsApp/2.24.2.17 Android",
-                    "Content-Type": "application/json"
-                }
+                headers = {"User-Agent": "WhatsApp/2.24.2.17 Android"}
                 resp = await client.post(
                     "https://v.whatsapp.com/v2/exist",
-                    json={"cc": phone[:3], "in": phone[3:], "to": phone},
+                    json={"cc": phone[:3] if phone.startswith("+") else "", 
+                          "in": phone[3:] if phone.startswith("+") else phone,
+                          "to": phone},
                     headers=headers
                 )
-                methods["api_check"] = resp.status_code == 200
+                methods["api"] = resp.status_code == 200
         except:
-            methods["api_check"] = None
+            methods["api"] = None
         
-        exists = methods.get("wa_me") or methods.get("api_check")
-        self.results["whatsapp"] = {
-            "exists": exists,
-            "methods": methods
-        }
+        exists = methods.get("wa_me") or methods.get("api")
+        return {"whatsapp": {"exists": exists, "methods": methods}}
     
-    async def check_viber(self, phone: str):
-        """فحص Viber"""
+    async def _check_viber(self, phone: str) -> Dict:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                headers = {"User-Agent": ua.random}
                 resp = await client.post(
                     "https://api.viber.com/api/v2/check",
                     json={"phone": phone},
-                    headers=headers
+                    headers={"User-Agent": self.ua.random}
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    self.results["viber"] = {
-                        "exists": data.get("exists", False),
-                        "name": data.get("name", "")
-                    }
+                    return {"viber": {"exists": data.get("exists", False)}}
         except:
-            self.results["viber"] = {"exists": None}
+            pass
+        return {"viber": {"exists": None}}
     
-    async def check_signal(self, phone: str):
-        """فحص Signal"""
+    async def _check_signal(self, phone: str) -> Dict:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 headers = {"User-Agent": "Signal-Android/6.0"}
@@ -368,23 +176,18 @@ class OSINTEngine:
                     f"https://api.signal.org/v1/accounts/{phone}",
                     headers=headers
                 )
-                self.results["signal"] = {
-                    "exists": resp.status_code == 200
-                }
+                return {"signal": {"exists": resp.status_code == 200}}
         except:
-            self.results["signal"] = {"exists": None}
+            return {"signal": {"exists": None}}
     
-    async def check_truecaller(self, phone: str):
-        """فحص Truecaller"""
+    async def _check_truecaller(self, phone: str) -> Dict:
         clean = phone.replace("+", "")
         try:
-            async with httpx.AsyncClient(timeout=20) as client:
+            async with httpx.AsyncClient(timeout=15) as client:
                 headers = {
-                    "User-Agent": ua.random,
-                    "Accept": "text/html,application/xhtml+xml",
+                    "User-Agent": self.ua.random,
                     "Accept-Language": "ar,en;q=0.9"
                 }
-                
                 resp = await client.get(
                     f"https://www.truecaller.com/search/eg/{clean}",
                     headers=headers
@@ -392,191 +195,99 @@ class OSINTEngine:
                 
                 if resp.status_code == 200:
                     soup = BeautifulSoup(resp.text, 'lxml')
-                    
-                    # البحث عن الاسم في JSON المضمن
                     scripts = soup.find_all("script", type="application/ld+json")
+                    
                     for script in scripts:
                         if script.string:
                             try:
                                 data = json.loads(script.string)
                                 name = data.get("name", "")
                                 if name:
-                                    self.results["truecaller"] = {
-                                        "found": True,
-                                        "name": name,
-                                        "spam_score": data.get("spamScore", 0)
-                                    }
-                                    return
+                                    return {"truecaller": {"found": True, "name": name}}
                             except:
                                 pass
                     
-                    self.results["truecaller"] = {"found": False}
-        except Exception as e:
-            self.results["truecaller"] = {"error": str(e)}
-    
-    async def check_getcontact(self, phone: str):
-        """فحص Getcontact"""
-        try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                headers = {
-                    "User-Agent": "GetContact/5.0 Android",
-                    "Content-Type": "application/json"
-                }
-                resp = await client.get(
-                    f"https://api.getcontact.com/v2/search/{phone}",
-                    headers=headers
-                )
-                
-                if resp.status_code == 200:
-                    data = resp.json()
-                    tags = data.get("result", {}).get("tags", [])
-                    self.results["getcontact"] = {
-                        "found": True,
-                        "name": data.get("result", {}).get("name", ""),
-                        "tags": [t["tag"] for t in tags[:10]],
-                        "tag_count": len(tags)
-                    }
-                else:
-                    self.results["getcontact"] = {"found": False}
+                    return {"truecaller": {"found": False}}
         except:
-            self.results["getcontact"] = {"error": "API not accessible"}
+            return {"truecaller": {"error": "تعذر الفحص"}}
     
-    async def check_numverify(self, phone: str):
-        """فحص NumVerify"""
-        key = NUMVERIFY_KEY
-        if not key:
-            self.results["numverify"] = {"error": "No API key"}
-            return
-        
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    "http://apilayer.net/api/validate",
-                    params={
-                        "access_key": key,
-                        "number": phone,
-                        "format": 1
-                    }
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    self.results["carrier_info"] = {
-                        "valid": data.get("valid"),
-                        "country": data.get("country_name"),
-                        "location": data.get("location"),
-                        "carrier": data.get("carrier"),
-                        "line_type": data.get("line_type")
-                    }
-        except Exception as e:
-            self.results["numverify"] = {"error": str(e)}
-    
-    async def check_carrier_info(self, phone: str):
-        """معلومات الشبكة باستخدام phonenumbers"""
+    async def _check_carrier(self, phone: str) -> Dict:
         try:
             parsed = phonenumbers.parse(phone)
-            self.results["phone_info"] = {
+            return {"carrier": {
                 "valid": phonenumbers.is_valid_number(parsed),
-                "possible": phonenumbers.is_possible_number(parsed),
                 "country": geocoder.description_for_number(parsed, "en"),
                 "carrier": carrier.name_for_number(parsed, "en"),
                 "timezone": list(ph_timezone.time_zones_for_number(parsed)),
-                "national_format": phonenumbers.format_number(
-                    parsed, phonenumbers.PhoneNumberFormat.NATIONAL
-                ),
-                "international_format": phonenumbers.format_number(
-                    parsed, phonenumbers.PhoneNumberFormat.INTERNATIONAL
-                ),
-                "country_code": parsed.country_code,
-                "national_number": parsed.national_number
-            }
+                "national": phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.NATIONAL),
+                "international": phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
+            }}
         except Exception as e:
-            self.results["phone_info"] = {"error": str(e)}
+            return {"carrier": {"error": str(e)}}
     
-    async def check_facebook_reset(self, phone: str):
-        """فحص ارتباط فيسبوك"""
+    async def _check_facebook(self, phone: str) -> Dict:
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                headers = {"User-Agent": ua.random}
+            async with httpx.AsyncClient(timeout=10) as client:
+                headers = {"User-Agent": self.ua.random}
                 resp = await client.get(
                     "https://www.facebook.com/login/identify",
                     params={"ctx": "recover"},
                     headers=headers
                 )
-                
-                # الحصول على csrf token
-                soup = BeautifulSoup(resp.text, 'lxml')
-                
-                # إرسال طلب استعادة برقم الهاتف
-                form_data = {"phone": phone, "method": "phone"}
-                resp2 = await client.post(
-                    "https://www.facebook.com/ajax/login/help/identify.php",
-                    data=form_data,
-                    headers=headers
-                )
-                
-                self.results["facebook"] = {
-                    "possibly_linked": "account_found" in resp2.text.lower()
-                }
+                return {"facebook": {"possibly_linked": resp.status_code == 200}}
         except:
-            self.results["facebook"] = {"error": "Check failed"}
+            return {"facebook": {"possibly_linked": None}}
     
-    async def check_google_account(self, phone: str):
-        """فحص حساب جوجل"""
+    async def _check_numverify(self, phone: str) -> Dict:
+        if not NUMVERIFY_KEY:
+            return {"numverify": {"error": "No API key"}}
+        
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                headers = {"User-Agent": ua.random}
                 resp = await client.get(
-                    "https://accounts.google.com/signin/v2/recoveryidentifier",
-                    params={"flowName": "GlifWebSignIn", "flowEntry": "AccountRecovery"},
-                    headers=headers
+                    "http://apilayer.net/api/validate",
+                    params={"access_key": NUMVERIFY_KEY, "number": phone, "format": 1}
                 )
-                self.results["google"] = {
-                    "checked": True,
-                    "note": "Requires further interaction"
-                }
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return {"numverify": {
+                        "valid": data.get("valid"),
+                        "country": data.get("country_name"),
+                        "carrier": data.get("carrier"),
+                        "line_type": data.get("line_type"),
+                        "location": data.get("location")
+                    }}
         except:
-            self.results["google"] = {"checked": False}
+            pass
+        return {"numverify": {"error": "فشل"}}
     
-    async def check_breaches(self, phone: str):
-        """فحص التسريبات (محاكاة)"""
-        # يمكن ربطه بقاعدة بيانات تسريبات حقيقية
-        self.results["breaches"] = {
-            "checked": True,
-            "note": "Connect to breach database for real results"
-        }
-
-osint_engine = OSINTEngine()
-
-# ==================== وحدة فحص IP ====================
-class IPAnalyzer:
-    async def analyze(self, ip: str) -> Dict:
-        results = {}
+    async def scan_ip(self, ip: str) -> Dict:
+        """فحص IP"""
+        results = {"ip": ip, "timestamp": datetime.now().isoformat()}
         
         tasks = [
-            self.ipinfo_lookup(ip),
-            self.shodan_lookup(ip),
-            self.geoip_lookup(ip),
-            self.abuseipdb_check(ip),
-            self.port_scan(ip),
-            self.reverse_dns(ip)
+            self._ipinfo(ip),
+            self._geoip(ip),
+            self._abuseipdb(ip),
+            self._shodan(ip),
+            self._port_scan(ip),
+            self._reverse_dns(ip)
         ]
         
         responses = await asyncio.gather(*tasks, return_exceptions=True)
         
-        for resp in responses:
-            if isinstance(resp, dict):
-                results.update(resp)
+        for r in responses:
+            if isinstance(r, dict):
+                results.update(r)
         
         return results
     
-    async def ipinfo_lookup(self, ip: str):
+    async def _ipinfo(self, ip: str) -> Dict:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                token = IPINFO_TOKEN or ""
                 url = f"https://ipinfo.io/{ip}/json"
-                if token:
-                    url += f"?token={token}"
-                
+                if IPINFO_TOKEN:
+                    url += f"?token={IPINFO_TOKEN}"
                 resp = await client.get(url)
                 if resp.status_code == 200:
                     return {"ipinfo": resp.json()}
@@ -584,7 +295,7 @@ class IPAnalyzer:
             pass
         return {}
     
-    async def geoip_lookup(self, ip: str):
+    async def _geoip(self, ip: str) -> Dict:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(f"http://ip-api.com/json/{ip}")
@@ -594,23 +305,7 @@ class IPAnalyzer:
             pass
         return {}
     
-    async def shodan_lookup(self, ip: str):
-        if not SHODAN_KEY:
-            return {}
-        
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    f"https://api.shodan.io/shodan/host/{ip}",
-                    params={"key": SHODAN_KEY}
-                )
-                if resp.status_code == 200:
-                    return {"shodan": resp.json()}
-        except:
-            pass
-        return {}
-    
-    async def abuseipdb_check(self, ip: str):
+    async def _abuseipdb(self, ip: str) -> Dict:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 headers = {
@@ -628,15 +323,29 @@ class IPAnalyzer:
             pass
         return {}
     
-    async def port_scan(self, ip: str, ports: List[int] = None):
-        if not ports:
-            ports = [21, 22, 23, 25, 53, 80, 443, 8080, 8443]
-        
+    async def _shodan(self, ip: str) -> Dict:
+        if not SHODAN_KEY:
+            return {}
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    f"https://api.shodan.io/shodan/host/{ip}",
+                    params={"key": SHODAN_KEY}
+                )
+                if resp.status_code == 200:
+                    return {"shodan": resp.json()}
+        except:
+            pass
+        return {}
+    
+    async def _port_scan(self, ip: str) -> Dict:
+        ports = [21, 22, 23, 25, 53, 80, 110, 143, 443, 993, 995, 8080, 8443]
         open_ports = []
+        
         for port in ports:
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(2)
+                sock.settimeout(1)
                 result = sock.connect_ex((ip, port))
                 if result == 0:
                     open_ports.append(port)
@@ -644,46 +353,79 @@ class IPAnalyzer:
             except:
                 pass
         
-        return {"port_scan": {"open_ports": open_ports, "scanned": ports}}
+        return {"ports": {"open": open_ports, "scanned": ports}}
     
-    async def reverse_dns(self, ip: str):
+    async def _reverse_dns(self, ip: str) -> Dict:
         try:
             hostname = socket.gethostbyaddr(ip)[0]
             return {"reverse_dns": hostname}
         except:
             return {"reverse_dns": None}
-
-ip_analyzer = IPAnalyzer()
-
-# ==================== وحدة فحص URL ====================
-class URLScanner:
-    async def scan(self, url: str) -> Dict:
-        results = {}
+    
+    async def scan_url(self, url: str) -> Dict:
+        """فحص رابط"""
+        results = {"url": url, "timestamp": datetime.now().isoformat()}
         
         tasks = [
-            self.virustotal_scan(url),
-            self.ssl_check(url),
-            self.headers_check(url),
-            self.whois_lookup(url),
-            self.redirect_check(url)
+            self._ssl_check(url),
+            self._headers_check(url),
+            self._virustotal(url),
+            self._redirect_check(url)
         ]
         
         responses = await asyncio.gather(*tasks, return_exceptions=True)
         
-        for resp in responses:
-            if isinstance(resp, dict):
-                results.update(resp)
+        for r in responses:
+            if isinstance(r, dict):
+                results.update(r)
         
         return results
     
-    async def virustotal_scan(self, url: str):
+    async def _ssl_check(self, url: str) -> Dict:
+        try:
+            hostname = urlparse(url).hostname or url
+            ctx = ssl.create_default_context()
+            with socket.create_connection((hostname, 443), timeout=5) as sock:
+                with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
+                    cert = ssock.getpeercert()
+                    return {"ssl": {
+                        "issuer": dict(x[0] for x in cert.get("issuer", [])),
+                        "valid_from": cert.get("notBefore"),
+                        "valid_to": cert.get("notAfter"),
+                        "subject": dict(x[0] for x in cert.get("subject", []))
+                    }}
+        except Exception as e:
+            return {"ssl": {"error": str(e)}}
+    
+    async def _headers_check(self, url: str) -> Dict:
+        try:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+                resp = await client.get(url)
+                
+                security = {
+                    "Strict-Transport-Security": resp.headers.get("Strict-Transport-Security"),
+                    "Content-Security-Policy": resp.headers.get("Content-Security-Policy"),
+                    "X-Frame-Options": resp.headers.get("X-Frame-Options"),
+                    "X-Content-Type-Options": resp.headers.get("X-Content-Type-Options"),
+                    "X-XSS-Protection": resp.headers.get("X-XSS-Protection")
+                }
+                
+                missing = [k for k, v in security.items() if not v]
+                
+                return {"headers": {
+                    "security": security,
+                    "missing": missing,
+                    "server": resp.headers.get("Server", "Unknown"),
+                    "status": resp.status_code
+                }}
+        except:
+            return {}
+    
+    async def _virustotal(self, url: str) -> Dict:
         if not VIRUSTOTAL_KEY:
             return {}
-        
         try:
-            # ترميز URL
             url_id = base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
-            
             async with httpx.AsyncClient(timeout=15) as client:
                 headers = {"x-apikey": VIRUSTOTAL_KEY}
                 resp = await client.get(
@@ -691,708 +433,649 @@ class URLScanner:
                     headers=headers
                 )
                 if resp.status_code == 200:
-                    data = resp.json()
-                    stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
-                    return {
-                        "virustotal": {
-                            "malicious": stats.get("malicious", 0),
-                            "suspicious": stats.get("suspicious", 0),
-                            "harmless": stats.get("harmless", 0),
-                            "undetected": stats.get("undetected", 0)
-                        }
-                    }
+                    stats = resp.json().get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
+                    return {"virustotal": stats}
         except:
             pass
         return {}
     
-    async def ssl_check(self, url: str):
-        try:
-            hostname = url.split("://")[-1].split("/")[0]
-            
-            ctx = ssl.create_default_context()
-            with socket.create_connection((hostname, 443), timeout=5) as sock:
-                with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
-                    cert = ssock.getpeercert()
-                    
-                    return {
-                        "ssl": {
-                            "issuer": dict(x[0] for x in cert.get("issuer", [])),
-                            "subject": dict(x[0] for x in cert.get("subject", [])),
-                            "valid_from": cert.get("notBefore"),
-                            "valid_to": cert.get("notAfter"),
-                            "san": cert.get("subjectAltName", [])
-                        }
-                    }
-        except Exception as e:
-            return {"ssl": {"error": str(e)}}
-    
-    async def headers_check(self, url: str):
-        try:
-            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-                resp = await client.get(url)
-                
-                security_headers = {
-                    "Strict-Transport-Security": resp.headers.get("Strict-Transport-Security"),
-                    "Content-Security-Policy": resp.headers.get("Content-Security-Policy"),
-                    "X-Frame-Options": resp.headers.get("X-Frame-Options"),
-                    "X-Content-Type-Options": resp.headers.get("X-Content-Type-Options"),
-                    "X-XSS-Protection": resp.headers.get("X-XSS-Protection"),
-                }
-                
-                missing = [h for h, v in security_headers.items() if v is None]
-                
-                return {
-                    "headers": {
-                        "security_headers": security_headers,
-                        "missing_headers": missing,
-                        "server": resp.headers.get("Server", "Unknown"),
-                        "status_code": resp.status_code
-                    }
-                }
-        except:
-            return {}
-    
-    async def whois_lookup(self, url: str):
-        try:
-            hostname = url.split("://")[-1].split("/")[0]
-            # محاكاة WHOIS (يحتاج مكتبة python-whois أو API خارجي)
-            return {"whois": {"domain": hostname, "note": "Requires whois library"}}
-        except:
-            return {}
-    
-    async def redirect_check(self, url: str):
+    async def _redirect_check(self, url: str) -> Dict:
         try:
             async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
                 response = await client.get(url)
-                
                 if response.status_code in (301, 302, 307, 308):
-                    return {
-                        "redirect": {
-                            "status": response.status_code,
-                            "location": response.headers.get("Location", ""),
-                            "chain": [str(response.url)]
-                        }
-                    }
+                    return {"redirect": {
+                        "status": response.status_code,
+                        "location": response.headers.get("Location", "")
+                    }}
                 return {"redirect": None}
         except:
             return {}
 
-url_scanner = URLScanner()
+scanner = OSINTScanner()
 
-# ==================== بوت تيليجرام ====================
-class MegaBot:
-    def __init__(self):
-        self.app = None
+# ==================== HTML Templates ====================
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SHADOW OSINT - أداة الاستخبارات المفتوحة</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            padding: 20px;
+            text-align: center;
+            border-bottom: 2px solid #e94560;
+        }
+        .header h1 {
+            font-size: 2.5em;
+            color: #e94560;
+            text-shadow: 0 0 10px rgba(233,69,96,0.5);
+        }
+        .header p { color: #888; margin-top: 10px; }
+        
+        /* Navigation */
+        .nav {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            padding: 15px;
+            flex-wrap: wrap;
+        }
+        .nav a {
+            padding: 10px 25px;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            text-decoration: none;
+            border-radius: 5px;
+            border: 1px solid #333;
+            transition: all 0.3s;
+        }
+        .nav a:hover, .nav a.active {
+            background: #e94560;
+            border-color: #e94560;
+            color: white;
+        }
+        
+        /* Cards */
+        .card {
+            background: #1a1a2e;
+            border: 1px solid #333;
+            border-radius: 10px;
+            padding: 25px;
+            margin: 20px 0;
+        }
+        .card h2 {
+            color: #e94560;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+        
+        /* Inputs */
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        input, textarea, select {
+            flex: 1;
+            padding: 12px 15px;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 5px;
+            color: #e0e0e0;
+            font-size: 16px;
+        }
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: #e94560;
+            box-shadow: 0 0 5px rgba(233,69,96,0.3);
+        }
+        
+        /* Buttons */
+        .btn {
+            padding: 12px 30px;
+            background: #e94560;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        .btn:hover { background: #c73e54; transform: translateY(-2px); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-sm { padding: 8px 15px; font-size: 14px; }
+        
+        /* Results */
+        .result-box {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 5px;
+            padding: 20px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 14px;
+            max-height: 500px;
+            overflow-y: auto;
+            display: none;
+        }
+        .result-box.show { display: block; }
+        .result-box.success { border-color: #4caf50; }
+        .result-box.error { border-color: #e94560; }
+        
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 20px;
+            display: none;
+        }
+        .loading.show { display: block; }
+        .spinner {
+            border: 3px solid #333;
+            border-top: 3px solid #e94560;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+        th, td {
+            padding: 10px;
+            border: 1px solid #333;
+            text-align: right;
+        }
+        th {
+            background: #1a1a2e;
+            color: #e94560;
+        }
+        td { background: #0a0a0a; }
+        
+        /* Status */
+        .status-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+        .status-true { background: #4caf50; color: white; }
+        .status-false { background: #e94560; color: white; }
+        .status-unknown { background: #ff9800; color: white; }
+        
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            border-top: 1px solid #333;
+            margin-top: 40px;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header h1 { font-size: 1.8em; }
+            .input-group { flex-direction: column; }
+            .nav { flex-direction: column; align-items: center; }
+            .nav a { width: 100%; text-align: center; }
+        }
+        
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            cursor: pointer;
+            border-radius: 5px 5px 0 0;
+        }
+        .tab.active {
+            background: #e94560;
+            border-color: #e94560;
+            color: white;
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        /* Stats */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: #1a1a2e;
+            border: 1px solid #333;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+        }
+        .stat-card h3 { color: #888; font-size: 0.9em; }
+        .stat-card .value { color: #e94560; font-size: 2em; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔥 SHADOW OSINT</h1>
+        <p>أداة الاستخبارات المفتوحة - فحص أرقام، IP، روابط، والمزيد</p>
+    </div>
     
-    async def setup(self):
-        """إعداد البوت"""
-        self.app = Application.builder().token(BOT_TOKEN).build()
+    <div class="container">
+        <div class="nav">
+            <a href="/" class="{{ 'active' if active_page == 'phone' else '' }}">📱 فحص رقم</a>
+            <a href="/ip" class="{{ 'active' if active_page == 'ip' else '' }}">🌐 فحص IP</a>
+            <a href="/url" class="{{ 'active' if active_page == 'url' else '' }}">🔗 فحص رابط</a>
+            <a href="/api" class="{{ 'active' if active_page == 'api' else '' }}">⚡ API</a>
+        </div>
         
-        # الأوامر الأساسية
-        self.app.add_handler(CommandHandler("start", self.cmd_start))
-        self.app.add_handler(CommandHandler("help", self.cmd_help))
-        self.app.add_handler(CommandHandler("login", self.cmd_login))
-        self.app.add_handler(CommandHandler("logout", self.cmd_logout))
-        self.app.add_handler(CommandHandler("status", self.cmd_status))
-        self.app.add_handler(CommandHandler("cancel", self.cmd_cancel))
-        
-        # أوامر الفحص
-        self.app.add_handler(CommandHandler("scan", self.cmd_scan))
-        self.app.add_handler(CommandHandler("lookup", self.cmd_lookup))
-        self.app.add_handler(CommandHandler("ip", self.cmd_ip))
-        self.app.add_handler(CommandHandler("url", self.cmd_url))
-        self.app.add_handler(CommandHandler("email", self.cmd_email))
-        
-        # أوامر متقدمة
-        self.app.add_handler(CommandHandler("setapi", self.cmd_setapi))
-        self.app.add_handler(CommandHandler("credits", self.cmd_credits))
-        self.app.add_handler(CommandHandler("history", self.cmd_history))
-        
-        # معالجات
-        self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
-        self.app.add_handler(CallbackQueryHandler(self.handle_callback))
-        
-        logger.info("Bot handlers registered")
+        {% block content %}{% endblock %}
+    </div>
     
-    # ==================== أوامر البوت ====================
-    async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        keyboard = [
-            [InlineKeyboardButton("🔍 فحص رقم", callback_data="menu_scan"),
-             InlineKeyboardButton("🌐 فحص IP", callback_data="menu_ip")],
-            [InlineKeyboardButton("🔗 فحص رابط", callback_data="menu_url"),
-             InlineKeyboardButton("📧 فحص إيميل", callback_data="menu_email")],
-            [InlineKeyboardButton("📊 حسابي", callback_data="menu_status"),
-             InlineKeyboardButton("ℹ️ مساعدة", callback_data="menu_help")]
-        ]
-        
-        await update.message.reply_text(
-            "╔══════════════════════╗\n"
-            "║   🔥 بوت OSINT المتكامل   ║\n"
-            "╚══════════════════════╝\n\n"
-            "أداة استخباراتية متكاملة لجمع المعلومات من المصادر المفتوحة.\n\n"
-            "📋 **الأوامر الأساسية:**\n"
-            "/login - تسجيل الدخول\n"
-            "/scan - فحص شامل\n"
-            "/lookup - فحص رقم\n"
-            "/ip - فحص IP\n"
-            "/url - فحص رابط\n"
-            "/email - فحص بريد\n\n"
-            "⚠️ للأغراض التعليمية والبحثية فقط.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.MARKDOWN
-        )
+    <div class="footer">
+        <p>⚠️ للأغراض التعليمية والبحثية فقط. المستخدم يتحمل المسؤولية الكاملة عن استخدامه.</p>
+        <p>SHADOW OSINT v4.0 | © 2024</p>
+    </div>
     
-    async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        help_text = """
-📚 **دليل الاستخدام الكامل**
-
-**1. تسجيل الدخول:**
-/login - بدء تسجيل الدخول
-تحتاج API_ID و API_HASH من my.telegram.org
-
-**2. فحص الأرقام:**
-/lookup +201234567890
-/scan phone +201234567890
-
-**3. فحص IP:**
-/ip 8.8.8.8
-/scan ip 8.8.8.8
-
-**4. فحص الروابط:**
-/url https://example.com
-/scan url https://example.com
-
-**5. فحص البريد:**
-/email user@example.com
-
-**6. المفاتيح API:**
-/setapi numverify KEY
-/setapi virustotal KEY
-/setapi shodan KEY
-
-**7. أخرى:**
-/status - حالة حسابك
-/credits - رصيدك
-/history - سجل الفحوصات
-/logout - تسجيل خروج
-/cancel - إلغاء العملية
-"""
-        await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
-    
-    async def cmd_login(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        uid = update.effective_user.id
-        
-        existing = await session_manager.get_session(uid)
-        if existing:
-            await update.message.reply_text("✅ لديك حساب مسجل بالفعل!")
-            return
-        
-        session_manager.login_states[uid] = {"step": "api_id"}
-        
-        await update.message.reply_text(
-            "📱 **تسجيل الدخول - الخطوة 1/4**\n\n"
-            "أرسل API_ID الخاص بك.\n"
-            "للحصول عليه: https://my.telegram.org\n"
-            "اذهب إلى: API Development Tools"
-        )
-    
-    async def cmd_logout(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        uid = update.effective_user.id
-        
-        if uid in session_manager.user_clients:
-            try:
-                await session_manager.user_clients[uid].disconnect()
-            except:
-                pass
-            del session_manager.user_clients[uid]
-        
-        await session_manager.delete_session(uid)
-        await update.message.reply_text("✅ تم تسجيل الخروج بنجاح")
-    
-    async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        uid = update.effective_user.id
-        
-        session = await session_manager.get_session(uid)
-        
-        if not session:
-            await update.message.reply_text("🔴 غير مسجل\nاستخدم /login")
-            return
-        
-        client = await session_manager.get_client(uid)
-        
-        status_text = "🟢 **حالة الحساب**\n\n"
-        status_text += f"📱 الرقم: {session.get('phone', 'غير معروف')}\n"
-        status_text += f"💰 الرصيد: {session.get('credits', 0)} فحص\n"
-        
-        if client:
-            me = await client.get_me()
-            status_text += f"👤 الاسم: {me.first_name}\n"
-            status_text += f"🆔 ID: {me.id}\n"
-            status_text += f"⚡ الجلسة: نشطة\n"
-        else:
-            status_text += "⚡ الجلسة: غير نشطة\n"
-        
-        await update.message.reply_text(status_text, parse_mode=ParseMode.MARKDOWN)
-    
-    async def cmd_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        uid = update.effective_user.id
-        
-        if uid in session_manager.login_states:
-            del session_manager.login_states[uid]
-            await update.message.reply_text("✅ تم إلغاء العملية")
-        else:
-            await update.message.reply_text("لا توجد عملية جارية")
-    
-    async def cmd_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        uid = update.effective_user.id
-        
-        if not context.args:
-            await update.message.reply_text(
-                "📋 **استخدام:**\n"
-                "/scan phone <رقم>\n"
-                "/scan ip <عنوان>\n"
-                "/scan url <رابط>\n"
-                "/scan email <بريد>"
-            )
-            return
-        
-        scan_type = context.args[0].lower()
-        target = context.args[1] if len(context.args) > 1 else None
-        
-        if not target:
-            await update.message.reply_text("❌ حدد الهدف")
-            return
-        
-        msg = await update.message.reply_text(f"🔍 جاري الفحص الشامل...")
-        
-        try:
-            results = await osint_engine.full_scan(target, scan_type)
-            report = self.format_scan_report(results)
-            await msg.edit_text(report, parse_mode=ParseMode.MARKDOWN)
-        except Exception as e:
-            await msg.edit_text(f"❌ خطأ: {e}")
-    
-    async def cmd_lookup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        uid = update.effective_user.id
-        
-        if not context.args:
-            await update.message.reply_text("📱 **استخدام:** /lookup +201234567890")
-            return
-        
-        phone = context.args[0]
-        
-        if not phone.startswith("+"):
-            await update.message.reply_text("❌ يجب أن يبدأ الرقم بـ +")
-            return
-        
-        msg = await update.message.reply_text(f"🔍 جاري فحص {phone}...")
-        
-        try:
-            client = await session_manager.get_client(uid)
-            results = await osint_engine.phone_scan(phone)
+    <script>
+        async function scanPhone() {
+            const phone = document.getElementById('phone').value;
+            if (!phone) return alert('الرجاء إدخال رقم الهاتف');
             
-            if client:
-                await osint_engine.check_telegram(phone, client)
+            showLoading('phoneLoading', true);
+            hideResult('phoneResult');
             
-            report = self.format_phone_report(osint_engine.results)
-            await msg.edit_text(report, parse_mode=ParseMode.MARKDOWN)
-            
-        except Exception as e:
-            await msg.edit_text(f"❌ خطأ: {e}")
-    
-    async def cmd_ip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if not context.args:
-            await update.message.reply_text("🌐 **استخدام:** /ip 8.8.8.8")
-            return
-        
-        ip = context.args[0]
-        msg = await update.message.reply_text(f"🔍 فحص {ip}...")
-        
-        try:
-            results = await ip_analyzer.analyze(ip)
-            report = self.format_ip_report(results)
-            await msg.edit_text(report, parse_mode=ParseMode.MARKDOWN)
-        except Exception as e:
-            await msg.edit_text(f"❌ خطأ: {e}")
-    
-    async def cmd_url(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if not context.args:
-            await update.message.reply_text("🔗 **استخدام:** /url https://example.com")
-            return
-        
-        url = context.args[0]
-        msg = await update.message.reply_text(f"🔍 فحص {url}...")
-        
-        try:
-            results = await url_scanner.scan(url)
-            report = self.format_url_report(results)
-            await msg.edit_text(report, parse_mode=ParseMode.MARKDOWN)
-        except Exception as e:
-            await msg.edit_text(f"❌ خطأ: {e}")
-    
-    async def cmd_email(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if not context.args:
-            await update.message.reply_text("📧 **استخدام:** /email user@example.com")
-            return
-        
-        email = context.args[0]
-        msg = await update.message.reply_text(f"🔍 فحص {email}...")
-        
-        # فحص أساسي للبريد
-        report = f"""
-📧 **تقرير البريد:** `{email}`
-
-📋 **تحليل أساسي:**
-├ الخدمة: {email.split('@')[1]}
-├ الاسم: {email.split('@')[0]}
-├ الطول: {len(email)} حرف
-
-🔒 **فحص الأمان:**
-├ Have I Been Pwned: يتطلب API
-└ مؤقت: {'⚠️ نعم' if email.split('@')[1] in ['tempmail.com', '10minutemail.com'] else '✅ لا'}
-"""
-        await msg.edit_text(report, parse_mode=ParseMode.MARKDOWN)
-    
-    async def cmd_setapi(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        uid = update.effective_user.id
-        
-        if len(context.args) < 2:
-            await update.message.reply_text(
-                "🔑 **استخدام:**\n"
-                "/setapi numverify KEY\n"
-                "/setapi virustotal KEY\n"
-                "/setapi shodan KEY\n"
-                "/setapi abuseipdb KEY"
-            )
-            return
-        
-        service = context.args[0].lower()
-        key = context.args[1]
-        
-        async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(
-                "INSERT OR REPLACE INTO api_keys VALUES (?, ?, ?)",
-                (uid, service, key)
-            )
-            await db.commit()
-        
-        await update.message.reply_text(f"✅ تم حفظ مفتاح {service}")
-    
-    async def cmd_credits(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        uid = update.effective_user.id
-        session = await session_manager.get_session(uid)
-        
-        if session:
-            await update.message.reply_text(f"💰 رصيدك: {session.get('credits', 0)} فحص")
-        else:
-            await update.message.reply_text("🔴 غير مسجل")
-    
-    async def cmd_history(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        uid = update.effective_user.id
-        
-        async with aiosqlite.connect(DB_PATH) as db:
-            async with db.execute(
-                "SELECT target, scan_type, created_at FROM scan_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 10",
-                (uid,)
-            ) as cursor:
-                rows = await cursor.fetchall()
-        
-        if not rows:
-            await update.message.reply_text("📭 لا يوجد سجل")
-            return
-        
-        history = "📊 **آخر 10 فحوصات:**\n\n"
-        for target, scan_type, date in rows:
-            history += f"🎯 {target} ({scan_type}) - {date}\n"
-        
-        await update.message.reply_text(history, parse_mode=ParseMode.MARKDOWN)
-    
-    # ==================== معالجات ====================
-    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        uid = update.effective_user.id
-        text = update.message.text.strip()
-        
-        if uid in session_manager.login_states:
-            await self.process_login_step(update, text)
-    
-    async def process_login_step(self, update: Update, text: str):
-        uid = update.effective_user.id
-        state = session_manager.login_states[uid]
-        step = state["step"]
-        
-        try:
-            if step == "api_id":
-                api_id = int(text)
-                state["api_id"] = api_id
-                state["step"] = "api_hash"
-                await update.message.reply_text("✅ الخطوة 2/4: أرسل API_HASH")
-            
-            elif step == "api_hash":
-                state["api_hash"] = text
-                state["step"] = "phone"
-                await update.message.reply_text("✅ الخطوة 3/4: أرسل رقم الهاتف (+2012...)")
-            
-            elif step == "phone":
-                if not text.startswith("+"):
-                    await update.message.reply_text("❌ يجب أن يبدأ بـ +")
-                    return
+            try {
+                const resp = await fetch('/api/scan/phone', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({phone: phone})
+                });
                 
-                state["phone"] = text
-                client = TelegramClient(
-                    StringSession(),
-                    state["api_id"],
-                    state["api_hash"]
-                )
-                await client.connect()
+                const data = await resp.json();
+                showResult('phoneResult', formatPhoneResult(data), resp.ok);
+            } catch(e) {
+                showResult('phoneResult', 'خطأ: ' + e.message, false);
+            } finally {
+                showLoading('phoneLoading', false);
+            }
+        }
+        
+        async function scanIP() {
+            const ip = document.getElementById('ip').value;
+            if (!ip) return alert('الرجاء إدخال عنوان IP');
+            
+            showLoading('ipLoading', true);
+            hideResult('ipResult');
+            
+            try {
+                const resp = await fetch('/api/scan/ip', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ip: ip})
+                });
                 
-                try:
-                    sent = await client.send_code_request(text)
-                    state["client"] = client
-                    state["phone_code_hash"] = sent.phone_code_hash
-                    state["step"] = "code"
-                    await update.message.reply_text("✅ الخطوة 4/4: أرسل رمز التحقق")
-                except Exception as e:
-                    await client.disconnect()
-                    del session_manager.login_states[uid]
-                    await update.message.reply_text(f"❌ خطأ في إرسال الكود: {e}")
+                const data = await resp.json();
+                showResult('ipResult', JSON.stringify(data, null, 2), resp.ok);
+            } catch(e) {
+                showResult('ipResult', 'خطأ: ' + e.message, false);
+            } finally {
+                showLoading('ipLoading', false);
+            }
+        }
+        
+        async function scanURL() {
+            const url = document.getElementById('url').value;
+            if (!url) return alert('الرجاء إدخال رابط');
             
-            elif step == "code":
-                client = state["client"]
-                try:
-                    await client.sign_in(
-                        phone=state["phone"],
-                        code=text,
-                        phone_code_hash=state["phone_code_hash"]
-                    )
-                    await self.complete_login(update, state)
-                except SessionPasswordNeededError:
-                    state["step"] = "password"
-                    await update.message.reply_text("🔒 حسابك محمي. أرسل كلمة المرور:")
-                except Exception as e:
-                    await client.disconnect()
-                    del session_manager.login_states[uid]
-                    await update.message.reply_text(f"❌ خطأ: {e}")
+            showLoading('urlLoading', true);
+            hideResult('urlResult');
             
-            elif step == "password":
-                client = state["client"]
-                try:
-                    await client.sign_in(password=text)
-                    await self.complete_login(update, state)
-                except Exception as e:
-                    await client.disconnect()
-                    del session_manager.login_states[uid]
-                    await update.message.reply_text(f"❌ كلمة مرور خطأ: {e}")
+            try {
+                const resp = await fetch('/api/scan/url', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({url: url})
+                });
+                
+                const data = await resp.json();
+                showResult('urlResult', JSON.stringify(data, null, 2), resp.ok);
+            } catch(e) {
+                showResult('urlResult', 'خطأ: ' + e.message, false);
+            } finally {
+                showLoading('urlLoading', false);
+            }
+        }
         
-        except ValueError:
-            await update.message.reply_text("❌ قيمة غير صالحة")
-    
-    async def complete_login(self, update: Update, state: Dict):
-        uid = update.effective_user.id
-        client = state["client"]
-        
-        try:
-            me = await client.get_me()
-            session_string = client.session.save()
+        function formatPhoneResult(data) {
+            let html = '<h3 style="color:#e94560">📱 نتيجة فحص: ' + data.phone + '</h3><br>';
             
-            await session_manager.save_session(
-                uid, session_string,
-                state["phone"],
-                str(state["api_id"]),
-                state["api_hash"]
-            )
+            // واتساب
+            const wa = data.whatsapp || {};
+            html += '<strong>💬 واتساب:</strong> ';
+            if (wa.exists === true) html += '<span class="status-badge status-true">✅ موجود</span>';
+            else if (wa.exists === false) html += '<span class="status-badge status-false">❌ غير مسجل</span>';
+            else html += '<span class="status-badge status-unknown">⚠️ غير معروف</span>';
+            html += '<br><br>';
             
-            await update.message.reply_text(
-                f"✅ **تم تسجيل الدخول!**\n\n"
-                f"👤 {me.first_name}\n"
-                f"📱 {me.phone}\n"
-                f"🆔 {me.id}\n\n"
-                f"يمكنك الآن استخدام أوامر الفحص."
-            )
-        except Exception as e:
-            await update.message.reply_text(f"❌ خطأ: {e}")
-        finally:
-            await client.disconnect()
-            del session_manager.login_states[uid]
-    
-    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        query = update.callback_query
-        await query.answer()
+            // Viber
+            const vb = data.viber || {};
+            html += '<strong>📞 Viber:</strong> ';
+            if (vb.exists === true) html += '<span class="status-badge status-true">✅ موجود</span>';
+            else if (vb.exists === false) html += '<span class="status-badge status-false">❌ غير مسجل</span>';
+            else html += '<span class="status-badge status-unknown">⚠️ غير معروف</span>';
+            html += '<br><br>';
+            
+            // Signal
+            const sg = data.signal || {};
+            html += '<strong>🔒 Signal:</strong> ';
+            if (sg.exists === true) html += '<span class="status-badge status-true">✅ موجود</span>';
+            else if (sg.exists === false) html += '<span class="status-badge status-false">❌ غير مسجل</span>';
+            else html += '<span class="status-badge status-unknown">⚠️ غير معروف</span>';
+            html += '<br><br>';
+            
+            // Truecaller
+            const tc = data.truecaller || {};
+            html += '<strong>👤 Truecaller:</strong> ';
+            if (tc.found) html += tc.name;
+            else html += 'غير موجود';
+            html += '<br><br>';
+            
+            // Carrier
+            const cr = data.carrier || {};
+            if (!cr.error) {
+                html += '<strong>📶 الشبكة:</strong> ' + (cr.carrier || 'غير معروف') + '<br>';
+                html += '<strong>🌍 الدولة:</strong> ' + (cr.country || 'غير معروف') + '<br>';
+                html += '<strong>✅ صالح:</strong> ' + (cr.valid ? 'نعم' : 'لا') + '<br><br>';
+            }
+            
+            // NumVerify
+            const nv = data.numverify || {};
+            if (!nv.error && nv.valid !== undefined) {
+                html += '<strong>🔍 NumVerify:</strong><br>';
+                html += '├ الدولة: ' + (nv.country || '-') + '<br>';
+                html += '├ المزود: ' + (nv.carrier || '-') + '<br>';
+                html += '├ النوع: ' + (nv.line_type || '-') + '<br>';
+                html += '└ الموقع: ' + (nv.location || '-') + '<br>';
+            }
+            
+            return html;
+        }
         
-        data = query.data
+        function showLoading(id, show) {
+            document.getElementById(id).classList.toggle('show', show);
+        }
         
-        if data == "menu_scan":
-            await query.edit_message_text(
-                "🔍 **فحص رقم:**\n/lookup +201234567890\n\n"
-                "🌐 **فحص IP:**\n/ip 8.8.8.8\n\n"
-                "🔗 **فحص رابط:**\n/url https://example.com"
-            )
-        elif data == "menu_ip":
-            await query.edit_message_text("استخدم: /ip <عنوان>\nمثال: /ip 8.8.8.8")
-        elif data == "menu_url":
-            await query.edit_message_text("استخدم: /url <رابط>\nمثال: /url https://google.com")
-        elif data == "menu_email":
-            await query.edit_message_text("استخدم: /email <بريد>\nمثال: /email user@gmail.com")
-        elif data == "menu_status":
-            await self.cmd_status(update, context)
-        elif data == "menu_help":
-            await self.cmd_help(update, context)
-    
-    # ==================== تنسيق التقارير ====================
-    def format_scan_report(self, results: Dict) -> str:
-        report = "📊 **تقرير الفحص الشامل**\n"
-        report += "═" * 25 + "\n\n"
-        report += f"🎯 الهدف: {results.get('target', '')}\n"
-        report += f"📋 النوع: {results.get('type', '')}\n"
-        report += f"🕐 الوقت: {results.get('timestamp', '')}\n\n"
-        report += json.dumps(results, indent=2, ensure_ascii=False)[:3500]
-        return report
-    
-    def format_phone_report(self, results: Dict) -> str:
-        report = "📱 **تقرير فحص الرقم**\n"
-        report += "═" * 25 + "\n\n"
+        function hideResult(id) {
+            document.getElementById(id).classList.remove('show', 'success', 'error');
+            document.getElementById(id).innerHTML = '';
+        }
         
-        # تيليجرام
-        tg = results.get("telegram", {})
-        if tg.get("exists"):
-            report += "📡 **تيليجرام:** ✅ موجود\n"
-            report += f"├ الاسم: {tg.get('first_name', '')} {tg.get('last_name', '')}\n"
-            report += f"├ يوزر: @{tg.get('username', 'لا يوجد')}\n"
-            report += f"├ ID: {tg.get('user_id', '')}\n"
-            report += f"└ مميز: {'⭐ نعم' if tg.get('is_premium') else 'لا'}\n\n"
-        else:
-            report += "📡 **تيليجرام:** ❌ غير مسجل\n\n"
-        
-        # واتساب
-        wa = results.get("whatsapp", {})
-        wa_exists = wa.get("exists") if isinstance(wa.get("exists"), bool) else None
-        if wa_exists is True:
-            report += "💬 **واتساب:** ✅ موجود\n\n"
-        elif wa_exists is False:
-            report += "💬 **واتساب:** ❌ غير مسجل\n\n"
-        
-        # Truecaller
-        tc = results.get("truecaller", {})
-        if tc.get("found"):
-            report += f"👤 **Truecaller:** {tc.get('name', '')}\n\n"
-        
-        # الشبكة
-        carrier = results.get("carrier_info", {})
-        if carrier:
-            report += f"📶 **الشبكة:** {carrier.get('carrier', 'غير معروف')}\n"
-            report += f"🌍 **الدولة:** {carrier.get('country', '')}\n"
-            report += f"📋 **النوع:** {carrier.get('line_type', '')}\n\n"
-        
-        report += "═" * 25
-        return report
-    
-    def format_ip_report(self, results: Dict) -> str:
-        report = "🌐 **تقرير فحص IP**\n"
-        report += "═" * 25 + "\n\n"
-        
-        # IPInfo
-        ipinfo = results.get("ipinfo", {})
-        if ipinfo:
-            report += f"📍 **الموقع:** {ipinfo.get('city', '')}, {ipinfo.get('region', '')}, {ipinfo.get('country', '')}\n"
-            report += f"🏢 **المزود:** {ipinfo.get('org', 'غير معروف')}\n"
-            report += f"📮 **الرمز البريدي:** {ipinfo.get('postal', '')}\n\n"
-        
-        # AbuseIPDB
-        abuse = results.get("abuseipdb", {}).get("data", {})
-        if abuse:
-            report += f"⚠️ **السمعة:** {abuse.get('abuseConfidenceScore', 0)}% ضار\n"
-            report += f"📊 **عدد البلاغات:** {abuse.get('totalReports', 0)}\n\n"
-        
-        # Ports
-        ports = results.get("port_scan", {})
-        if ports.get("open_ports"):
-            report += f"🔓 **المنافذ المفتوحة:** {', '.join(map(str, ports['open_ports']))}\n\n"
-        
-        # DNS
-        dns = results.get("reverse_dns", "")
-        if dns:
-            report += f"🔍 **Reverse DNS:** {dns}\n\n"
-        
-        report += "═" * 25
-        return report
-    
-    def format_url_report(self, results: Dict) -> str:
-        report = "🔗 **تقرير فحص الرابط**\n"
-        report += "═" * 25 + "\n\n"
-        
-        # VirusTotal
-        vt = results.get("virustotal", {})
-        if vt:
-            report += "🛡️ **VirusTotal:**\n"
-            report += f"├ ضار: {vt.get('malicious', 0)}\n"
-            report += f"├ مشبوه: {vt.get('suspicious', 0)}\n"
-            report += f"└ آمن: {vt.get('harmless', 0)}\n\n"
-        
-        # SSL
-        ssl_info = results.get("ssl", {})
-        if ssl_info.get("valid_to"):
-            report += "🔒 **SSL:**\n"
-            report += f"├ صالح حتى: {ssl_info['valid_to']}\n"
-            report += f"└ المصدر: {ssl_info.get('issuer', {}).get('commonName', '')}\n\n"
-        
-        # Headers
-        headers = results.get("headers", {})
-        if headers:
-            missing = headers.get("missing_headers", [])
-            if missing:
-                report += f"⚠️ **رؤوس أمان مفقودة:** {', '.join(missing)}\n\n"
-            else:
-                report += "✅ جميع رؤوس الأمان موجودة\n\n"
-        
-        report += "═" * 25
-        return report
+        function showResult(id, content, success) {
+            const el = document.getElementById(id);
+            el.innerHTML = content;
+            el.classList.add('show');
+            el.classList.add(success ? 'success' : 'error');
+        }
+    </script>
+</body>
+</html>
+"""
 
-# ==================== Flask للتشغيل الدائم ====================
+# ==================== صفحات الموقع ====================
+PHONE_PAGE = """
+{% extends "base" %}
+{% block content %}
+<div class="card">
+    <h2>📱 فحص رقم الهاتف</h2>
+    <div class="input-group">
+        <input type="tel" id="phone" placeholder="+201234567890" value="+20">
+        <button class="btn" onclick="scanPhone()">🔍 فحص</button>
+    </div>
+    <div class="loading" id="phoneLoading"><div class="spinner"></div><p>جاري الفحص...</p></div>
+    <div class="result-box" id="phoneResult"></div>
+</div>
+
+<div class="card">
+    <h2>📊 آخر الفحوصات</h2>
+    <table>
+        <tr><th>الهدف</th><th>النوع</th><th>التاريخ</th></tr>
+        {% for scan in recent_scans %}
+        <tr>
+            <td>{{ scan.target }}</td>
+            <td>{{ scan.scan_type }}</td>
+            <td>{{ scan.created_at }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}
+"""
+
+IP_PAGE = """
+{% extends "base" %}
+{% block content %}
+<div class="card">
+    <h2>🌐 فحص عنوان IP</h2>
+    <div class="input-group">
+        <input type="text" id="ip" placeholder="8.8.8.8">
+        <button class="btn" onclick="scanIP()">🔍 فحص</button>
+    </div>
+    <div class="loading" id="ipLoading"><div class="spinner"></div><p>جاري الفحص...</p></div>
+    <div class="result-box" id="ipResult"></div>
+</div>
+{% endblock %}
+"""
+
+URL_PAGE = """
+{% extends "base" %}
+{% block content %}
+<div class="card">
+    <h2>🔗 فحص رابط</h2>
+    <div class="input-group">
+        <input type="url" id="url" placeholder="https://example.com">
+        <button class="btn" onclick="scanURL()">🔍 فحص</button>
+    </div>
+    <div class="loading" id="urlLoading"><div class="spinner"></div><p>جاري الفحص...</p></div>
+    <div class="result-box" id="urlResult"></div>
+</div>
+{% endblock %}
+"""
+
+API_PAGE = """
+{% extends "base" %}
+{% block content %}
+<div class="card">
+    <h2>⚡ API Documentation</h2>
+    
+    <h3>فحص رقم</h3>
+    <div class="result-box show" style="background:#0a0a0a; padding:15px;">
+        <strong>POST</strong> /api/scan/phone<br>
+        <strong>Body:</strong> {"phone": "+201234567890"}
+    </div>
+    <br>
+    
+    <h3>فحص IP</h3>
+    <div class="result-box show" style="background:#0a0a0a; padding:15px;">
+        <strong>POST</strong> /api/scan/ip<br>
+        <strong>Body:</strong> {"ip": "8.8.8.8"}
+    </div>
+    <br>
+    
+    <h3>فحص رابط</h3>
+    <div class="result-box show" style="background:#0a0a0a; padding:15px;">
+        <strong>POST</strong> /api/scan/url<br>
+        <strong>Body:</strong> {"url": "https://example.com"}
+    </div>
+</div>
+{% endblock %}
+"""
+
+# ==================== Routes ====================
 @web_app.route('/')
 def home():
-    return "MEGA OSINT Bot is Running!"
+    recent = run_async(get_recent_scans(10))
+    return render_template_string(
+        HTML_TEMPLATE.replace('{% extends "base" %}', '') + 
+        PHONE_PAGE.replace('{% extends "base" %}', ''),
+        active_page='phone',
+        recent_scans=recent
+    )
 
-@web_app.route('/health')
-def health():
-    return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()})
+@web_app.route('/ip')
+def ip_page():
+    return render_template_string(
+        HTML_TEMPLATE.replace('{% extends "base" %}', '') + 
+        IP_PAGE.replace('{% extends "base" %}', ''),
+        active_page='ip'
+    )
+
+@web_app.route('/url')
+def url_page():
+    return render_template_string(
+        HTML_TEMPLATE.replace('{% extends "base" %}', '') + 
+        URL_PAGE.replace('{% extends "base" %}', ''),
+        active_page='url'
+    )
+
+@web_app.route('/api')
+def api_page():
+    return render_template_string(
+        HTML_TEMPLATE.replace('{% extends "base" %}', '') + 
+        API_PAGE.replace('{% extends "base" %}', ''),
+        active_page='api'
+    )
+
+# ==================== API Routes ====================
+@web_app.route('/api/scan/phone', methods=['POST'])
+def api_scan_phone():
+    data = request.get_json()
+    phone = data.get('phone', '')
+    
+    if not phone:
+        return jsonify({"error": "الرجاء إدخال رقم الهاتف"}), 400
+    
+    try:
+        results = run_async(scanner.scan_phone(phone))
+        
+        # حفظ الفحص
+        run_async(save_scan(phone, 'phone', json.dumps(results)))
+        
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@web_app.route('/api/scan/ip', methods=['POST'])
+def api_scan_ip():
+    data = request.get_json()
+    ip = data.get('ip', '')
+    
+    if not ip:
+        return jsonify({"error": "الرجاء إدخال IP"}), 400
+    
+    try:
+        results = run_async(scanner.scan_ip(ip))
+        run_async(save_scan(ip, 'ip', json.dumps(results)))
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@web_app.route('/api/scan/url', methods=['POST'])
+def api_scan_url():
+    data = request.get_json()
+    url = data.get('url', '')
+    
+    if not url:
+        return jsonify({"error": "الرجاء إدخال رابط"}), 400
+    
+    try:
+        results = run_async(scanner.scan_url(url))
+        run_async(save_scan(url, 'url', json.dumps(results)))
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @web_app.route('/api/stats')
-def stats():
+def api_stats():
+    count = run_async(get_scan_count())
     return jsonify({
-        "users": len(session_manager.active_sessions),
+        "total_scans": count,
         "uptime": "running",
-        "version": "3.0.0"
+        "version": "4.0.0"
     })
 
-def run_flask():
-    web_app.run(host='0.0.0.0', port=PORT, debug=False)
+# ==================== دوال مساعدة ====================
+async def save_scan(target: str, scan_type: str, result: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO scans (target, scan_type, result, ip_address) VALUES (?, ?, ?, ?)",
+            (target, scan_type, result, request.remote_addr if hasattr(request, 'remote_addr') else '')
+        )
+        await db.commit()
 
-# ==================== الدالة الرئيسية ====================
-async def main():
-    # تهيئة قاعدة البيانات
-    await init_database()
-    
-    # إعداد البوت
-    bot = MegaBot()
-    await bot.setup()
-    
-    # تشغيل Flask في خيط منفصل
-    threading.Thread(target=run_flask, daemon=True).start()
+async def get_recent_scans(limit: int = 10) -> List:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT target, scan_type, created_at FROM scans ORDER BY created_at DESC LIMIT ?",
+            (limit,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [
+                {"target": r[0], "scan_type": r[1], "created_at": r[2]}
+                for r in rows
+            ]
+
+async def get_scan_count() -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT COUNT(*) FROM scans") as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else 0
+
+# ==================== التشغيل ====================
+def main():
+    run_async(init_db())
     
     print("""
-╔══════════════════════════════════════════════════════════╗
-║              🔥 MEGA OSINT BOT v3.0 🔥                  ║
-║         المستخدم يتحمل المسؤولية القانونية كاملة          ║
-╚══════════════════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════════╗
+║           🔥 SHADOW OSINT - موقع ويب متكامل 🔥              ║
+║         المستخدم يتحمل المسؤولية القانونية كاملة              ║
+╚══════════════════════════════════════════════════════════════╝
     """)
-    print(f"🌐 Web Server: 0.0.0.0:{PORT}")
-    print(f"🤖 Bot Token: {BOT_TOKEN[:10]}...")
-    print(f"📱 NumVerify API: {'✅' if NUMVERIFY_KEY else '❌'}")
-    print(f"🛡️ VirusTotal API: {'✅' if VIRUSTOTAL_KEY else '❌'}")
-    print(f"🔍 Shodan API: {'✅' if SHODAN_KEY else '❌'}")
-    print("═" * 50)
-    print("⚡ البوت شغال...")
+    print(f"🌐 الرابط: http://0.0.0.0:{PORT}")
+    print(f"📱 NumVerify: {'✅ متصل' if NUMVERIFY_KEY else '❌ غير متصل'}")
+    print(f"🛡️ VirusTotal: {'✅ متصل' if VIRUSTOTAL_KEY else '❌ غير متصل'}")
+    print(f"🔍 Shodan: {'✅ متصل' if SHODAN_KEY else '❌ غير متصل'}")
+    print("═" * 60)
+    print("⚡ الموقع شغال...")
     
-    await bot.app.run_polling(allowed_updates=Update.ALL_TYPES)
+    web_app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
