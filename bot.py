@@ -7,7 +7,7 @@ from telethon import TelegramClient, events, Button
 from telethon.errors import FloodWaitError
 
 # ====================== CONFIG ======================
-BOT_TOKEN = "8963454170:AAGlM4mHDAjtXMcTYQd9_RRMy0I6JgnMBwg"
+BOT_TOKEN = "8879863328:AAH_PB_1i50hIyU-UI58TcD-dflHl4dBFqo"
 API_ID = 6
 API_HASH = "eb06d4abfb49dc3eeb1aeb98ae0f581e"
 
