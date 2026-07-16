@@ -20,12 +20,20 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "✅"
+    return "OK"
 
 Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))).start()
 
 # ====== البوت ======
-bot = TelegramClient('deploy_bot', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+print("⏳ جاري تشغيل البوت...")
+
+try:
+    bot = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+    print("✅ البوت شغال!")
+except Exception as e:
+    print(f"❌ خطأ في تشغيل البوت: {e}")
+    exit(1)
+
 users = {}
 running_users = {}
 
@@ -39,6 +47,7 @@ def run_user_source(user_id):
         user_client.start()
         running_users[user_id] = user_client
         
+        # ====== الأوامر ======
         @user_client.on(events.NewMessage(outgoing=True, pattern=r'\.بنغ'))
         async def ping(event):
             start = datetime.now()
@@ -50,8 +59,7 @@ def run_user_source(user_id):
         @user_client.on(events.NewMessage(outgoing=True, pattern=r'\.وقتي'))
         async def time_now(event):
             now = datetime.now().strftime("%I:%M:%S %p")
-            day = datetime.now().strftime("%Y-%m-%d")
-            await event.edit(f"**⏰ الوقت:** `{now}`\n**📅 التاريخ:** `{day}`")
+            await event.edit(f"**⏰ الوقت:** `{now}`")
 
         @user_client.on(events.NewMessage(outgoing=True, pattern=r'\.عريض (.+)'))
         async def bold(event):
@@ -82,16 +90,16 @@ def run_user_source(user_id):
             try:
                 await user_client(UpdateProfileRequest(first_name=event.pattern_match.group(1)))
                 await event.edit("**✅ تم تغيير الاسم!**")
-            except Exception as e:
-                await event.edit(f"**❌ خطأ:** {e}")
+            except:
+                await event.edit("**❌ خطأ**")
 
         @user_client.on(events.NewMessage(outgoing=True, pattern=r'\.بايو (.+)'))
         async def set_bio(event):
             try:
                 await user_client(UpdateProfileRequest(about=event.pattern_match.group(1)))
                 await event.edit("**✅ تم تغيير البايو!**")
-            except Exception as e:
-                await event.edit(f"**❌ خطأ:** {e}")
+            except:
+                await event.edit("**❌ خطأ**")
 
         @user_client.on(events.NewMessage(outgoing=True, pattern=r'\.مسح (\d+)'))
         async def delete_msgs(event):
@@ -101,12 +109,10 @@ def run_user_source(user_id):
             async for msg in user_client.iter_messages(chat, limit=count + 1):
                 messages.append(msg.id)
             await user_client.delete_messages(chat, messages)
-            await event.respond(f"**🗑️ تم مسح {count} رسالة**")
 
         @user_client.on(events.NewMessage(outgoing=True, pattern=r'\.حذف'))
         async def delete_chat(event):
             chat = await event.get_input_chat()
-            await event.delete()
             await user_client.delete_dialog(chat)
 
         @user_client.on(events.NewMessage(outgoing=True, pattern=r'\.رسائل'))
@@ -164,7 +170,7 @@ async def start(event):
     if os.path.exists(f"{SESSIONS_FOLDER}/{user_id}.txt"):
         if user_id not in running_users:
             Thread(target=run_user_source, args=(user_id,)).start()
-            await event.respond("**✅ تم تشغيل السورس تلقائياً!**\n**💡 استخدم `.اوامر` للقائمة**")
+            await event.respond("**✅ تم تشغيل السورس!**\n**💡 استخدم `.اوامر` للقائمة**")
         else:
             await event.respond("**✅ السورس شغال!**\n**💡 استخدم `.اوامر` للقائمة**")
         return
@@ -189,7 +195,7 @@ async def start(event):
 @bot.on(events.CallbackQuery(data=b"deploy"))
 async def deploy(event):
     users[event.sender_id] = {"step": 1}
-    await event.edit("**📝 الخطوة 1/4: أرسل API_ID (أرقام فقط):**")
+    await event.edit("**📝 أرسل API_ID (أرقام فقط):**")
 
 @bot.on(events.NewMessage(func=lambda e: e.sender_id in users))
 async def handle_steps(event):
@@ -202,19 +208,15 @@ async def handle_steps(event):
             return await event.respond("❌ أرقام فقط!")
         user["api_id"] = int(event.text)
         user["step"] = 2
-        await event.respond("✅ تم!\n**📝 الخطوة 2/4: أرسل API_HASH:**")
+        await event.respond("✅ تم!\n**📝 أرسل API_HASH:**")
     
     elif step == 2:
-        if len(event.text.strip()) < 10:
-            return await event.respond("❌ غير صالح!")
         user["api_hash"] = event.text.strip()
         user["step"] = 3
-        await event.respond("✅ تم!\n**📱 الخطوة 3/4: أرسل رقم الهاتف (+201234567890):**")
+        await event.respond("✅ تم!\n**📱 أرسل رقم الهاتف (+201234567890):**")
     
     elif step == 3:
         phone = event.text.strip()
-        if not re.match(r'^\+[0-9]{7,15}$', phone):
-            return await event.respond("❌ صيغة خاطئة!")
         user["phone"] = phone
         user["step"] = 4
         
@@ -225,15 +227,13 @@ async def handle_steps(event):
             user["client"] = client
             sent = await client.send_code_request(phone)
             user["hash"] = sent.phone_code_hash
-            await msg.edit("✅ تم!\n**📲 الخطوة 4/4: أرسل رمز التحقق:**")
+            await msg.edit("✅ تم!\n**📲 أرسل رمز التحقق:**")
         except Exception as e:
             await msg.edit(f"❌ خطأ: {e}")
             user["step"] = 3
     
     elif step == 4:
         code = event.text.strip()
-        if not code.isdigit():
-            return await event.respond("❌ أرقام فقط!")
         
         msg = await event.respond("⏳ جاري التنصيب...")
         try:
@@ -261,26 +261,13 @@ async def handle_steps(event):
                 pass
             del users[user_id]
 
-# ====== إيقاف السورس ======
-@bot.on(events.NewMessage(pattern='/stop'))
-async def stop_cmd(event):
-    user_id = str(event.sender_id)
-    if user_id in running_users:
-        try:
-            await running_users[user_id].disconnect()
-            del running_users[user_id]
-            await event.respond("**✅ تم إيقاف السورس!**")
-        except:
-            await event.respond("**❌ خطأ**")
-    else:
-        await event.respond("**ℹ️ السورس ليس قيد التشغيل**")
-
-# ====== تشغيل تلقائي ======
+# ====== تشغيل الجلسات القديمة ======
 for f in os.listdir(SESSIONS_FOLDER):
     if f.endswith('.txt'):
         uid = f.replace('.txt', '')
         if uid not in running_users:
             Thread(target=run_user_source, args=(uid,)).start()
+            print(f"🔄 تم تشغيل جلسة قديمة: {uid}")
 
-print("✅ البوت جاهز!")
+print("✅ البوت جاهز لاستقبال الرسائل!")
 bot.run_until_disconnected()
