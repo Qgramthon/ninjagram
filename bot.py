@@ -1,7 +1,6 @@
 import os
 import re
 import asyncio
-import logging
 from datetime import datetime
 from telethon import TelegramClient, events, Button
 from telethon.tl.functions.account import UpdateProfileRequest
@@ -11,57 +10,52 @@ from telethon.errors import (
     PhoneCodeExpiredError,
     PhoneCodeInvalidError,
     FloodWaitError,
-    PhoneNumberUnoccupiedError,
-    PhoneNumberOccupiedError,
 )
 from flask import Flask
 from threading import Thread
 
-# -------------------- الإعدادات --------------------
-BOT_TOKEN = "8963454170:AAGlM4mHDAjtXMcTYQd9_RRMy0I6JgnMBwg"
-API_ID = 6
-API_HASH = "eb06d4abfb49dc3eeb1aeb98ae0f581e"
-SESSIONS_DIR = "sessions"
-os.makedirs(SESSIONS_DIR, exist_ok=True)
+# ========== الإعدادات الثابتة ==========
+BOT_TOKEN = "8963454170:AAGlM4mHDAjtXMcTYQd9_RRMy0I6JgnMBwg"  # توكن البوت
+API_ID = 6                   # api_id الرسمي لتطبيق تيليجرام
+API_HASH = "eb06d4abfb49dc3eeb1aeb98ae0f581e"  # api_hash الرسمي
+SESSIONS_FOLDER = "sessions"  # مجلد حفظ الجلسات
+os.makedirs(SESSIONS_FOLDER, exist_ok=True)
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# -------------------- خادم وهمي لـ Railway --------------------
+# ========== خادم وهمي لـ Railway ==========
 app = Flask(__name__)
 @app.route('/')
-def index():
-    return "OK"
+def home():
+    return "البوت يعمل ✅"
 Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080))), daemon=True).start()
 
-# -------------------- بدء البوت --------------------
+# ========== بدء البوت ==========
 bot = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
-logger.info("✅ بوت التنصيب يعمل")
+print("✅ تم تشغيل بوت التنصيب")
 
-# -------------------- التخزين المؤقت --------------------
-pending_users = {}        # المستخدمون في مرحلة التنصيب
-active_clients = {}       # العملاء النشطون (حسابات المستخدمين)
-phone_code_hashes = {}    # تخزين مؤقت للهاش لكل مستخدم (للأمان)
-processing_lock = asyncio.Lock()
+# ========== قواعد البيانات المؤقتة ==========
+users = {}           # المستخدمون في مرحلة التنصيب
+running_users = {}   # العملاء النشطون (حسابات المستخدمين)
 
-# -------------------- دالة تشغيل سورس المستخدم --------------------
-async def launch_user_source(user_id: str):
-    """تشغيل الأوامر لحساب المستخدم بعد نجاح التنصيب أو عند إعادة التشغيل."""
-    session_path = os.path.join(SESSIONS_DIR, f"{user_id}.txt")
-    if not os.path.exists(session_path):
+# ========== دالة تشغيل سورس المستخدم ==========
+def run_user_source(user_id):
+    """تشغيل أوامر التيليثون للمستخدم بعد نجاح التنصيب"""
+    session_file = f"{SESSIONS_FOLDER}/{user_id}.txt"
+    if not os.path.exists(session_file):
         return
-    with open(session_path, "r") as f:
+
+    with open(session_file, "r") as f:
         session_str = f.read().strip()
+
     client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
     try:
-        await client.start()
+        client.start()
+        running_users[user_id] = client
+        print(f"✅ تم تشغيل سورس المستخدم {user_id}")
     except Exception as e:
-        logger.error(f"فشل بدء جلسة {user_id}: {e}")
+        print(f"❌ فشل تشغيل سورس {user_id}: {e}")
         return
-    active_clients[user_id] = client
-    logger.info(f"✅ سورس {user_id} بدأ العمل")
 
-    # ---- الأوامر ----
+    # ---- تعريف الأوامر ----
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.بنغ'))
     async def ping(event):
         start = datetime.now()
@@ -77,19 +71,23 @@ async def launch_user_source(user_id: str):
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.عريض (.+)'))
     async def bold(event):
-        await event.edit(f"**{event.pattern_match.group(1)}**")
+        text = event.pattern_match.group(1)
+        await event.edit(f"**{text}**")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.مائل (.+)'))
     async def italic(event):
-        await event.edit(f"__{event.pattern_match.group(1)}__")
+        text = event.pattern_match.group(1)
+        await event.edit(f"__{text}__")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.مشطوب (.+)'))
     async def strike(event):
-        await event.edit(f"~~{event.pattern_match.group(1)}~~")
+        text = event.pattern_match.group(1)
+        await event.edit(f"~~{text}~~")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.قلب (.+)'))
     async def flip_text(event):
-        await event.edit(f"**🔄:** `{event.pattern_match.group(1)[::-1]}`")
+        text = event.pattern_match.group(1)
+        await event.edit(f"**🔄:** `{text[::-1]}`")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.زخرفة (.+)'))
     async def decorate(event):
@@ -97,7 +95,8 @@ async def launch_user_source(user_id: str):
         d = {'a':'α','b':'в','c':'¢','d':'∂','e':'є','f':'ƒ','g':'g','h':'н',
              'i':'ι','j':'נ','k':'к','l':'ℓ','m':'м','n':'η','o':'σ','p':'ρ',
              'q':'q','r':'я','s':'ѕ','t':'т','u':'υ','v':'ν','w':'ω','x':'χ','y':'у','z':'z'}
-        await event.edit(f"**✨:** `{''.join(d.get(c.lower(),c) for c in text)}`")
+        decorated = ''.join(d.get(c.lower(), c) for c in text)
+        await event.edit(f"**✨:** `{decorated}`")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.نيم (.+)'))
     async def set_name(event):
@@ -127,6 +126,7 @@ async def launch_user_source(user_id: str):
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.حذف'))
     async def delete_chat(event):
         chat = await event.get_input_chat()
+        await event.delete()
         await client.delete_dialog(chat)
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.رسائل'))
@@ -165,30 +165,29 @@ async def launch_user_source(user_id: str):
     async def stop_user(event):
         await event.edit("**👋 جاري إيقاف السورس...**")
         await client.disconnect()
-        active_clients.pop(user_id, None)
+        running_users.pop(user_id, None)
 
-    # منع إنهاء حلقة الحدث
-    await client.run_until_disconnected()
+    client.run_until_disconnected()
 
-# -------------------- أوامر البوت --------------------
+# ========== أمر /start ==========
 @bot.on(events.NewMessage(pattern='/start'))
-async def start_handler(event):
-    uid = str(event.sender_id)
-    # إذا كانت الجلسة موجودة وشغالة
-    if uid in active_clients:
-        await event.respond("**✅ السورس شغال بالفعل!**\n**💡 استخدم `.اوامر` للقائمة**")
+async def start(event):
+    user_id = str(event.sender_id)
+
+    # التحقق من وجود جلسة سابقة
+    if os.path.exists(f"{SESSIONS_FOLDER}/{user_id}.txt"):
+        if user_id not in running_users:
+            Thread(target=run_user_source, args=(user_id,)).start()
+            await event.respond("**✅ تم إعادة تشغيل السورس!**\n**💡 استخدم `.اوامر` للقائمة**")
+        else:
+            await event.respond("**✅ السورس شغال بالفعل!**\n**💡 استخدم `.اوامر` للقائمة**")
         return
-    # إذا كانت الجلسة موجودة ولكن غير شغالة
-    if os.path.exists(os.path.join(SESSIONS_DIR, f"{uid}.txt")):
-        await event.respond("**⏳ جاري إعادة تشغيل السورس...**")
-        asyncio.create_task(launch_user_source(uid))
-        await event.respond("**✅ السورس عاد للعمل!**")
-        return
-    # بداية جديدة
+
+    # بدء تنصيب جديد
     await event.respond(
         "**╭━━━━━━━[ تـنـصـيـب تـيـلـيـثـون ]━━━━━━━╮**\n\n"
         "**👋 أهلاً بك! اضغط على بدء التنصيب**\n\n"
-        "**📋 المطلوب:**\n"
+        "**📋 ستحتاج:**\n"
         "• API_ID من my.telegram.org\n"
         "• API_HASH من my.telegram.org\n"
         "• رقم هاتفك\n"
@@ -200,128 +199,118 @@ async def start_handler(event):
         ]
     )
 
+# ========== بدء التنصيب ==========
 @bot.on(events.CallbackQuery(data=b"deploy"))
-async def deploy_callback(event):
-    uid = event.sender_id
-    pending_users[uid] = {
-        "step": "api_id",
-        "data": {},
-        "retries": 0,
-        "max_retries": 3
-    }
+async def deploy(event):
+    user_id = event.sender_id
+    users[user_id] = {"step": "api_id", "data": {}, "retries": 0, "max_retries": 3}
     await event.edit("**📝 الخطوة 1/4: أرسل API_ID (أرقام فقط):**")
 
-# -------------------- آلة الحالة --------------------
-@bot.on(events.NewMessage(func=lambda e: e.sender_id in pending_users))
-async def state_machine(event):
-    uid = event.sender_id
-    user_state = pending_users[uid]
-    step = user_state["step"]
+# ========== استقبال البيانات خطوة بخطوة ==========
+@bot.on(events.NewMessage(func=lambda e: e.sender_id in users))
+async def handle_steps(event):
+    user_id = event.sender_id
+    user = users[user_id]
+    step = user["step"]
     text = event.text.strip()
 
     # --- API_ID ---
     if step == "api_id":
         if not text.isdigit():
-            await event.respond("❌ أرقام فقط! حاول مرة أخرى:")
-            return
-        user_state["data"]["api_id"] = int(text)
-        user_state["step"] = "api_hash"
+            return await event.respond("❌ أرقام فقط! حاول مرة أخرى:")
+        user["data"]["api_id"] = int(text)
+        user["step"] = "api_hash"
         await event.respond("✅ تم!\n**📝 الخطوة 2/4: أرسل API_HASH:**")
 
     # --- API_HASH ---
     elif step == "api_hash":
-        user_state["data"]["api_hash"] = text
-        user_state["step"] = "phone"
+        user["data"]["api_hash"] = text
+        user["step"] = "phone"
         await event.respond("✅ تم!\n**📱 الخطوة 3/4: أرسل رقم الهاتف\nمثال: +201234567890**")
 
     # --- رقم الهاتف وإرسال الكود ---
     elif step == "phone":
         phone = text
-        user_state["data"]["phone"] = phone
-        user_state["step"] = "code"
-        await send_login_code(event, uid, user_state, is_retry=False)
+        user["data"]["phone"] = phone
+        user["step"] = "code"
+        await send_code(event, user_id, user, is_retry=False)
 
-    # --- استقبال الكود ---
+    # --- استقبال رمز التحقق ---
     elif step == "code":
         if text.lower() in ["تجديد", "resend", "ارسال"]:
-            if user_state["retries"] >= user_state["max_retries"]:
+            if user["retries"] >= user["max_retries"]:
                 await event.respond("❌ وصلت لأقصى عدد محاولات. ابدأ من جديد بـ /start")
-                pending_users.pop(uid, None)
+                users.pop(user_id, None)
                 return
-            await send_login_code(event, uid, user_state, is_retry=True)
+            await send_code(event, user_id, user, is_retry=True)
             return
-        # محاولة تسجيل الدخول بالكود
-        msg = await event.respond("⏳ جاري التحقق...")
-        await verify_login_code(msg, uid, user_state, text)
 
-    # --- كلمة مرور التحقق بخطوتين ---
-    elif step == "password":
-        msg = await event.respond("⏳ جاري التحقق من كلمة المرور...")
-        await verify_2fa_password(msg, uid, user_state, text)
+        msg = await event.respond("⏳ جاري التحقق من الرمز...")
+        await verify_code(msg, user_id, user, text)
 
-# -------------------- إرسال رمز التحقق --------------------
-async def send_login_code(event, uid, state, is_retry):
+# ========== إرسال رمز التحقق ==========
+async def send_code(event, user_id, user, is_retry):
     if is_retry:
-        state["retries"] += 1
+        user["retries"] += 1
         msg = await event.respond("🔄 جاري إعادة إرسال رمز التحقق...")
         await asyncio.sleep(2)
     else:
         msg = await event.respond("📲 جاري إرسال رمز التحقق...")
         await asyncio.sleep(1)
 
-    # تنظيف عميل قديم إن وُجد
-    if "client" in state:
+    # إغلاق عميل سابق إن وجد
+    if "client" in user:
         try:
-            await state["client"].disconnect()
+            await user["client"].disconnect()
         except:
             pass
 
-    api_id = state["data"]["api_id"]
-    api_hash = state["data"]["api_hash"]
-    phone = state["data"]["phone"]
+    api_id = user["data"]["api_id"]
+    api_hash = user["data"]["api_hash"]
+    phone = user["data"]["phone"]
 
-    client = TelegramClient(f'temp_{uid}', api_id, api_hash)
+    client = TelegramClient(f'temp_{user_id}', api_id, api_hash)
     try:
         await client.connect()
-        state["client"] = client
-        # إرسال طلب الكود (يمكن إضافة force_sms=True لإجبار رسالة SMS)
-        result = await client.send_code_request(phone, force_sms=True)
-        state["phone_code_hash"] = result.phone_code_hash
-        state["step"] = "code"
+        user["client"] = client
+        # إرسال طلب الكود (مع force_sms لضمان وصول رسالة)
+        sent = await client.send_code_request(phone, force_sms=True)
+        user["phone_code_hash"] = sent.phone_code_hash
         await msg.edit(
-            f"✅ تم إرسال رمز التحقق{' (محاولة '+str(state["retries"])+')' if is_retry else ''}!\n\n"
+            f"✅ تم إرسال رمز التحقق{' (محاولة '+str(user["retries"])+')' if is_retry else ''}!\n\n"
             "**📲 تفقد تيليجرام وأرسل الرمز (5 أرقام):**\n"
             "⚠️ اكتب `تجديد` إذا لم يصلك الرمز أو انتهت صلاحيته"
         )
     except FloodWaitError as e:
         await msg.edit(f"⏳ **انتظر {e.seconds} ثانية** قبل المحاولة مرة أخرى.")
-        state["step"] = "phone"
+        user["step"] = "phone"
     except Exception as e:
         await msg.edit(f"❌ **خطأ:** {e}\nتأكد من صحة البيانات.")
-        state["step"] = "phone"
+        user["step"] = "phone"
 
-# -------------------- التحقق من رمز التحقق --------------------
-async def verify_login_code(msg, uid, state, code):
-    client = state["client"]
-    phone = state["data"]["phone"]
-    phone_code_hash = state.get("phone_code_hash")
+# ========== التحقق من رمز التحقق ==========
+async def verify_code(msg, user_id, user, code):
+    client = user["client"]
+    phone = user["data"]["phone"]
+    phone_code_hash = user.get("phone_code_hash")
+
     try:
         await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
     except PhoneCodeExpiredError:
-        if state["retries"] < state["max_retries"]:
+        if user["retries"] < user["max_retries"]:
             await msg.edit("❌ انتهت صلاحية الرمز. جاري إرسال رمز جديد تلقائياً...")
             await asyncio.sleep(2)
-            state["retries"] += 1
-            await send_login_code(msg, uid, state, is_retry=True)
+            user["retries"] += 1
+            await send_code(msg, user_id, user, is_retry=True)
         else:
             await msg.edit("❌ انتهت صلاحية الرمز ووصلت للحد الأقصى. ابدأ من جديد بـ /start")
-            pending_users.pop(uid, None)
+            users.pop(user_id, None)
         return
     except PhoneCodeInvalidError:
         await msg.edit("❌ رمز التحقق غير صحيح. أعد إدخاله:\n⚠️ اكتب `تجديد` لطلب رمز جديد")
         return
     except SessionPasswordNeededError:
-        state["step"] = "password"
+        user["step"] = "password"
         await msg.edit("🔐 حسابك يتطلب التحقق بخطوتين. أرسل كلمة المرور:")
         return
     except FloodWaitError as e:
@@ -333,32 +322,30 @@ async def verify_login_code(msg, uid, state, code):
 
     # نجاح تسجيل الدخول
     session_str = await client.export_session_string()
-    with open(os.path.join(SESSIONS_DIR, f"{uid}.txt"), "w") as f:
+    with open(f"{SESSIONS_FOLDER}/{user_id}.txt", "w") as f:
         f.write(session_str)
     await client.disconnect()
-    pending_users.pop(uid, None)
+    users.pop(user_id, None)
 
     await msg.edit(
         "**🎉 مبروك! تم التنصيب بنجاح!**\n"
         "**✅ السورس شغال على حسابك حالاً**\n\n"
-        "**💡 الأوامر المتاحة:**\n"
-        "`.اوامر` - عرض كل الأوامر\n"
-        "`.بنغ` - سرعة الاستجابة\n"
-        "`.وقتي` - الوقت\n"
-        "`.نيم` + اسم - تغيير الاسم\n"
-        "`.بايو` + نص - تغيير البايو\n"
-        "`.مسح` + عدد - مسح رسائل\n"
-        "`.حذف` - حذف المحادثة\n"
-        "`.انتحال` + نص - إرسال بدون اسمك\n\n"
+        "**💡 استخدم `.اوامر` لعرض القائمة**\n"
         "🛑 `.ايقاف` لإيقاف السورس\n"
         "🔄 `/start` للتشغيل مجدداً"
     )
-    # تشغيل السورس
-    asyncio.create_task(launch_user_source(str(uid)))
+    # تشغيل السورس في خيط منفصل
+    Thread(target=run_user_source, args=(str(user_id),)).start()
 
-# -------------------- التحقق من كلمة مرور 2FA --------------------
-async def verify_2fa_password(msg, uid, state, password):
-    client = state["client"]
+# ========== استقبال كلمة مرور 2FA ==========
+@bot.on(events.NewMessage(func=lambda e: e.sender_id in users and users[e.sender_id]["step"] == "password"))
+async def handle_password(event):
+    user_id = event.sender_id
+    user = users[user_id]
+    password = event.text.strip()
+
+    msg = await event.respond("⏳ جاري التحقق من كلمة المرور...")
+    client = user["client"]
     try:
         await client.sign_in(password=password)
     except Exception as e:
@@ -366,31 +353,24 @@ async def verify_2fa_password(msg, uid, state, password):
         return
 
     session_str = await client.export_session_string()
-    with open(os.path.join(SESSIONS_DIR, f"{uid}.txt"), "w") as f:
+    with open(f"{SESSIONS_FOLDER}/{user_id}.txt", "w") as f:
         f.write(session_str)
     await client.disconnect()
-    pending_users.pop(uid, None)
+    users.pop(user_id, None)
 
     await msg.edit(
         "**🎉 مبروك! تم التنصيب بنجاح!**\n"
         "**✅ السورس شغال على حسابك حالاً**\n"
         "**💡 استخدم `.اوامر` لعرض القائمة**"
     )
-    asyncio.create_task(launch_user_source(str(uid)))
+    Thread(target=run_user_source, args=(str(user_id),)).start()
 
-# -------------------- إعادة تشغيل الجلسات المحفوظة تلقائيًا --------------------
-async def restore_sessions():
-    for filename in os.listdir(SESSIONS_DIR):
-        if filename.endswith(".txt"):
-            uid = filename[:-4]
-            if uid not in active_clients:
-                asyncio.create_task(launch_user_source(uid))
+# ========== تشغيل الجلسات المحفوظة تلقائياً ==========
+for filename in os.listdir(SESSIONS_FOLDER):
+    if filename.endswith(".txt"):
+        uid = filename[:-4]
+        if uid not in running_users:
+            Thread(target=run_user_source, args=(uid,)).start()
 
-# -------------------- الدخول الرئيسي --------------------
-async def main():
-    await restore_sessions()
-    logger.info("🚀 البوت جاهز لاستقبال الطلبات")
-    await bot.run_until_disconnected()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+print("🚀 البوت جاهز لاستقبال الرسائل")
+bot.run_until_disconnected()
