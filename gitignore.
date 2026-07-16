@@ -1,8 +1,0 @@
-*.session
-*.session-journal
-sessions/
-__pycache__/
-*.pyc
-.env
-*.txt
-!requirements.txt
