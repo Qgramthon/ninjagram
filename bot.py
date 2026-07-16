@@ -1,9 +1,16 @@
 import os
 import re
+import asyncio
 from datetime import datetime
 from telethon import TelegramClient, events, Button
 from telethon.tl.functions.account import UpdateProfileRequest
 from telethon.sessions import StringSession
+from telethon.errors import (
+    SessionPasswordNeededError,
+    PhoneCodeExpiredError,
+    PhoneCodeInvalidError,
+    FloodWaitError
+)
 from flask import Flask
 from threading import Thread
 
@@ -47,7 +54,6 @@ def run_user_source(user_id):
         user_client.start()
         running_users[user_id] = user_client
         
-        # ====== الأوامر ======
         @user_client.on(events.NewMessage(outgoing=True, pattern=r'\.بنغ'))
         async def ping(event):
             start = datetime.now()
@@ -162,7 +168,7 @@ def run_user_source(user_id):
     except Exception as e:
         print(f"❌ خطأ {user_id}: {e}")
 
-# ====== أوامر البوت ======
+# ====== أمر البداية ======
 @bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
     user_id = str(event.sender_id)
@@ -192,74 +198,191 @@ async def start(event):
         [Button.url("🔑 احصل على api", "https://my.telegram.org")]
     ])
 
+# ====== بدء التنصيب ======
 @bot.on(events.CallbackQuery(data=b"deploy"))
 async def deploy(event):
-    users[event.sender_id] = {"step": 1}
-    await event.edit("**📝 أرسل API_ID (أرقام فقط):**")
+    users[event.sender_id] = {
+        "step": 1,
+        "try_count": 0  # عدد محاولات إرسال الكود
+    }
+    await event.edit("**📝 الخطوة 1/4: أرسل API_ID (أرقام فقط):**")
 
+# ====== استقبال البيانات ======
 @bot.on(events.NewMessage(func=lambda e: e.sender_id in users))
 async def handle_steps(event):
     user_id = event.sender_id
     user = users[user_id]
     step = user.get("step", 0)
     
+    # ====== الخطوة 1: API_ID ======
     if step == 1:
         if not event.text.isdigit():
-            return await event.respond("❌ أرقام فقط!")
+            return await event.respond("❌ أرقام فقط! حاول مرة أخرى:")
         user["api_id"] = int(event.text)
         user["step"] = 2
-        await event.respond("✅ تم!\n**📝 أرسل API_HASH:**")
+        await event.respond("✅ تم!\n**📝 الخطوة 2/4: أرسل API_HASH:**")
     
+    # ====== الخطوة 2: API_HASH ======
     elif step == 2:
         user["api_hash"] = event.text.strip()
         user["step"] = 3
-        await event.respond("✅ تم!\n**📱 أرسل رقم الهاتف (+201234567890):**")
+        await event.respond("✅ تم!\n**📱 الخطوة 3/4: أرسل رقم الهاتف\nمثال: +201234567890**")
     
+    # ====== الخطوة 3: رقم الهاتف وإرسال الكود ======
     elif step == 3:
         phone = event.text.strip()
         user["phone"] = phone
         user["step"] = 4
         
-        msg = await event.respond("⏳ جاري إرسال رمز التحقق...")
-        try:
-            client = TelegramClient(f'temp_{user_id}', user["api_id"], user["api_hash"])
-            await client.connect()
-            user["client"] = client
-            sent = await client.send_code_request(phone)
-            user["hash"] = sent.phone_code_hash
-            await msg.edit("✅ تم!\n**📲 أرسل رمز التحقق:**")
-        except Exception as e:
-            await msg.edit(f"❌ خطأ: {e}")
-            user["step"] = 3
+        await send_code_to_user(event, user, user_id, is_retry=False)
     
+    # ====== الخطوة 4: استقبال الكود ======
     elif step == 4:
         code = event.text.strip()
         
-        msg = await event.respond("⏳ جاري التنصيب...")
-        try:
-            await user["client"].sign_in(user["phone"], code, phone_code_hash=user["hash"])
-            session_string = await user["client"].export_session_string()
-            
-            with open(f"{SESSIONS_FOLDER}/{user_id}.txt", "w") as f:
-                f.write(session_string)
-            
-            Thread(target=run_user_source, args=(str(user_id),)).start()
-            
-            await msg.edit("""
-**🎉 مبروك! السورس شغال على حسابك!**
+        # لو المستخدم كتب "تجديد" نعيد إرسال الكود
+        if code.lower() in ["تجديد", "resend", "ارسال"]:
+            await send_code_to_user(event, user, user_id, is_retry=True)
+            return
+        
+        msg = await event.respond("⏳ جاري التحقق من الكود...")
+        await verify_code(msg, user, user_id, code)
 
-**💡 استخدم `.اوامر` لعرض القائمة**
-**🛑 استخدم `.ايقاف` للإيقاف**
-**🔄 أرسل /start للتشغيل مجدداً**
+# ====== دالة إرسال الكود ======
+async def send_code_to_user(event, user, user_id, is_retry=False):
+    """إرسال رمز التحقق مع مهلة ومعالجة الأخطاء"""
+    
+    if is_retry:
+        msg = await event.respond("🔄 جاري إعادة إرسال رمز التحقق...")
+        user["try_count"] = user.get("try_count", 0) + 1
+        await asyncio.sleep(2)  # مهلة قبل إعادة الإرسال
+    else:
+        msg = await event.respond("📲 جاري إرسال رمز التحقق...\n⏳ انتظر لحظة...")
+        await asyncio.sleep(1)  # مهلة بسيطة
+    
+    try:
+        # إنشاء عميل مؤقت
+        client = TelegramClient(f'temp_{user_id}', user["api_id"], user["api_hash"])
+        await client.connect()
+        user["client"] = client
+        
+        # إرسال طلب الكود
+        sent = await client.send_code_request(user["phone"])
+        user["hash"] = sent.phone_code_hash
+        
+        # نجاح - نخبر المستخدم
+        if is_retry:
+            await msg.edit("✅ تم إعادة إرسال رمز التحقق!\n\n**📲 تفقد تيليجرام وأرسل الرمز الجديد:**\n\n⚠️ اكتب `تجديد` لإعادة الإرسال مرة أخرى")
+        else:
+            await msg.edit("✅ تم إرسال رمز التحقق!\n\n**📲 تفقد تيليجرام وأرسل الرمز (5 أرقام):**\n\n⚠️ اكتب `تجديد` لإعادة الإرسال\n⚠️ الرمز صالح لمدة 5 دقائق")
+    
+    except FloodWaitError as e:
+        seconds = e.seconds
+        minutes = seconds // 60
+        await msg.edit(f"⏳ **انتظر {minutes} دقيقة قبل المحاولة مرة أخرى**\n\nتم تقييد الطلب مؤقتاً من تيليجرام")
+        user["step"] = 3
+    
+    except Exception as e:
+        await msg.edit(f"❌ **خطأ في إرسال الرمز:**\n`{str(e)}`\n\n⚠️ تأكد من:\n• صحة api_id و api_hash\n• صحة رقم الهاتف\n• عدم وجود حظر على الرقم")
+        user["step"] = 3
+
+# ====== دالة التحقق من الكود ======
+async def verify_code(msg, user, user_id, code):
+    """التحقق من رمز التحقق مع معالجة كل الحالات"""
+    
+    try:
+        # محاولة تسجيل الدخول
+        await user["client"].sign_in(
+            user["phone"],
+            code,
+            phone_code_hash=user["hash"]
+        )
+        
+        # نجاح - استخراج الجلسة
+        session_string = await user["client"].export_session_string()
+        
+        # حفظ الجلسة
+        with open(f"{SESSIONS_FOLDER}/{user_id}.txt", "w") as f:
+            f.write(session_string)
+        
+        # تشغيل السورس
+        Thread(target=run_user_source, args=(str(user_id),)).start()
+        
+        await msg.edit("""
+**🎉 مبروك! تم التنصيب بنجاح!**
+
+**✅ السورس شغال على حسابك حالاً**
+
+**💡 الأوامر المتاحة:**
+`.اوامر` - عرض كل الأوامر
+`.بنغ` - سرعة الاستجابة
+`.وقتي` - الوقت
+`.نيم` + اسم - تغيير الاسم
+`.بايو` + نص - تغيير البايو
+`.مسح` + عدد - مسح رسائل
+`.حذف` - حذف المحادثة
+`.انتحال` + نص - إرسال بدون اسمك
+
+**🛑 `.ايقاف` لإيقاف السورس**
+**🔄 `/start` للتشغيل مجدداً**
 """)
-        except Exception as e:
-            await msg.edit(f"❌ خطأ: {e}")
-        finally:
-            try:
-                await user["client"].disconnect()
-            except:
-                pass
-            del users[user_id]
+    
+    except PhoneCodeExpiredError:
+        # الكود منتهي الصلاحية
+        await msg.edit("❌ **انتهت صلاحية رمز التحقق!**\n\n**📲 سيتم إرسال رمز جديد تلقائياً...**")
+        await asyncio.sleep(2)
+        # إعادة إرسال الكود تلقائياً
+        fake_event = type('obj', (object,), {'sender_id': user_id, 'text': 'تجديد', 'respond': msg.respond})()
+        await send_code_to_user(fake_event, user, user_id, is_retry=True)
+    
+    except PhoneCodeInvalidError:
+        # كود خاطئ
+        await msg.edit("❌ **رمز التحقق غير صحيح!**\n\n📲 أرسل الرمز الصحيح:\n⚠️ اكتب `تجديد` لاستلام رمز جديد")
+    
+    except SessionPasswordNeededError:
+        # يحتاج تحقق بخطوتين
+        user["step"] = 5
+        user["awaiting_password"] = True
+        await msg.edit("🔐 **حسابك مفعل عليه التحقق بخطوتين**\n\n📝 أرسل كلمة المرور (الرمز السري):")
+    
+    except FloodWaitError as e:
+        seconds = e.seconds
+        await msg.edit(f"⏳ **انتظر {seconds} ثانية** قبل المحاولة مرة أخرى\n\nتم تقييد الطلب مؤقتاً")
+    
+    except Exception as e:
+        await msg.edit(f"❌ **خطأ غير متوقع:**\n`{str(e)}`\n\n🔄 اكتب `تجديد` للمحاولة مرة أخرى")
+
+# ====== استقبال كلمة مرور التحقق بخطوتين ======
+@bot.on(events.NewMessage(func=lambda e: e.sender_id in users and users[e.sender_id].get("step") == 5))
+async def handle_password(event):
+    user_id = event.sender_id
+    user = users[user_id]
+    password = event.text.strip()
+    
+    msg = await event.respond("⏳ جاري التحقق من كلمة المرور...")
+    
+    try:
+        await user["client"].sign_in(password=password)
+        session_string = await user["client"].export_session_string()
+        
+        with open(f"{SESSIONS_FOLDER}/{user_id}.txt", "w") as f:
+            f.write(session_string)
+        
+        Thread(target=run_user_source, args=(str(user_id),)).start()
+        
+        await msg.edit("""
+**🎉 مبروك! تم التنصيب بنجاح!**
+
+**✅ السورس شغال على حسابك حالاً**
+**💡 استخدم `.اوامر` لعرض القائمة**
+""")
+    
+    except Exception as e:
+        await msg.edit(f"❌ **كلمة المرور غير صحيحة:**\n`{str(e)}`\n\n🔐 أرسل كلمة المرور الصحيحة:")
+    
+    finally:
+        if "awaiting_password" in user:
+            del user["awaiting_password"]
 
 # ====== تشغيل الجلسات القديمة ======
 for f in os.listdir(SESSIONS_FOLDER):
@@ -269,5 +392,11 @@ for f in os.listdir(SESSIONS_FOLDER):
             Thread(target=run_user_source, args=(uid,)).start()
             print(f"🔄 تم تشغيل جلسة قديمة: {uid}")
 
-print("✅ البوت جاهز لاستقبال الرسائل!")
+print("""
+╔══════════════════════════════════╗
+║   ✅ البوت جاهز لاستقبال الرسائل  ║
+║   🤖 أرسل /start للبدء          ║
+╚══════════════════════════════════╝
+""")
+
 bot.run_until_disconnected()
