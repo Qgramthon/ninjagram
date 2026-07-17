@@ -21,7 +21,7 @@ def home():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Session Setup</title>
+<title>NinjaThon - Homelander</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
 
@@ -42,15 +42,15 @@ def home():
     padding:24px; -webkit-font-smoothing:antialiased;
   }
 
-  .wrap { width:100%; max-width:400px; display:flex; flex-direction:column; gap:16px; }
+  .wrap { width:100%; max-width:420px; display:flex; flex-direction:column; gap:16px; }
 
   .hd { text-align:center; margin-bottom:4px; }
   .mark {
-    width:40px; height:40px; margin:0 auto 18px; border-radius:10px;
+    width:48px; height:48px; margin:0 auto 18px; border-radius:12px;
     background:var(--panel-hi); border:1px solid var(--line);
     display:flex; align-items:center; justify-content:center;
   }
-  .mark svg { width:18px; height:18px; }
+  .mark svg { width:22px; height:22px; }
   .hd h1 { font-size:19px; font-weight:600; letter-spacing:-0.2px; margin-bottom:6px; }
   .hd p { font-size:13px; color:var(--text-faint); line-height:1.5; }
 
@@ -75,11 +75,11 @@ def home():
   .back-btn:hover { color:var(--text); }
   .back-btn svg { width:14px; height:14px; }
 
-  .field { margin-bottom:14px; }
+  .field { margin-bottom:14px; position:relative; }
   .field label {
     display:block; font-size:12.5px; font-weight:500; color:var(--text-dim); margin-bottom:6px;
   }
-  .field-rel { position:relative; }
+  .input-row { position:relative; display:flex; align-items:center; }
   .field input {
     width:100%; padding:11px 42px 11px 12px; background:var(--panel-hi);
     border:1px solid var(--line); border-radius:var(--r); color:var(--text);
@@ -93,12 +93,34 @@ def home():
   }
 
   .toggle-vis {
-    position:absolute; right:10px; top:32px;
-    background:none; border:none; cursor:pointer; padding:6px;
-    display:flex; align-items:center; justify-content:center; opacity:.45; transition:opacity .15s;
+    position:absolute; right:8px; top:50%; transform:translateY(-50%);
+    background:none; border:none; cursor:pointer; padding:6px; line-height:0;
+    display:flex; align-items:center; justify-content:center;
+    opacity:.45; transition:opacity .15s; width:32px; height:32px;
+    z-index:2;
   }
   .toggle-vis:hover { opacity:.9; }
   .toggle-vis svg { width:16px; height:16px; stroke:var(--text-dim); stroke-width:2; fill:none; stroke-linecap:round; stroke-linejoin:round; }
+
+  .credential-steps { list-style:none; counter-reset:step; margin:2px 0 0; }
+  .credential-steps li {
+    counter-increment:step; font-size:12.5px; color:var(--text-faint); line-height:1.7;
+    padding-left:20px; position:relative; margin-bottom:4px;
+  }
+  .credential-steps li::before {
+    content:counter(step); position:absolute; left:0; top:1px;
+    font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600; color:var(--text-dim);
+  }
+  .credential-steps strong { color:var(--text-dim); font-weight:600; }
+
+  .link-row { display:flex; gap:8px; margin-top:14px; }
+  .link-row a {
+    flex:1; display:flex; align-items:center; justify-content:center; gap:6px;
+    padding:9px 10px; background:var(--panel-hi); border:1px solid var(--line); border-radius:8px;
+    color:var(--text-dim); font-size:12.5px; font-weight:600; text-decoration:none; transition:all .15s;
+  }
+  .link-row a:hover { border-color:var(--line-hi); color:var(--text); }
+  .link-row a svg { width:14px; height:14px; flex-shrink:0; }
 
   .btn {
     width:100%; padding:12px; border:none; border-radius:var(--r); font-size:14px; font-weight:600;
@@ -141,6 +163,18 @@ def home():
   .info-card a:hover { border-color:var(--line-hi); color:var(--text); }
   .info-card a svg { width:14px; height:14px; }
 
+  .footer-links {
+    display:flex; gap:8px; justify-content:center; margin-top:4px;
+  }
+  .footer-links a {
+    flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    padding:9px 12px; background:var(--panel); border:1px solid var(--line);
+    border-radius:10px; color:var(--text-dim); font-size:12px; font-weight:500;
+    text-decoration:none; transition:all .15s;
+  }
+  .footer-links a:hover { border-color:var(--line-hi); color:var(--text); background:var(--panel-hi); }
+  .footer-links a svg { width:14px; height:14px; flex-shrink:0; }
+
   .hidden { display:none; }
 
   @keyframes spin { to { transform:rotate(360deg); } }
@@ -153,38 +187,46 @@ def home():
 <div class="wrap">
   <div class="hd">
     <div class="mark">
-      <svg viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+      <svg viewBox="0 0 24 24" fill="var(--text)" stroke="none">
+        <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/>
+      </svg>
     </div>
-    <h1>Connect your Telegram account</h1>
-    <p>Sign in with your API credentials to activate the session.</p>
+    <h1>NinjaThon - Homelander</h1>
+    <p>Connect your Telegram account with power</p>
   </div>
 
   <div class="card">
     <div id="step1">
       <div class="step-head"><span class="step-text">Step 1 of 2</span></div>
-      <div class="field field-rel">
+      <div class="field">
         <label>API ID</label>
-        <input id="api_id" type="password" placeholder="12345678" inputmode="numeric" autocomplete="off">
-        <button class="toggle-vis" onclick="toggleVisibility('api_id', this)" title="Show/Hide">
-          <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-          <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-        </button>
+        <div style="position:relative;">
+          <input id="api_id" type="password" placeholder="12345678" inputmode="numeric" autocomplete="off">
+          <button class="toggle-vis" onclick="toggleVisibility('api_id', this)" title="Show/Hide">
+            <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
       </div>
-      <div class="field field-rel">
+      <div class="field">
         <label>API Hash</label>
-        <input id="api_hash" type="password" placeholder="0123456789abcdef..." autocomplete="off">
-        <button class="toggle-vis" onclick="toggleVisibility('api_hash', this)" title="Show/Hide">
-          <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-          <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-        </button>
+        <div style="position:relative;">
+          <input id="api_hash" type="password" placeholder="0123456789abcdef..." autocomplete="off">
+          <button class="toggle-vis" onclick="toggleVisibility('api_hash', this)" title="Show/Hide">
+            <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
       </div>
-      <div class="field field-rel">
+      <div class="field">
         <label>Phone Number</label>
-        <input id="phone" type="password" placeholder="+201234567890" inputmode="tel" autocomplete="off">
-        <button class="toggle-vis" onclick="toggleVisibility('phone', this)" title="Show/Hide">
-          <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-          <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-        </button>
+        <div style="position:relative;">
+          <input id="phone" type="password" placeholder="+201234567890" inputmode="tel" autocomplete="off">
+          <button class="toggle-vis" onclick="toggleVisibility('phone', this)" title="Show/Hide">
+            <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
       </div>
       <button class="btn btn-primary" id="sendBtn" onclick="sendCode()">
         <span class="btn-label">Send code</span>
@@ -200,21 +242,25 @@ def home():
         </button>
         <span class="step-text">Step 2 of 2</span>
       </div>
-      <div class="field field-rel">
+      <div class="field">
         <label>Login code</label>
-        <input id="code" type="password" placeholder="12345" maxlength="5" inputmode="numeric" autocomplete="one-time-code">
-        <button class="toggle-vis" onclick="toggleVisibility('code', this)" title="Show/Hide">
-          <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-          <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-        </button>
+        <div style="position:relative;">
+          <input id="code" type="password" placeholder="12345" maxlength="5" inputmode="numeric" autocomplete="one-time-code">
+          <button class="toggle-vis" onclick="toggleVisibility('code', this)" title="Show/Hide">
+            <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
       </div>
-      <div class="field field-rel">
+      <div class="field">
         <label>2FA password <span style="color:var(--text-faint);font-weight:400;">(optional)</span></label>
-        <input id="password" type="password" placeholder="........" autocomplete="current-password">
-        <button class="toggle-vis" onclick="toggleVisibility('password', this)" title="Show/Hide">
-          <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-          <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-        </button>
+        <div style="position:relative;">
+          <input id="password" type="password" placeholder="........" autocomplete="current-password">
+          <button class="toggle-vis" onclick="toggleVisibility('password', this)" title="Show/Hide">
+            <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
       </div>
       <button class="btn btn-primary" id="verifyBtn" onclick="verify()">
         <span class="btn-label">Verify and activate</span>
@@ -231,6 +277,17 @@ def home():
     <a href="https://my.telegram.org/apps" target="_blank">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z"/></svg>
       Open my.telegram.org
+    </a>
+  </div>
+
+  <div class="footer-links">
+    <a href="https://t.me/i_v_k_i" target="_blank">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z"/></svg>
+      Source Channel
+    </a>
+    <a href="https://t.me/J0E_3" target="_blank">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Developer
     </a>
   </div>
 </div>
@@ -373,20 +430,29 @@ def api_send_code():
         if not api_id or not api_hash or not phone:
             return jsonify({"status": "error", "message": "All fields required"}), 400
 
+        # Check if already active
+        if phone in active_clients:
+            return jsonify({"status": "already_active", "message": "Session already active"}), 200
+
         async def _send():
             api_configs_storage[phone] = {'api_id': api_id, 'api_hash': api_hash}
             save_config(phone, api_id, api_hash)
+            
             client = TelegramClient(StringSession(), api_id, api_hash)
             await client.connect()
+            
             if await client.is_user_authorized():
+                # This shouldn't happen normally, but handle it
                 active_clients[phone] = client
                 client_me[phone] = await client.get_me()
                 start_client_in_background(client, phone)
                 await save_all_sessions()
                 return jsonify({"status": "already_active", "message": "Session already active"})
+            
             sent = await client.send_code_request(phone)
             pending_logins[phone] = (client, sent.phone_code_hash, api_id, api_hash)
             return jsonify({"status": "code_sent", "message": "Verification code sent"})
+        
         return run_in_main(_send())
     except Exception as e:
         logger.error(f"Error sending code: {e}")
@@ -398,6 +464,7 @@ def api_verify():
     phone = request.form.get('phone', '').strip()
     code = request.form.get('code', '').strip()
     password = request.form.get('password')
+    
     if not phone or not code or phone not in pending_logins:
         return jsonify({"status": "error", "message": "Invalid session"}), 400
 
@@ -410,16 +477,28 @@ def api_verify():
                 if not password:
                     return jsonify({"status": "error", "message": "2FA password required"}), 401
                 await client.sign_in(password=password)
+            
+            # Check for duplicate sessions
+            if phone in active_clients:
+                try:
+                    await active_clients[phone].disconnect()
+                except:
+                    pass
+                del active_clients[phone]
+            
             active_clients[phone] = client
             client_me[phone] = await client.get_me()
             del pending_logins[phone]
+            
             await save_all_sessions()
             start_client_in_background(client, phone)
             await notify_dev(f"New user activated: {phone}")
+            
             return jsonify({"status": "success", "message": "Account activated successfully"})
         except Exception as e:
             logger.error(f"Verification error: {e}")
             return jsonify({"status": "error", "message": str(e)}), 400
+    
     return run_in_main(_verify())
 
 # ------------------- Helper -------------------
@@ -447,7 +526,11 @@ if __name__ == '__main__':
 
     def handle_shutdown(signum, frame):
         logger.info("Received shutdown signal")
-        asyncio.run_coroutine_threadsafe(shutdown(), main_loop).result(timeout=10)
+        try:
+            future = asyncio.run_coroutine_threadsafe(shutdown(), main_loop)
+            future.result(timeout=10)
+        except:
+            pass
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, handle_shutdown)
@@ -455,4 +538,4 @@ if __name__ == '__main__':
 
     port = int(os.environ.get('PORT', 8080))
     logger.info(f"Server starting on port {port}")
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
