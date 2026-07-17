@@ -8,6 +8,7 @@ import asyncio
 import logging
 import json
 import random
+import io
 from datetime import datetime
 from telethon import TelegramClient, events, functions, types
 from telethon.tl.functions.account import UpdateProfileRequest
@@ -184,6 +185,18 @@ def start_client_in_background(client: TelegramClient, phone: str):
     
     async def is_disabled(cmd, event):
         return phone in disabled_commands and cmd in disabled_commands[phone]
+
+    async def get_target_name(event, fallback="المستخدم"):
+        """Returns the first name of the replied user, or the fallback string."""
+        if event.is_reply:
+            reply = await event.get_reply_message()
+            if reply and reply.sender_id:
+                try:
+                    user = await client.get_entity(reply.sender_id)
+                    return user.first_name or fallback
+                except:
+                    return fallback
+        return fallback
 
     # ========== ACCOUNT COMMANDS ==========
     
@@ -531,11 +544,29 @@ def start_client_in_background(client: TelegramClient, phone: str):
     async def save(event):
         if await is_disabled('حفظ', event): return
         if not event.is_reply:
-            await event.edit("رد على رسالة")
+            await event.edit("رد على رسالة لحفظها")
             return
         reply = await event.get_reply_message()
-        await client.send_message('me', reply.text or "رسالة محفوظة")
-        await event.edit("تم الحفظ")
+        if not reply:
+            await event.edit("لا يوجد رد")
+            return
+        try:
+            if reply.media:
+                # يحفظ الوسائط: صور، ملصقات، فيديو، ملفات، الخ
+                file_path = await reply.download_media()
+                if file_path:
+                    await client.send_file('me', file_path, caption=reply.text or "")
+                    os.remove(file_path)
+                    await event.edit("تم حفظ الوسائط")
+                else:
+                    await event.edit("فشل تحميل الوسائط")
+            elif reply.text:
+                await client.send_message('me', reply.text)
+                await event.edit("تم حفظ النص")
+            else:
+                await event.edit("الرسالة لا تحتوي على نص أو وسائط")
+        except Exception as e:
+            await event.edit(f"خطأ: {e}")
 
     # ========== PRIVATE COMMANDS ==========
     
@@ -577,10 +608,11 @@ def start_client_in_background(client: TelegramClient, phone: str):
 
     # ========== GROUP COMMANDS ==========
     
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تحليل (.+)$'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تحليل(?: (.+))?$'))
     async def analyze_group(event):
         if await is_disabled('تحليل', event): return
-        await event.edit(f"تحليل {event.pattern_match.group(1)}: `{random.randint(0,100)}%`")
+        target = await get_target_name(event, "المجموعة") if not event.pattern_match.group(1) else event.pattern_match.group(1)
+        await event.edit(f"تحليل {target}: `{random.randint(0,100)}%`")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.كتم$'))
     async def mute(event):
@@ -655,16 +687,9 @@ def start_client_in_background(client: TelegramClient, phone: str):
             reply = await event.get_reply_message()
             user = await client.get_entity(reply.sender_id)
             rights = ChatAdminRights(
-                change_info=True,
-                post_messages=True,
-                edit_messages=True,
-                delete_messages=True,
-                ban_users=False,
-                invite_users=True,
-                pin_messages=True,
-                add_admins=False,
-                anonymous=False,
-                manage_call=True
+                change_info=True, post_messages=True, edit_messages=True,
+                delete_messages=True, ban_users=False, invite_users=True,
+                pin_messages=True, add_admins=False, anonymous=False, manage_call=True
             )
             await client(EditAdminRequest(event.chat_id, user, rights, "Admin"))
             await event.edit(f"تم رفع {user.first_name} ادمن")
@@ -681,16 +706,9 @@ def start_client_in_background(client: TelegramClient, phone: str):
             reply = await event.get_reply_message()
             user = await client.get_entity(reply.sender_id)
             rights = ChatAdminRights(
-                change_info=True,
-                post_messages=True,
-                edit_messages=True,
-                delete_messages=True,
-                ban_users=True,
-                invite_users=True,
-                pin_messages=True,
-                add_admins=True,
-                anonymous=False,
-                manage_call=True
+                change_info=True, post_messages=True, edit_messages=True,
+                delete_messages=True, ban_users=True, invite_users=True,
+                pin_messages=True, add_admins=True, anonymous=False, manage_call=True
             )
             await client(EditAdminRequest(event.chat_id, user, rights, "Owner"))
             await event.edit(f"تم رفع {user.first_name} مشرف كامل")
@@ -799,10 +817,18 @@ def start_client_in_background(client: TelegramClient, phone: str):
         await event.delete()
         await client.send_message(event.chat_id, event.pattern_match.group(1))
 
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تقليد (.+)$'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تقليد$'))
     async def mimic(event):
         if await is_disabled('تقليد', event): return
-        await event.edit("خاصية التقليد قيد التطوير")
+        if not event.is_reply:
+            await event.edit("رد على شخص لتقليده")
+            return
+        reply = await event.get_reply_message()
+        if reply and reply.text:
+            await event.delete()
+            await client.send_message(event.chat_id, reply.text)
+        else:
+            await event.edit("الرسالة لا تحتوي على نص")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ضحك$'))
     async def laugh_anim(event):
@@ -844,30 +870,33 @@ def start_client_in_background(client: TelegramClient, phone: str):
         if await is_disabled('ورد', event): return
         await event.edit("🌸 ورد ورد ورد")
 
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.قتل (.+)$'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.قتل(?: (.+))?$'))
     async def kill(event):
         if await is_disabled('قتل', event): return
-        await event.edit(f"تم قتل {event.pattern_match.group(1)} بدم بارد")
+        target = await get_target_name(event, "الضحية") if not event.pattern_match.group(1) else event.pattern_match.group(1)
+        await event.edit(f"تم قتل {target} بدم بارد")
 
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تهكير (.+)$'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تهكير(?: (.+))?$'))
     async def hack(event):
         if await is_disabled('تهكير', event): return
-        target = event.pattern_match.group(1)
+        target = await get_target_name(event, "الهدف") if not event.pattern_match.group(1) else event.pattern_match.group(1)
         msg = await event.edit("جاري الاختراق...")
         steps = ["جاري الاتصال...", "تخطي الحماية...", "كسر كلمة المرور...", "الوصول للبيانات...", "تحميل الملفات...", f"تم اختراق {target}"]
         for step in steps:
             await asyncio.sleep(0.5)
             await msg.edit(step)
 
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ذكاء (.+)$'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ذكاء(?: (.+))?$'))
     async def iq(event):
         if await is_disabled('ذكاء', event): return
-        await event.edit(f"نسبة ذكاء {event.pattern_match.group(1)}: `{random.randint(1,200)}%`")
+        target = await get_target_name(event, "المستخدم") if not event.pattern_match.group(1) else event.pattern_match.group(1)
+        await event.edit(f"نسبة ذكاء {target}: `{random.randint(1,200)}%`")
 
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.شذ (.+)$'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.شذ(?: (.+))?$'))
     async def gay(event):
         if await is_disabled('شذ', event): return
-        await event.edit(f"نسبة شذوذ {event.pattern_match.group(1)}: `{random.randint(0,100)}%`")
+        target = await get_target_name(event, "المستخدم") if not event.pattern_match.group(1) else event.pattern_match.group(1)
+        await event.edit(f"نسبة شذوذ {target}: `{random.randint(0,100)}%`")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.تصفية$'))
     async def purge(event):
@@ -876,25 +905,30 @@ def start_client_in_background(client: TelegramClient, phone: str):
 
     # ========== FUN RAISE ==========
     
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.حمار (.+)$'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.حمار(?: (.+))?$'))
     async def donkey(event):
-        await event.edit(f"تم رفع {event.pattern_match.group(1)} حمار رسمياً")
+        target = await get_target_name(event, "المستخدم") if not event.pattern_match.group(1) else event.pattern_match.group(1)
+        await event.edit(f"تم رفع {target} حمار رسمياً")
 
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.سباك (.+)$'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.سباك(?: (.+))?$'))
     async def plumber(event):
-        await event.edit(f"تم رفع {event.pattern_match.group(1)} سباك")
+        target = await get_target_name(event, "المستخدم") if not event.pattern_match.group(1) else event.pattern_match.group(1)
+        await event.edit(f"تم رفع {target} سباك")
 
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.شحات (.+)$'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.شحات(?: (.+))?$'))
     async def beggar(event):
-        await event.edit(f"تم رفع {event.pattern_match.group(1)} شحات")
+        target = await get_target_name(event, "المستخدم") if not event.pattern_match.group(1) else event.pattern_match.group(1)
+        await event.edit(f"تم رفع {target} شحات")
 
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ميكانيكي (.+)$'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ميكانيكي(?: (.+))?$'))
     async def mechanic(event):
-        await event.edit(f"تم رفع {event.pattern_match.group(1)} ميكانيكي")
+        target = await get_target_name(event, "المستخدم") if not event.pattern_match.group(1) else event.pattern_match.group(1)
+        await event.edit(f"تم رفع {target} ميكانيكي")
 
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بيكيا (.+)$'))
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.بيكيا(?: (.+))?$'))
     async def scrap(event):
-        await event.edit(f"تم رفع {event.pattern_match.group(1)} بتاع روبابيكيا")
+        target = await get_target_name(event, "المستخدم") if not event.pattern_match.group(1) else event.pattern_match.group(1)
+        await event.edit(f"تم رفع {target} بتاع روبابيكيا")
 
     # ========== SUPPORT ==========
     
