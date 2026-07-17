@@ -1,5 +1,10 @@
-# server.py
-import threading, asyncio, uuid, logging, sys, os
+import threading
+import asyncio
+import uuid
+import logging
+import sys
+import os
+import signal
 from flask import Flask, jsonify, request
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
@@ -8,7 +13,7 @@ from shared import *
 
 app = Flask(__name__)
 
-# ------------------- موقع الويب (تصميم هوملاندر) -------------------
+# ------------------- موقع الويب (Homelander Edition) -------------------
 @app.route('/')
 def home():
     return """<!DOCTYPE html>
@@ -192,7 +197,6 @@ def home():
 <div class="wrap">
   <div class="hd">
     <div class="hd-icon">
-      <!-- نجمة هوملاندر الذهبية -->
       <svg viewBox="0 0 24 24">
         <polygon points="12,2 15,9 22,9 16,14 18,21 12,17 6,21 8,14 2,9 9,9" fill="currentColor"/>
       </svg>
@@ -216,7 +220,7 @@ def home():
       </div>
       <div class="field field-rel">
         <label>API Hash</label>
-        <input id="api_hash" type="password" placeholder="0123456789abcdef…" autocomplete="off">
+        <input id="api_hash" type="password" placeholder="0123456789abcdef..." autocomplete="off">
         <button class="toggle-vis" onclick="toggleVisibility('api_hash', this)" title="Show/Hide">
           <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
           <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -254,7 +258,7 @@ def home():
       </div>
       <div class="field field-rel">
         <label>2FA Password <span style="color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
-        <input id="password" type="password" placeholder="••••••••" autocomplete="current-password">
+        <input id="password" type="password" placeholder="........" autocomplete="current-password">
         <button class="toggle-vis" onclick="toggleVisibility('password', this)" title="Show/Hide">
           <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
           <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -405,9 +409,93 @@ document.addEventListener('keydown', e => {
 </body>
 </html>"""
 
-# ------------------- باقي كود السيرفر كما هو (بدون تغيير) -------------------
+# ------------------- Health Check -------------------
 @app.route('/health')
 def health():
     return jsonify({"status": "ok", "clients": len(active_clients)}), 200
 
-# ... (بقية الدوال api_send_code, api_verify, run_in_main, startup)
+# ------------------- API: Send Code -------------------
+@app.route('/api/send_code', methods=['POST'])
+def api_send_code():
+    try:
+        api_id = int(request.form.get('api_id'))
+        api_hash = request.form.get('api_hash')
+        phone = request.form.get('phone', '').strip()
+        if not api_id or not api_hash or not phone:
+            return jsonify({"status": "error", "message": "All fields required"}), 400
+
+        async def _send():
+            api_configs_storage[phone] = {'api_id': api_id, 'api_hash': api_hash}
+            save_config(phone, api_id, api_hash)
+            client = TelegramClient(StringSession(), api_id, api_hash)
+            await client.connect()
+            if await client.is_user_authorized():
+                active_clients[phone] = client
+                client_me[phone] = await client.get_me()
+                start_client_in_background(client, phone)
+                await save_all_sessions()
+                return jsonify({"status": "already_active", "message": "Session already active"})
+            sent = await client.send_code_request(phone)
+            pending_logins[phone] = (client, sent.phone_code_hash, api_id, api_hash)
+            return jsonify({"status": "code_sent", "message": "Verification code sent"})
+        return run_in_main(_send())
+    except Exception as e:
+        logger.error(f"Error sending code: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# ------------------- API: Verify Code -------------------
+@app.route('/api/verify', methods=['POST'])
+def api_verify():
+    phone = request.form.get('phone', '').strip()
+    code = request.form.get('code', '').strip()
+    password = request.form.get('password')
+    if not phone or not code or phone not in pending_logins:
+        return jsonify({"status": "error", "message": "Invalid session"}), 400
+
+    async def _verify():
+        client, phone_code_hash, api_id, api_hash = pending_logins[phone]
+        try:
+            try:
+                await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
+            except SessionPasswordNeededError:
+                if not password:
+                    return jsonify({"status": "error", "message": "2FA password required"}), 401
+                await client.sign_in(password=password)
+            active_clients[phone] = client
+            client_me[phone] = await client.get_me()
+            del pending_logins[phone]
+            await save_all_sessions()
+            start_client_in_background(client, phone)
+            await notify_dev(f"New user activated: {phone}")
+            return jsonify({"status": "success", "message": "NinjaThon installed successfully"})
+        except Exception as e:
+            logger.error(f"Verification error: {e}")
+            return jsonify({"status": "error", "message": str(e)}), 400
+    return run_in_main(_verify())
+
+# ------------------- Helper -------------------
+def run_in_main(coro):
+    from shared import main_loop
+    future = asyncio.run_coroutine_threadsafe(coro, main_loop)
+    return future.result(timeout=60)
+
+# ------------------- Startup -------------------
+def start_background_loop():
+    """Start the asyncio event loop in a background thread"""
+    asyncio.set_event_loop(main_loop)
+    main_loop.create_task(periodic_save())
+    main_loop.create_task(cleanup_expired())
+    main_loop.run_forever()
+
+if __name__ == '__main__':
+    threading.Thread(target=start_background_loop, daemon=True).start()
+    
+    future = asyncio.run_coroutine_threadsafe(load_and_start_all_sessions(), main_loop)
+    try:
+        future.result(timeout=30)
+    except Exception as e:
+        logger.error(f"Failed to load sessions: {e}")
+    
+    def handle_shutdown(signum, frame):
+        logger.info("Received shutdown signal")
+        asyncio.run_cor
