@@ -23,43 +23,37 @@ def home():
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>THE BOYS - TELETHON SETUP</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
   :root {
     --bg:#0a0a0f;
-    --panel:rgba(18,18,24,0.8);
-    --panel-hi:rgba(22,22,30,0.9);
-    --line:rgba(200,30,30,0.2);
-    --line-hi:rgba(200,30,30,0.4);
-    --text:#e8e8ed;
-    --text-dim:rgba(232,232,237,0.65);
-    --text-faint:rgba(232,232,237,0.38);
-    --accent:#c81e1e;
-    --accent-blue:#2a5c8a;
-    --accent-gold:#c4a44a;
+    --panel:rgba(20,20,28,0.9);
+    --line:rgba(200,30,30,0.15);
+    --line-hi:rgba(200,30,30,0.3);
+    --text:#e4e4ea;
+    --text-dim:rgba(228,228,234,0.6);
+    --text-faint:rgba(228,228,234,0.35);
+    --accent:#c42020;
+    --accent-hover:#d43030;
     --ok:#1a8a4a;
-    --err:#c81e1e;
-    --r:10px;
-    --r2:18px;
-    --font-main:'Inter',-apple-system,sans-serif;
-    --font-display:'Bebas Neue',cursive;
-    --font-mono:'JetBrains Mono',monospace;
+    --err:#c42020;
+    --r:8px;
+    --r2:14px;
   }
   
   * { margin:0; padding:0; box-sizing:border-box; }
   
   body {
-    font-family:var(--font-main);
+    font-family:'Inter',-apple-system,sans-serif;
     color:var(--text);
     min-height:100vh;
     display:flex;
     align-items:center;
     justify-content:center;
-    padding:24px;
+    padding:20px;
     -webkit-font-smoothing:antialiased;
     background: var(--bg);
     position:relative;
-    overflow-x:hidden;
   }
   
   body::before {
@@ -70,190 +64,111 @@ def home():
     width:100%;
     height:100%;
     background-image: 
-      radial-gradient(1px 1px at 5% 15%, rgba(255,255,255,0.4), transparent),
-      radial-gradient(1px 1px at 12% 45%, rgba(255,255,255,0.3), transparent),
-      radial-gradient(1.5px 1.5px at 18% 75%, rgba(255,255,255,0.5), transparent),
-      radial-gradient(1px 1px at 25% 25%, rgba(255,255,255,0.3), transparent),
-      radial-gradient(1px 1px at 32% 60%, rgba(255,255,255,0.25), transparent),
-      radial-gradient(1.5px 1.5px at 38% 10%, rgba(255,255,255,0.4), transparent),
-      radial-gradient(1px 1px at 45% 80%, rgba(255,255,255,0.3), transparent),
-      radial-gradient(1px 1px at 52% 35%, rgba(255,255,255,0.2), transparent),
-      radial-gradient(1.5px 1.5px at 58% 70%, rgba(255,255,255,0.35), transparent),
-      radial-gradient(1px 1px at 65% 20%, rgba(255,255,255,0.3), transparent),
-      radial-gradient(1px 1px at 72% 55%, rgba(255,255,255,0.25), transparent),
-      radial-gradient(1.5px 1.5px at 78% 85%, rgba(255,255,255,0.4), transparent),
-      radial-gradient(1px 1px at 85% 40%, rgba(255,255,255,0.3), transparent),
-      radial-gradient(1px 1px at 90% 65%, rgba(255,255,255,0.2), transparent),
-      radial-gradient(1.5px 1.5px at 95% 15%, rgba(255,255,255,0.35), transparent),
-      radial-gradient(1px 1px at 8% 90%, rgba(255,255,255,0.2), transparent),
-      radial-gradient(1px 1px at 42% 48%, rgba(255,255,255,0.3), transparent),
-      radial-gradient(1px 1px at 68% 12%, rgba(255,255,255,0.25), transparent),
-      radial-gradient(1.5px 1.5px at 88% 78%, rgba(255,255,255,0.3), transparent),
-      radial-gradient(1px 1px at 28% 92%, rgba(255,255,255,0.2), transparent);
+      radial-gradient(1px 1px at 10% 20%, rgba(255,255,255,0.3), transparent),
+      radial-gradient(1px 1px at 25% 55%, rgba(255,255,255,0.2), transparent),
+      radial-gradient(1px 1px at 40% 15%, rgba(255,255,255,0.25), transparent),
+      radial-gradient(1px 1px at 55% 70%, rgba(255,255,255,0.2), transparent),
+      radial-gradient(1px 1px at 70% 30%, rgba(255,255,255,0.3), transparent),
+      radial-gradient(1px 1px at 85% 60%, rgba(255,255,255,0.2), transparent),
+      radial-gradient(1px 1px at 15% 85%, rgba(255,255,255,0.15), transparent),
+      radial-gradient(1px 1px at 60% 45%, rgba(255,255,255,0.2), transparent),
+      radial-gradient(1px 1px at 90% 15%, rgba(255,255,255,0.25), transparent);
     pointer-events:none;
     z-index:0;
-    animation: starPulse 3s ease-in-out infinite alternate;
-  }
-  
-  body::after {
-    content:'';
-    position:fixed;
-    top:0;
-    left:0;
-    width:100%;
-    height:100%;
-    background: 
-      radial-gradient(ellipse at 15% 50%, rgba(200,30,30,0.06) 0%, transparent 55%),
-      radial-gradient(ellipse at 85% 50%, rgba(42,92,138,0.06) 0%, transparent 55%),
-      radial-gradient(ellipse at 50% 0%, rgba(196,164,74,0.04) 0%, transparent 50%);
-    pointer-events:none;
-    z-index:0;
-    animation: ambientShift 8s ease-in-out infinite alternate;
-  }
-  
-  @keyframes starPulse {
-    0% { opacity: 0.65; }
-    100% { opacity: 1; }
-  }
-  
-  @keyframes ambientShift {
-    0% { opacity: 0.7; }
-    50% { opacity: 1; }
-    100% { opacity: 0.7; }
   }
   
   .wrap { 
     width:100%; 
-    max-width:440px; 
+    max-width:400px; 
     display:flex; 
     flex-direction:column; 
-    gap:18px;
+    gap:14px;
     position:relative;
     z-index:1;
-    animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  
-  @keyframes slideUp {
-    from { opacity:0; transform:translateY(30px); }
-    to { opacity:1; transform:translateY(0); }
   }
 
   .hd { 
     text-align:center; 
-    margin-bottom:4px;
-    position:relative;
+    margin-bottom:6px;
   }
   
   .hd h1 { 
-    font-family:var(--font-display);
-    font-size:52px; 
-    font-weight:400; 
-    letter-spacing:6px;
-    margin-bottom:2px;
+    font-size:26px; 
+    font-weight:700; 
+    letter-spacing:3px;
+    margin-bottom:4px;
     color:var(--text);
-    text-shadow: 0 0 40px rgba(200,30,30,0.6), 0 0 80px rgba(200,30,30,0.3), 0 2px 4px rgba(0,0,0,0.5);
-    animation: titleGlow 2s ease-in-out infinite alternate;
-  }
-  
-  @keyframes titleGlow {
-    0% { text-shadow: 0 0 40px rgba(200,30,30,0.6), 0 0 80px rgba(200,30,30,0.3), 0 2px 4px rgba(0,0,0,0.5); }
-    100% { text-shadow: 0 0 60px rgba(200,30,30,0.9), 0 0 100px rgba(42,92,138,0.5), 0 2px 4px rgba(0,0,0,0.5); }
+    text-transform:uppercase;
   }
   
   .hd .subtitle { 
-    font-family:var(--font-display);
-    font-size:16px; 
+    font-size:11px; 
     color:var(--text-dim); 
-    letter-spacing:5px;
-    font-weight:400;
-    opacity:0.9;
+    letter-spacing:2px;
+    font-weight:500;
+    text-transform:uppercase;
   }
   
   .card {
     background: var(--panel);
     border:1px solid var(--line);
     border-radius:var(--r2);
-    padding:28px;
-    position:relative;
-    backdrop-filter:blur(24px);
-    -webkit-backdrop-filter:blur(24px);
-    box-shadow: 0 8px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.03);
-    animation: cardIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
-  }
-  
-  @keyframes cardIn {
-    from { opacity:0; transform:translateY(20px) scale(0.97); }
-    to { opacity:1; transform:translateY(0) scale(1); }
-  }
-  
-  .card::before {
-    content:'';
-    position:absolute;
-    top:-1px;
-    left:-1px;
-    right:-1px;
-    bottom:-1px;
-    border-radius:var(--r2);
-    background: linear-gradient(135deg, rgba(200,30,30,0.3), transparent 40%, transparent 60%, rgba(42,92,138,0.3));
-    z-index:-1;
-    opacity:0.5;
+    padding:24px;
+    backdrop-filter:blur(20px);
+    -webkit-backdrop-filter:blur(20px);
   }
 
   .step-head {
     display:flex;
     align-items:center;
     justify-content:space-between;
-    margin-bottom:24px;
+    margin-bottom:20px;
   }
   
   .step-text {
-    font-family:var(--font-display);
-    font-size:13px;
-    font-weight:400;
+    font-size:10px;
+    font-weight:600;
     color:var(--text-faint);
-    letter-spacing:2.5px;
-    background: rgba(200,30,30,0.08);
-    padding:5px 14px;
-    border-radius:20px;
-    border:1px solid rgba(200,30,30,0.2);
+    letter-spacing:1.5px;
+    text-transform:uppercase;
+    background: rgba(200,30,30,0.06);
+    padding:4px 10px;
+    border-radius:12px;
+    border:1px solid rgba(200,30,30,0.15);
   }
 
   .back-btn {
     display:inline-flex;
     align-items:center;
-    gap:6px;
+    gap:5px;
     background:none;
     border:none;
     color:var(--text-dim);
-    font-size:13px;
+    font-size:12px;
     font-weight:500;
     cursor:pointer;
-    padding:6px 12px;
-    transition:all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    border-radius:8px;
-    font-family:var(--font-main);
+    padding:5px 10px;
+    transition:all 0.15s;
+    border-radius:6px;
   }
   .back-btn:hover { 
     color:var(--text);
-    background: rgba(255,255,255,0.04);
-    transform:translateX(-3px);
+    background: rgba(255,255,255,0.03);
   }
-  .back-btn svg { width:14px; height:14px; }
+  .back-btn svg { width:13px; height:13px; }
 
   .field { 
-    margin-bottom:16px;
-    position:relative;
+    margin-bottom:14px;
   }
   
   .field label {
     display:block;
-    font-size:12px;
+    font-size:11px;
     font-weight:600;
     color:var(--text-dim);
-    margin-bottom:8px;
-    letter-spacing:1px;
+    margin-bottom:6px;
+    letter-spacing:0.8px;
     text-transform:uppercase;
-    font-family:var(--font-main);
   }
   
   .input-wrapper {
@@ -262,69 +177,65 @@ def home():
   
   .field input {
     width:100%;
-    padding:13px 46px 13px 16px;
+    padding:11px 42px 11px 14px;
     background:rgba(255,255,255,0.03);
     border:1px solid var(--line);
     border-radius:var(--r);
     color:var(--text);
-    font-size:15px;
+    font-size:14px;
     font-weight:500;
-    font-family:var(--font-main);
+    font-family:'Inter',sans-serif;
     outline:none;
-    transition:all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-    letter-spacing:0.3px;
+    transition:all 0.2s;
   }
   
   .field input::placeholder { 
     color:var(--text-faint);
     font-weight:400;
-    text-transform:uppercase;
-    font-size:13px;
-    letter-spacing:1px;
+    font-size:12px;
   }
   
   .field input:focus { 
     border-color:var(--accent);
-    background:rgba(200,30,30,0.04);
-    box-shadow: 0 0 25px rgba(200,30,30,0.12), 0 0 0 1px rgba(200,30,30,0.1);
+    background:rgba(200,30,30,0.03);
+    box-shadow: 0 0 15px rgba(200,30,30,0.08);
   }
   
   #code {
-    font-family:var(--font-mono);
-    font-size:20px;
+    font-family:'SF Mono','JetBrains Mono',monospace;
+    font-size:18px;
     font-weight:600;
-    letter-spacing:10px;
+    letter-spacing:8px;
     text-align:center;
   }
 
   .toggle-vis {
     position:absolute;
-    right:6px;
+    right:5px;
     top:50%;
     transform:translateY(-50%);
     background:none;
     border:none;
     cursor:pointer;
-    padding:8px;
+    padding:7px;
     line-height:0;
     display:flex;
     align-items:center;
     justify-content:center;
     opacity:0.4;
-    transition:all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    width:36px;
-    height:36px;
+    transition:opacity 0.15s;
+    width:32px;
+    height:32px;
     z-index:2;
-    border-radius:8px;
+    border-radius:6px;
   }
   .toggle-vis:hover { 
     opacity:1;
-    background:rgba(255,255,255,0.04);
-    transform:translateY(-50%) scale(1.1);
+    background:rgba(255,255,255,0.03);
   }
   .toggle-vis svg { 
-    width:16px;
-    height:16px;
+    width:15px;
+    height:15px;
     stroke:var(--text-dim);
     stroke-width:2;
     fill:none;
@@ -334,12 +245,12 @@ def home():
 
   .btn {
     width:100%;
-    padding:14px;
+    padding:12px;
     border:none;
     border-radius:var(--r);
-    font-size:15px;
-    font-weight:400;
-    font-family:var(--font-display);
+    font-size:13px;
+    font-weight:600;
+    font-family:'Inter',sans-serif;
     cursor:pointer;
     position:relative;
     overflow:hidden;
@@ -347,30 +258,29 @@ def home():
     align-items:center;
     justify-content:center;
     gap:8px;
-    transition:all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    margin-top:8px;
-    letter-spacing:3px;
+    transition:all 0.2s;
+    margin-top:6px;
+    letter-spacing:1.5px;
+    text-transform:uppercase;
   }
-  .btn:active { transform:scale(0.97); }
+  .btn:active { transform:scale(0.98); }
   
   .btn-primary { 
-    background: linear-gradient(135deg, #c81e1e 0%, #8b1414 100%);
+    background: var(--accent);
     color:#ffffff;
-    box-shadow: 0 4px 20px rgba(200,30,30,0.3);
-    border:1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 2px 12px rgba(200,30,30,0.2);
   }
   .btn-primary:hover { 
-    box-shadow: 0 8px 35px rgba(200,30,30,0.5);
-    background: linear-gradient(135deg, #d92a2a 0%, #a01818 100%);
-    transform:translateY(-1px);
+    background: var(--accent-hover);
+    box-shadow: 0 4px 20px rgba(200,30,30,0.3);
   }
   
   .btn .prog-bar {
     position:absolute;
     bottom:0;
     left:0;
-    height:3px;
-    background:rgba(255,255,255,0.5);
+    height:2px;
+    background:rgba(255,255,255,0.4);
     width:0%;
     transition:width 0.05s linear;
     border-radius:0 0 var(--r) var(--r);
@@ -386,10 +296,10 @@ def home():
     position:absolute;
     top:50%;
     left:50%;
-    width:20px;
-    height:20px;
-    margin:-10px 0 0 -10px;
-    border:2px solid rgba(255,255,255,0.15);
+    width:18px;
+    height:18px;
+    margin:-9px 0 0 -9px;
+    border:2px solid rgba(255,255,255,0.2);
     border-top-color:#ffffff;
     border-radius:50%;
     animation:spin 0.7s linear infinite;
@@ -397,31 +307,24 @@ def home():
 
   .result {
     display:none;
-    margin-top:14px;
-    padding:12px 16px;
+    margin-top:12px;
+    padding:10px 14px;
     border-radius:var(--r);
-    font-size:13px;
-    font-weight:600;
+    font-size:12px;
+    font-weight:500;
     text-align:center;
-    letter-spacing:0.5px;
-    text-transform:uppercase;
-    animation: fadeInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  
-  @keyframes fadeInUp {
-    from { opacity:0; transform:translateY(8px); }
-    to { opacity:1; transform:translateY(0); }
+    letter-spacing:0.3px;
   }
   
   .result.show { display:block; }
   .result.ok { 
-    background:rgba(26,138,74,0.1);
-    border:1px solid rgba(26,138,74,0.3);
+    background:rgba(26,138,74,0.08);
+    border:1px solid rgba(26,138,74,0.2);
     color:var(--ok);
   }
   .result.err { 
-    background:rgba(200,30,30,0.1);
-    border:1px solid rgba(200,30,30,0.3);
+    background:rgba(200,30,30,0.08);
+    border:1px solid rgba(200,30,30,0.2);
     color:var(--err);
   }
 
@@ -429,23 +332,22 @@ def home():
     background: var(--panel);
     border:1px solid var(--line);
     border-radius:var(--r2);
-    padding:20px 22px;
-    backdrop-filter:blur(24px);
-    -webkit-backdrop-filter:blur(24px);
-    animation: cardIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.35s both;
+    padding:16px 18px;
+    backdrop-filter:blur(20px);
+    -webkit-backdrop-filter:blur(20px);
   }
   .info-card h3 { 
-    font-family:var(--font-display);
-    font-size:16px;
-    font-weight:400;
+    font-size:12px;
+    font-weight:600;
     color:var(--text-dim);
-    margin-bottom:12px;
-    letter-spacing:2px;
+    margin-bottom:8px;
+    letter-spacing:0.8px;
+    text-transform:uppercase;
   }
   .info-card p { 
-    font-size:13px;
+    font-size:12px;
     color:var(--text-faint);
-    line-height:1.7;
+    line-height:1.6;
   }
   .info-card strong { 
     color:var(--accent);
@@ -454,62 +356,57 @@ def home():
   .info-card a {
     display:inline-flex;
     align-items:center;
-    gap:8px;
-    margin-top:14px;
-    padding:10px 16px;
-    background:rgba(200,30,30,0.08);
-    border:1px solid rgba(200,30,30,0.25);
-    border-radius:10px;
+    gap:6px;
+    margin-top:12px;
+    padding:8px 14px;
+    background:rgba(200,30,30,0.06);
+    border:1px solid rgba(200,30,30,0.2);
+    border-radius:8px;
     color:var(--text);
-    font-size:13px;
+    font-size:12px;
     font-weight:600;
     text-decoration:none;
-    transition:all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    font-family:var(--font-display);
-    letter-spacing:1.5px;
+    transition:all 0.15s;
+    letter-spacing:0.5px;
+    text-transform:uppercase;
   }
   .info-card a:hover { 
-    background:rgba(200,30,30,0.16);
+    background:rgba(200,30,30,0.12);
     border-color:var(--accent);
-    box-shadow: 0 4px 20px rgba(200,30,30,0.15);
   }
-  .info-card a svg { width:14px; height:14px; }
+  .info-card a svg { width:13px; height:13px; }
 
   .footer-links {
     display:flex;
-    gap:10px;
+    gap:8px;
     justify-content:center;
-    margin-top:2px;
-    animation: cardIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.45s both;
   }
   .footer-links a {
     flex:1;
     display:inline-flex;
     align-items:center;
     justify-content:center;
-    gap:7px;
-    padding:10px 14px;
+    gap:6px;
+    padding:9px 12px;
     background: var(--panel);
     border:1px solid var(--line);
-    border-radius:12px;
+    border-radius:10px;
     color:var(--text-dim);
-    font-size:12px;
+    font-size:11px;
     font-weight:600;
     text-decoration:none;
-    transition:all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    backdrop-filter:blur(24px);
-    -webkit-backdrop-filter:blur(24px);
-    letter-spacing:1.5px;
-    font-family:var(--font-display);
+    transition:all 0.15s;
+    backdrop-filter:blur(20px);
+    -webkit-backdrop-filter:blur(20px);
+    letter-spacing:0.8px;
+    text-transform:uppercase;
   }
   .footer-links a:hover { 
     border-color:var(--accent);
     color:var(--text);
-    background:rgba(200,30,30,0.08);
-    box-shadow: 0 4px 20px rgba(200,30,30,0.2);
-    transform:translateY(-2px);
+    background:rgba(200,30,30,0.06);
   }
-  .footer-links a svg { width:14px; height:14px; flex-shrink:0; }
+  .footer-links a svg { width:13px; height:13px; flex-shrink:0; }
 
   .success-overlay {
     display:none;
@@ -518,54 +415,38 @@ def home():
     left:0;
     width:100%;
     height:100%;
-    background:rgba(8,8,14,0.96);
+    background:rgba(10,10,15,0.97);
     z-index:1000;
     align-items:center;
     justify-content:center;
     flex-direction:column;
-    gap:24px;
-    backdrop-filter:blur(10px);
-    -webkit-backdrop-filter:blur(10px);
+    gap:16px;
+    backdrop-filter:blur(8px);
+    -webkit-backdrop-filter:blur(8px);
   }
   .success-overlay.show {
     display:flex;
-    animation: overlayIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  
-  @keyframes overlayIn {
-    from { opacity:0; }
-    to { opacity:1; }
   }
   
   .success-text {
-    font-family:var(--font-display);
-    font-size:40px;
-    letter-spacing:5px;
+    font-size:22px;
+    font-weight:700;
+    letter-spacing:2px;
     color:var(--text);
-    text-shadow: 0 0 50px rgba(200,30,30,0.8), 0 0 100px rgba(42,92,138,0.5);
-    animation: successPulse 2s ease-in-out infinite;
-  }
-  
-  @keyframes successPulse {
-    0%, 100% { text-shadow: 0 0 50px rgba(200,30,30,0.8), 0 0 100px rgba(42,92,138,0.5); }
-    50% { text-shadow: 0 0 80px rgba(200,30,30,1), 0 0 140px rgba(42,92,138,0.8); }
+    text-transform:uppercase;
   }
   
   .success-sub {
-    font-family:var(--font-display);
-    font-size:18px;
+    font-size:13px;
     color:var(--text-dim);
-    letter-spacing:4px;
-    animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
+    letter-spacing:1.5px;
+    font-weight:500;
+    text-transform:uppercase;
   }
 
   .hidden { display:none; }
 
   @keyframes spin { to { transform:rotate(360deg); } }
-
-  @media (prefers-reduced-motion: reduce) { 
-    * { animation:none !important; transition:none !important; } 
-  }
 </style>
 </head>
 <body>
@@ -573,16 +454,16 @@ def home():
 <div class="wrap">
   <div class="hd">
     <h1>THE BOYS</h1>
-    <p class="subtitle">TELETHON SETUP</p>
+    <p class="subtitle">Telethon Setup</p>
   </div>
 
   <div class="card">
     <div id="step1">
-      <div class="step-head"><span class="step-text">STEP 1 OF 2</span></div>
+      <div class="step-head"><span class="step-text">Step 1 of 2</span></div>
       <div class="field">
         <label>API ID</label>
         <div class="input-wrapper">
-          <input id="api_id" type="password" placeholder="ENTER YOUR API ID" inputmode="numeric" autocomplete="off">
+          <input id="api_id" type="password" placeholder="Enter your API ID" inputmode="numeric" autocomplete="off">
           <button class="toggle-vis" onclick="toggleVisibility('api_id', this)" title="Show/Hide">
             <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
             <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -590,9 +471,9 @@ def home():
         </div>
       </div>
       <div class="field">
-        <label>API HASH</label>
+        <label>API Hash</label>
         <div class="input-wrapper">
-          <input id="api_hash" type="password" placeholder="ENTER YOUR API HASH" autocomplete="off">
+          <input id="api_hash" type="password" placeholder="Enter your API Hash" autocomplete="off">
           <button class="toggle-vis" onclick="toggleVisibility('api_hash', this)" title="Show/Hide">
             <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
             <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -600,7 +481,7 @@ def home():
         </div>
       </div>
       <div class="field">
-        <label>PHONE NUMBER</label>
+        <label>Phone Number</label>
         <div class="input-wrapper">
           <input id="phone" type="password" placeholder="+201234567890" inputmode="tel" autocomplete="off">
           <button class="toggle-vis" onclick="toggleVisibility('phone', this)" title="Show/Hide">
@@ -610,7 +491,7 @@ def home():
         </div>
       </div>
       <button class="btn btn-primary" id="sendBtn" onclick="sendCode()">
-        <span class="btn-label">SEND CODE</span>
+        <span class="btn-label">Send Code</span>
         <div class="prog-bar" id="prog1"></div>
       </button>
     </div>
@@ -619,12 +500,12 @@ def home():
       <div class="step-head">
         <button class="back-btn" onclick="backToStep1()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-          BACK
+          Back
         </button>
-        <span class="step-text">STEP 2 OF 2</span>
+        <span class="step-text">Step 2 of 2</span>
       </div>
       <div class="field">
-        <label>LOGIN CODE</label>
+        <label>Login Code</label>
         <div class="input-wrapper">
           <input id="code" type="password" placeholder="-----" maxlength="5" inputmode="numeric" autocomplete="one-time-code">
           <button class="toggle-vis" onclick="toggleVisibility('code', this)" title="Show/Hide">
@@ -634,9 +515,9 @@ def home():
         </div>
       </div>
       <div class="field">
-        <label>2FA PASSWORD <span style="color:var(--text-faint);font-weight:400;text-transform:none;letter-spacing:0;">(IF ENABLED)</span></label>
+        <label>2FA Password <span style="color:var(--text-faint);font-weight:400;text-transform:none;letter-spacing:0;">(if enabled)</span></label>
         <div class="input-wrapper">
-          <input id="password" type="password" placeholder="--------" autocomplete="current-password">
+          <input id="password" type="password" placeholder="........" autocomplete="current-password">
           <button class="toggle-vis" onclick="toggleVisibility('password', this)" title="Show/Hide">
             <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
             <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -644,7 +525,7 @@ def home():
         </div>
       </div>
       <button class="btn btn-primary" id="verifyBtn" onclick="verify()">
-        <span class="btn-label">ACTIVATE</span>
+        <span class="btn-label">Activate</span>
         <div class="prog-bar" id="prog2"></div>
       </button>
     </div>
@@ -653,29 +534,29 @@ def home():
   </div>
 
   <div class="info-card">
-    <h3>GET YOUR CREDENTIALS</h3>
-    <p>Visit <strong>my.telegram.org</strong>, sign in with your account, navigate to <strong>API development tools</strong>, and create an application to receive your <strong>api_id</strong> and <strong>api_hash</strong>.</p>
+    <h3>Get Your Credentials</h3>
+    <p>Visit <strong>my.telegram.org</strong>, sign in, open <strong>API development tools</strong>, and create an app to get your <strong>api_id</strong> and <strong>api_hash</strong>.</p>
     <a href="https://my.telegram.org/apps" target="_blank">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z"/></svg>
-      OPEN MY.TELEGRAM.ORG
+      Open my.telegram.org
     </a>
   </div>
 
   <div class="footer-links">
     <a href="https://t.me/i_v_k_i" target="_blank">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z"/></svg>
-      SOURCE
+      Source
     </a>
     <a href="https://t.me/J0E_3" target="_blank">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-      DEVELOPER
+      Developer
     </a>
   </div>
 </div>
 
 <div class="success-overlay" id="successOverlay">
-  <div class="success-text">YOU ARE A SUPE NOW</div>
-  <div class="success-sub">WELCOME TO VOUGHT INTERNATIONAL</div>
+  <div class="success-text">You Are A Supe Now</div>
+  <div class="success-sub">Welcome to Vought International</div>
 </div>
 
 <script>
@@ -725,7 +606,7 @@ async function sendCode() {
   const api_id = $('api_id').value.trim();
   const api_hash = $('api_hash').value.trim();
   const phone = $('phone').value.trim();
-  if (!api_id || !api_hash || !phone) { showResult('ALL FIELDS ARE REQUIRED.', false); return; }
+  if (!api_id || !api_hash || !phone) { showResult('All fields are required.', false); return; }
   const btn = $('sendBtn');
   btn.classList.add('loading');
   const prog = runProgress('prog1', 3000);
@@ -742,16 +623,16 @@ async function sendCode() {
       if (data.status === 'code_sent') {
         $('step1').classList.add('hidden');
         $('step2').classList.remove('hidden');
-        showResult('CODE SENT. CHECK YOUR TELEGRAM APP.', true);
+        showResult('Code sent. Check your Telegram app.', true);
       } else {
-        showResult('SESSION ALREADY ACTIVE.', true);
+        showResult('Session already active.', true);
       }
     } else {
-      showResult(data.message || 'SOMETHING WENT WRONG.', false);
+      showResult(data.message || 'Something went wrong.', false);
     }
   } catch(e) {
     prog.finish();
-    showResult('CONNECTION ERROR. PLEASE TRY AGAIN.', false);
+    showResult('Connection error. Try again.', false);
   } finally {
     btn.classList.remove('loading');
   }
@@ -760,7 +641,7 @@ async function sendCode() {
 async function verify() {
   const code = $('code').value.trim();
   const password = $('password').value;
-  if (!code) { showResult('ENTER THE VERIFICATION CODE.', false); return; }
+  if (!code) { showResult('Enter the verification code.', false); return; }
   const btn = $('verifyBtn');
   btn.classList.add('loading');
   const prog = runProgress('prog2', 3500);
@@ -773,15 +654,15 @@ async function verify() {
     const data = await res.json();
     prog.finish();
     if (data.status === 'success') {
-      showResult('ACTIVATED SUCCESSFULLY.', true);
+      showResult('Activated successfully.', true);
       $('successOverlay').classList.add('show');
-      setTimeout(() => { location.reload(); }, 3500);
+      setTimeout(() => { location.reload(); }, 3000);
     } else {
-      showResult(data.message || 'ACTIVATION FAILED', false);
+      showResult(data.message || 'Activation failed', false);
     }
   } catch(e) {
     prog.finish();
-    showResult('CONNECTION ERROR. PLEASE TRY AGAIN.', false);
+    showResult('Connection error. Try again.', false);
   } finally {
     btn.classList.remove('loading');
   }
@@ -815,10 +696,10 @@ def api_send_code():
         api_hash = request.form.get('api_hash')
         phone = request.form.get('phone', '').strip()
         if not api_id or not api_hash or not phone:
-            return jsonify({"status": "error", "message": "ALL FIELDS REQUIRED"}), 400
+            return jsonify({"status": "error", "message": "All fields required"}), 400
 
         if phone in active_clients:
-            return jsonify({"status": "already_active", "message": "SESSION ALREADY ACTIVE"}), 200
+            return jsonify({"status": "already_active", "message": "Session already active"}), 200
 
         async def _send():
             api_configs_storage[phone] = {'api_id': api_id, 'api_hash': api_hash}
@@ -832,11 +713,11 @@ def api_send_code():
                 client_me[phone] = await client.get_me()
                 start_client_in_background(client, phone)
                 await save_all_sessions()
-                return jsonify({"status": "already_active", "message": "SESSION ALREADY ACTIVE"})
+                return jsonify({"status": "already_active", "message": "Session already active"})
             
             sent = await client.send_code_request(phone)
             pending_logins[phone] = (client, sent.phone_code_hash, api_id, api_hash)
-            return jsonify({"status": "code_sent", "message": "VERIFICATION CODE SENT"})
+            return jsonify({"status": "code_sent", "message": "Verification code sent"})
         
         return run_in_main(_send())
     except Exception as e:
@@ -851,7 +732,7 @@ def api_verify():
     password = request.form.get('password')
     
     if not phone or not code or phone not in pending_logins:
-        return jsonify({"status": "error", "message": "INVALID SESSION"}), 400
+        return jsonify({"status": "error", "message": "Invalid session"}), 400
 
     async def _verify():
         client, phone_code_hash, api_id, api_hash = pending_logins[phone]
@@ -860,7 +741,7 @@ def api_verify():
                 await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
             except SessionPasswordNeededError:
                 if not password:
-                    return jsonify({"status": "error", "message": "2FA PASSWORD REQUIRED"}), 401
+                    return jsonify({"status": "error", "message": "2FA password required"}), 401
                 await client.sign_in(password=password)
             
             if phone in active_clients:
@@ -876,9 +757,9 @@ def api_verify():
             
             await save_all_sessions()
             start_client_in_background(client, phone)
-            await notify_dev(f"NEW SUPE ACTIVATED: {phone}")
+            await notify_dev(f"New Supe activated: {phone}")
             
-            return jsonify({"status": "success", "message": "YOU ARE NOW A SUPE. WELCOME TO VOUGHT INTERNATIONAL."})
+            return jsonify({"status": "success", "message": "You are now a Supe. Welcome to Vought International."})
         except Exception as e:
             logger.error(f"Verification error: {e}")
             return jsonify({"status": "error", "message": str(e)}), 400
@@ -909,7 +790,7 @@ if __name__ == '__main__':
         logger.error(f"Failed to load sessions: {e}")
 
     def handle_shutdown(signum, frame):
-        logger.info("Received shutdown signal - Vought International signing off")
+        logger.info("Received shutdown signal - Vought signing off")
         try:
             future = asyncio.run_coroutine_threadsafe(shutdown(), main_loop)
             future.result(timeout=10)
