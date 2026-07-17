@@ -498,4 +498,12 @@ if __name__ == '__main__':
     
     def handle_shutdown(signum, frame):
         logger.info("Received shutdown signal")
-        asyncio.run_cor
+        asyncio.run_coroutine_threadsafe(shutdown(), main_loop).result(timeout=10)
+        sys.exit(0)
+    
+    signal.signal(signal.SIGTERM, handle_shutdown)
+    signal.signal(signal.SIGINT, handle_shutdown)
+    
+    port = int(os.environ.get('PORT', 8080))
+    logger.info(f"NinjaThon server starting on port {port}")
+    app.run(host='0.0.0.0', port=port)
