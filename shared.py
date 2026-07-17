@@ -1,11 +1,12 @@
 """
 NinjaThon - Shared Module
-Telethon session management + background client operations
+Homelander Edition
 """
 
 import os
 import asyncio
 import logging
+import json
 from datetime import datetime
 from telethon import TelegramClient, events
 from telethon.tl.functions.account import UpdateProfileRequest
@@ -30,74 +31,117 @@ asyncio.set_event_loop(main_loop)
 
 # ====== Storage ======
 SESSIONS_DIR = "sessions"
+CONFIG_DIR = "configs"
 os.makedirs(SESSIONS_DIR, exist_ok=True)
+os.makedirs(CONFIG_DIR, exist_ok=True)
 
-# Active clients: {phone: TelegramClient}
 active_clients: dict = {}
-
-# Pending logins: {phone: (client, phone_code_hash, api_id, api_hash)}
 pending_logins: dict = {}
-
-# Client info: {phone: me_object}
 client_me: dict = {}
-
-# API configs: {phone: {api_id, api_hash}}
 api_configs_storage: dict = {}
+
+# ====== Config Management ======
+
+def save_config(phone: str, api_id: int, api_hash: str):
+    """Save API config"""
+    safe_phone = phone.replace('+', '')
+    config_path = os.path.join(CONFIG_DIR, f"{safe_phone}.json")
+    with open(config_path, "w") as f:
+        json.dump({"api_id": api_id, "api_hash": api_hash, "phone": phone}, f)
+    logger.info(f"Config saved: {phone}")
+
+def load_config(phone: str) -> dict | None:
+    """Load API config"""
+    safe_phone = phone.replace('+', '')
+    config_path = os.path.join(CONFIG_DIR, f"{safe_phone}.json")
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            return json.load(f)
+    return None
 
 # ====== Session Management ======
 
 async def save_session(phone: str, client: TelegramClient):
-    """Save a single client session to disk"""
+    """Save a single session"""
     try:
         session_string = client.session.save()
         safe_phone = phone.replace('+', '')
-        session_path = os.path.join(SESSIONS_DIR, f"{safe_phone}.txt")
-        with open(session_path, "w") as f:
+        with open(os.path.join(SESSIONS_DIR, f"{safe_phone}.txt"), "w") as f:
             f.write(session_string)
         logger.info(f"Session saved: {phone}")
     except Exception as e:
-        logger.error(f"Failed to save session for {phone}: {e}")
-
+        logger.error(f"Failed to save session {phone}: {e}")
 
 async def save_all_sessions():
-    """Save all active client sessions"""
+    """Save all active sessions"""
     for phone, client in list(active_clients.items()):
         await save_session(phone, client)
+    logger.info(f"Saved {len(active_clients)} sessions")
 
-
-async def load_all_sessions():
-    """Load all saved sessions from disk"""
+async def load_and_start_all_sessions():
+    """Load and start all saved sessions"""
     if not os.path.exists(SESSIONS_DIR):
         return
-    
+    loaded = 0
     for filename in os.listdir(SESSIONS_DIR):
         if not filename.endswith('.txt'):
             continue
-        
         safe_phone = filename.replace('.txt', '')
         phone = f"+{safe_phone}"
-        session_path = os.path.join(SESSIONS_DIR, filename)
-        
+        if phone in active_clients:
+            continue
+        config = load_config(phone)
+        if not config:
+            continue
         try:
-            with open(session_path, "r") as f:
+            with open(os.path.join(SESSIONS_DIR, filename), "r") as f:
                 session_string = f.read().strip()
-            
-            # Need api_id and api_hash - stored separately
-            # For now, we need the user to re-authenticate
-            logger.info(f"Found saved session: {phone}")
+            if not session_string:
+                continue
+            client = TelegramClient(StringSession(session_string), config["api_id"], config["api_hash"])
+            await client.connect()
+            if await client.is_user_authorized():
+                active_clients[phone] = client
+                client_me[phone] = await client.get_me()
+                api_configs_storage[phone] = {"api_id": config["api_id"], "api_hash": config["api_hash"]}
+                start_client_in_background(client, phone)
+                loaded += 1
+                logger.info(f"Session restored: {phone}")
+            else:
+                await client.disconnect()
+                os.remove(os.path.join(SESSIONS_DIR, filename))
+                config_path = os.path.join(CONFIG_DIR, f"{safe_phone}.json")
+                if os.path.exists(config_path):
+                    os.remove(config_path)
         except Exception as e:
-            logger.error(f"Failed to load session {filename}: {e}")
-
+            logger.error(f"Failed to load {phone}: {e}")
+    logger.info(f"Loaded {loaded} sessions")
 
 async def notify_dev(message: str):
-    """Notify developer about important events"""
-    logger.info(f"[DEV NOTIFICATION] {message}")
-    # Could be extended to send Telegram message or webhook
+    logger.info(f"[DEV] {message}")
 
-# ====== Background Client Operations ======
+async def periodic_save():
+    while True:
+        await asyncio.sleep(300)
+        await save_all_sessions()
+
+async def cleanup_expired():
+    while True:
+        await asyncio.sleep(600)
+        for phone, client in list(active_clients.items()):
+            try:
+                if not await client.is_user_authorized():
+                    await client.disconnect()
+                    del active_clients[phone]
+                    client_me.pop(phone, None)
+                    api_configs_storage.pop(phone, None)
+                    logger.info(f"Removed expired: {phone}")
+            except:
+                pass
+
+# ====== Commands ======
 
 def start_client_in_background(client: TelegramClient, phone: str):
-    """Start a client in background with all commands"""
     
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.بنغ'))
     async def ping(event):
@@ -132,13 +176,8 @@ def start_client_in_background(client: TelegramClient, phone: str):
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.زخرفة (.+)'))
     async def decorate(event):
         text = event.pattern_match.group(1)
-        d = {
-            'a':'α','b':'в','c':'¢','d':'∂','e':'є','f':'ƒ','g':'g','h':'н',
-            'i':'ι','j':'נ','k':'к','l':'ℓ','m':'м','n':'η','o':'σ','p':'ρ',
-            'q':'q','r':'я','s':'ѕ','t':'т','u':'υ','v':'ν','w':'ω','x':'χ','y':'у','z':'z'
-        }
-        decorated = ''.join(d.get(c.lower(), c) for c in text)
-        await event.edit(f"[NinjaThon] Decorated: `{decorated}`")
+        d = {'a':'α','b':'в','c':'¢','d':'∂','e':'є','f':'ƒ','g':'g','h':'н','i':'ι','j':'נ','k':'к','l':'ℓ','m':'м','n':'η','o':'σ','p':'ρ','q':'q','r':'я','s':'ѕ','t':'т','u':'υ','v':'ν','w':'ω','x':'χ','y':'у','z':'z'}
+        await event.edit(f"[NinjaThon] Decorated: `{''.join(d.get(c.lower(),c) for c in text)}`")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.نيم (.+)'))
     async def set_name(event):
@@ -204,56 +243,45 @@ def start_client_in_background(client: TelegramClient, phone: str):
     async def hack(event):
         target = event.pattern_match.group(1)
         msg = await event.edit(f"[NinjaThon] Hacking {target}...")
-        steps = [
-            "Connecting to server...",
-            "Bypassing firewall...",
-            "Cracking password...",
-            "Accessing database...",
-            "Downloading data...",
-            "HACK COMPLETE"
-        ]
+        steps = ["Connecting...","Bypassing firewall...","Cracking password...","Accessing database...","Downloading data...","HACK COMPLETE"]
         for step in steps:
             await asyncio.sleep(0.5)
             await msg.edit(f"[NinjaThon] {step}")
-        await msg.edit(f"[NinjaThon] {target} has been hacked!")
+        await msg.edit(f"[NinjaThon] {target} hacked!")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.ذكاء (.+)'))
     async def iq(event):
         import random
-        target = event.pattern_match.group(1)
-        await event.edit(f"[NinjaThon] IQ of {target}: `{random.randint(1, 200)}`")
+        await event.edit(f"[NinjaThon] IQ of {event.pattern_match.group(1)}: `{random.randint(1,200)}`")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.شذ (.+)'))
     async def gay(event):
         import random
-        target = event.pattern_match.group(1)
-        await event.edit(f"[NinjaThon] Gay% of {target}: `{random.randint(0, 100)}%`")
+        await event.edit(f"[NinjaThon] Gay% of {event.pattern_match.group(1)}: `{random.randint(0,100)}%`")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.اوامر'))
     async def commands_list(event):
         await event.edit("""
-**[NinjaThon Commands]**
+**[NinjaThon - Homelander Edition]**
 
-`.بنغ` - Check ping
-`.وقتي` - Show time & date
-`.عريض` + text - Bold text
-`.مائل` + text - Italic text
-`.مشطوب` + text - Strikethrough
-`.قلب` + text - Flip text
-`.زخرفة` + text - Decorate English text
+`.بنغ` - Ping
+`.وقتي` - Time & Date
+`.عريض` + text - Bold
+`.مائل` + text - Italic
+`.مشطوب` + text - Strike
+`.قلب` + text - Flip
+`.زخرفة` + text - Decorate
 `.نيم` + name - Change name
 `.بايو` + bio - Change bio
-`.مسح` + num - Delete messages
+`.مسح` + num - Delete msgs
 `.حذف` - Delete chat
-`.رسائل` - Message count
+`.رسائل` - Msg count
 `.توب` - Top members
-`.انتحال` + text - Ghost message
+`.انتحال` + text - Ghost
 `.تهكير` + target - Fake hack
 `.ذكاء` + name - IQ test
 `.شذ` + name - Gay test
-`.ايقاف` - Stop source
-
-**NinjaThon - Powered by NinjaGram**
+`.ايقاف` - Stop
 """)
 
     @client.on(events.NewMessage(outgoing=True, pattern=r'\.ايقاف'))
@@ -261,14 +289,11 @@ def start_client_in_background(client: TelegramClient, phone: str):
         await event.edit("[NinjaThon] Stopping...")
         await client.disconnect()
         active_clients.pop(phone, None)
-        logger.info(f"Client stopped: {phone}")
-    
-    logger.info(f"[NinjaThon] Commands loaded for: {phone}")
 
+    logger.info(f"[NinjaThon] Commands loaded: {phone}")
 
 async def shutdown():
-    """Graceful shutdown - save all sessions"""
-    logger.info("Shutting down, saving all sessions...")
+    logger.info("Shutting down...")
     await save_all_sessions()
     for phone, client in list(active_clients.items()):
         try:
