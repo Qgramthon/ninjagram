@@ -21,7 +21,7 @@ def home():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>NinjaThon - Homelander</title>
+<title>THE BOYS</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
 
@@ -191,8 +191,8 @@ def home():
         <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/>
       </svg>
     </div>
-    <h1>NinjaThon - Homelander</h1>
-    <p>Connect your Telegram account with power</p>
+    <h1>THE BOYS</h1>
+    <p>Telethon By Vought</p>
   </div>
 
   <div class="card">
