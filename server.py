@@ -13,7 +13,7 @@ from shared import *
 
 app = Flask(__name__)
 
-# ------------------- الواجهة (The Boys — Clearance Portal) -------------------
+# ------------------- الواجهة (Session Setup) -------------------
 @app.route('/')
 def home():
     return """<!DOCTYPE html>
@@ -21,397 +21,217 @@ def home():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>CLEARANCE PORTAL · THE BOYS</title>
+<title>Session Setup</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
 
   :root {
-    --void:#06070A; --panel:#0F1219; --panel-hi:#141822;
-    --hairline:rgba(184,152,91,0.16); --hairline-hi:rgba(184,152,91,0.38);
-    --blood:#8C1C24; --blood-deep:#3E0C10; --blood-bright:#B0272F;
-    --gold:#B8985B; --gold-bright:#E3CC97;
-    --text:#F1F0EC; --text-dim:rgba(241,240,236,0.58); --text-faint:rgba(241,240,236,0.30);
-    --ok:#4C9A6A; --err:#C1443B;
-    --r:10px; --r2:18px;
+    --bg:#0A0A0B; --panel:#131316; --panel-hi:#18181C;
+    --line:rgba(255,255,255,0.08); --line-hi:rgba(255,255,255,0.16);
+    --text:#F2F2F3; --text-dim:rgba(242,242,243,0.55); --text-faint:rgba(242,242,243,0.32);
+    --accent:#5B8CFF; --accent-dim:rgba(91,140,255,0.12);
+    --ok:#3FB871; --err:#E5534B;
+    --r:10px; --r2:16px;
   }
-  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
-  html { background:var(--void); }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { background:var(--bg); }
   body {
     font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
-    background:var(--void); color:var(--text); min-height:100vh;
-    display:flex; flex-direction:column; align-items:center;
-    -webkit-font-smoothing:antialiased; overflow-x:hidden;
+    color:var(--text); min-height:100vh;
+    display:flex; align-items:center; justify-content:center;
+    padding:24px; -webkit-font-smoothing:antialiased;
   }
 
-  /* ---------- cinematic atmosphere ---------- */
-  .atmosphere {
-    position:fixed; inset:0; pointer-events:none; z-index:0;
-    background:
-      radial-gradient(ellipse 65% 35% at 50% -8%, rgba(140,28,36,0.16) 0%, transparent 55%),
-      radial-gradient(ellipse 55% 45% at 8% 100%, rgba(184,152,91,0.06) 0%, transparent 55%),
-      radial-gradient(ellipse 55% 45% at 92% 100%, rgba(140,28,36,0.08) 0%, transparent 55%);
-  }
-  .grain {
-    position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.05; mix-blend-mode:overlay;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  }
-  .scan {
-    position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.5;
-    background-image:linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px);
-    background-size:100% 3px; animation:scanShift 9s linear infinite;
-  }
+  .wrap { width:100%; max-width:400px; display:flex; flex-direction:column; gap:16px; }
 
-  /* ---------- top ticker ---------- */
-  .ticker {
-    position:relative; z-index:2; width:100%; height:30px; background:var(--blood-deep);
-    border-bottom:1px solid rgba(0,0,0,0.4); overflow:hidden; display:flex; align-items:center;
+  .hd { text-align:center; margin-bottom:4px; }
+  .mark {
+    width:40px; height:40px; margin:0 auto 18px; border-radius:10px;
+    background:var(--panel-hi); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center;
   }
-  .ticker::before {
-    content:''; position:absolute; left:0; top:0; bottom:0; width:64px; z-index:2;
-    background:linear-gradient(90deg, var(--blood-deep) 30%, transparent);
-  }
-  .ticker::after {
-    content:''; position:absolute; right:0; top:0; bottom:0; width:64px; z-index:2;
-    background:linear-gradient(270deg, var(--blood-deep) 30%, transparent);
-  }
-  .ticker-track {
-    display:flex; white-space:nowrap; gap:56px; padding-left:56px;
-    animation:tickerScroll 22s linear infinite; will-change:transform;
-  }
-  .ticker-item {
-    font-family:'IBM Plex Mono',monospace; font-size:10.5px; font-weight:600;
-    letter-spacing:1.5px; color:rgba(241,240,236,0.72); text-transform:uppercase;
-    display:flex; align-items:center; gap:8px;
-  }
-  .ticker-item .dot { width:5px; height:5px; border-radius:50%; background:var(--gold-bright); }
+  .mark svg { width:18px; height:18px; }
+  .hd h1 { font-size:19px; font-weight:600; letter-spacing:-0.2px; margin-bottom:6px; }
+  .hd p { font-size:13px; color:var(--text-faint); line-height:1.5; }
 
-  .stage {
-    position:relative; z-index:1; width:100%; flex:1; display:flex; align-items:center; justify-content:center;
-    padding:36px 16px 48px;
-  }
-  .wrap { width:100%; max-width:432px; display:flex; flex-direction:column; gap:18px; }
-
-  /* ---------- header / stamp ---------- */
-  .hd { text-align:center; padding:4px 0 2px; }
-  .stamp {
-    width:74px; height:74px; margin:0 auto 20px; position:relative;
-    animation:stampDown .55s .05s cubic-bezier(.2,.9,.25,1.1) both;
-  }
-  .stamp-ring {
-    position:absolute; inset:0; border-radius:50%; border:1.5px solid var(--gold);
-    box-shadow:0 0 0 1px rgba(184,152,91,0.15) inset;
-  }
-  .stamp-ring::before {
-    content:''; position:absolute; inset:6px; border-radius:50%; border:1px dashed rgba(184,152,91,0.4);
-  }
-  .stamp-core {
-    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-    background:radial-gradient(circle at 50% 32%, #191D26 0%, #0B0D12 100%); border-radius:50%;
-  }
-  .stamp-core svg { width:30px; height:30px; }
-
-  .eyebrow-row {
-    display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:14px;
-    animation:fadeUp .5s .1s ease both;
-  }
-  .eyebrow-row .ln { width:20px; height:1px; background:var(--hairline-hi); }
-  .eyebrow {
-    font-family:'IBM Plex Mono',monospace; font-size:10px; font-weight:600;
-    letter-spacing:3px; color:var(--gold); text-transform:uppercase;
-  }
-
-  .wordmark {
-    font-family:'Anton',sans-serif; font-size:52px; line-height:.92; letter-spacing:1px;
-    text-transform:uppercase; animation:fadeUp .55s .16s ease both;
-    background:linear-gradient(180deg, var(--gold-bright) 0%, var(--gold) 55%, #8a6f3e 100%);
-    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
-    filter:drop-shadow(0 2px 0 rgba(0,0,0,0.5));
-  }
-  .wordmark .accent { color:var(--blood-bright); -webkit-text-fill-color:var(--blood-bright); }
-
-  .rule-row { display:flex; align-items:center; justify-content:center; gap:10px; margin:14px 0 12px; animation:fadeUp .55s .24s ease both; }
-  .rule-row .ln { width:34px; height:1px; background:linear-gradient(90deg, transparent, var(--hairline-hi)); }
-  .rule-row .ln.r { background:linear-gradient(270deg, transparent, var(--hairline-hi)); }
-  .rule-row .diamond { width:6px; height:6px; background:var(--gold); transform:rotate(45deg); }
-
-  .hd p {
-    font-size:12.5px; color:var(--text-faint); letter-spacing:.6px;
-    animation:fadeUp .5s .3s ease both;
-  }
-
-  /* ---------- card ---------- */
   .card {
-    background:var(--panel); border:1px solid var(--hairline); border-radius:var(--r2);
-    padding:28px 24px; position:relative; overflow:hidden;
-    box-shadow:0 30px 70px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.02);
-    animation:fadeUp .5s .2s ease both; transition:border-color .3s;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--r2);
+    padding:24px; position:relative;
   }
-  .card::before {
-    content:''; position:absolute; top:0; left:0; right:0; height:2px;
-    background:linear-gradient(90deg, var(--blood) 0%, var(--gold) 50%, var(--blood) 100%);
-    opacity:.6;
-  }
-  .card:hover { border-color:var(--hairline-hi); }
 
-  .step-label { display:flex; align-items:center; gap:12px; margin-bottom:22px; }
-  .step-tag {
-    font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600; color:var(--gold-bright);
-    border:1px solid var(--hairline-hi); border-radius:6px; padding:4px 8px; letter-spacing:1px;
+  .step-head {
+    display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;
   }
   .step-text {
-    font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600;
-    color:var(--text-dim); text-transform:uppercase; letter-spacing:1.8px;
+    font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:500;
+    color:var(--text-faint); text-transform:uppercase; letter-spacing:.8px;
   }
 
   .back-btn {
-    display:inline-flex; align-items:center; gap:6px; padding:6px 12px;
-    background:rgba(255,255,255,0.03); border:1px solid var(--hairline); border-radius:8px;
-    color:var(--text-dim); font-size:12px; font-weight:600; cursor:pointer; transition:all .2s;
-    margin-bottom:18px; -webkit-tap-highlight-color:transparent; position:absolute; top:26px; left:24px;
+    display:inline-flex; align-items:center; gap:5px;
+    background:none; border:none; color:var(--text-dim); font-size:13px; font-weight:500;
+    cursor:pointer; padding:2px 0; transition:color .15s;
   }
-  .back-btn:hover { background:rgba(184,152,91,0.08); color:var(--gold-bright); border-color:var(--gold); }
-  .back-btn svg { width:14px; height:14px; fill:currentColor; }
+  .back-btn:hover { color:var(--text); }
+  .back-btn svg { width:14px; height:14px; }
 
-  .field { margin-bottom:14px; position:relative; }
+  .field { margin-bottom:14px; }
   .field label {
-    display:block; font-family:'IBM Plex Mono',monospace; font-size:10px; font-weight:600;
-    letter-spacing:1.6px; text-transform:uppercase; color:var(--text-faint); margin-bottom:7px;
+    display:block; font-size:12.5px; font-weight:500; color:var(--text-dim); margin-bottom:6px;
   }
+  .field-rel { position:relative; }
   .field input {
-    width:100%; padding:13px 46px 13px 14px; background:rgba(255,255,255,0.025);
-    border:1px solid var(--hairline); border-radius:var(--r); color:var(--text);
-    font-size:15px; font-weight:500; font-family:inherit; outline:none;
-    transition:border-color .2s, box-shadow .2s, background .2s; caret-color:var(--blood-bright);
+    width:100%; padding:11px 42px 11px 12px; background:var(--panel-hi);
+    border:1px solid var(--line); border-radius:var(--r); color:var(--text);
+    font-size:14.5px; font-weight:500; font-family:inherit; outline:none;
+    transition:border-color .15s, background .15s;
   }
   .field input::placeholder { color:var(--text-faint); }
-  .field input:focus {
-    border-color:rgba(140,28,36,0.55); background:rgba(140,28,36,0.06);
-    box-shadow:0 0 0 3px rgba(140,28,36,0.14);
-  }
+  .field input:focus { border-color:var(--accent); background:rgba(91,140,255,0.05); }
   #code {
-    text-align:center; font-family:'IBM Plex Mono',monospace; font-size:23px;
-    font-weight:600; letter-spacing:9px; padding-right:14px;
+    font-family:'JetBrains Mono',monospace; font-size:17px; font-weight:600; letter-spacing:5px;
   }
 
+  .toggle-vis {
+    position:absolute; right:10px; top:32px;
+    background:none; border:none; cursor:pointer; padding:6px;
+    display:flex; align-items:center; justify-content:center; opacity:.45; transition:opacity .15s;
+  }
+  .toggle-vis:hover { opacity:.9; }
+  .toggle-vis svg { width:16px; height:16px; stroke:var(--text-dim); stroke-width:2; fill:none; stroke-linecap:round; stroke-linejoin:round; }
+
   .btn {
-    width:100%; padding:14.5px; border:none; border-radius:var(--r); font-size:14.5px; font-weight:700;
-    font-family:'Inter',sans-serif; letter-spacing:.6px;
-    cursor:pointer; position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; gap:8px;
-    -webkit-tap-highlight-color:transparent; transition:transform .15s, box-shadow .2s; margin-top:6px;
+    width:100%; padding:12px; border:none; border-radius:var(--r); font-size:14px; font-weight:600;
+    font-family:'Inter',sans-serif; cursor:pointer; position:relative; overflow:hidden;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    transition:opacity .15s, transform .1s; margin-top:4px;
   }
-  .btn:active { transform:scale(.98); }
-  .btn-primary { background:linear-gradient(135deg, var(--blood-bright), var(--blood-deep)); color:#fff; box-shadow:0 6px 20px rgba(140,28,36,0.32); }
-  .btn-primary:hover { box-shadow:0 8px 26px rgba(140,28,36,0.45); }
-  .btn-gold { background:linear-gradient(135deg, var(--gold-bright), var(--gold)); color:#1a1408; box-shadow:0 6px 20px rgba(184,152,91,0.26); }
-  .btn-gold:hover { box-shadow:0 8px 26px rgba(184,152,91,0.36); }
-  .btn::after {
-    content:''; position:absolute; inset:0;
-    background:linear-gradient(100deg, transparent 30%, rgba(255,255,255,0.16) 50%, transparent 70%);
-    transform:translateX(-120%); transition:transform .6s ease;
-  }
-  .btn:hover::after { transform:translateX(120%); }
+  .btn:active { transform:scale(.985); }
+  .btn-primary { background:var(--text); color:#0A0A0B; }
+  .btn-primary:hover { opacity:.9; }
   .btn .prog-bar {
-    position:absolute; bottom:0; left:0; height:2.5px; background:rgba(255,255,255,.6); width:0%; transition:width .05s linear;
+    position:absolute; bottom:0; left:0; height:2px; background:rgba(0,0,0,.25); width:0%; transition:width .05s linear;
   }
   .btn.loading { pointer-events:none; color:transparent; }
   .btn.loading::before {
-    content:''; position:absolute; top:50%; left:50%; width:18px; height:18px;
-    margin:-9px 0 0 -9px; border:2px solid rgba(255,255,255,.3);
-    border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite;
+    content:''; position:absolute; top:50%; left:50%; width:16px; height:16px;
+    margin:-8px 0 0 -8px; border:2px solid rgba(0,0,0,.2);
+    border-top-color:#0A0A0B; border-radius:50%; animation:spin .7s linear infinite;
   }
 
   .result {
-    display:none; margin-top:14px; padding:12px 15px; border-radius:var(--r);
-    font-size:13px; font-weight:600; text-align:center; animation:fadeUp .3s ease;
-    font-family:'IBM Plex Mono',monospace; letter-spacing:.2px;
+    display:none; margin-top:12px; padding:10px 13px; border-radius:var(--r);
+    font-size:12.5px; font-weight:500; text-align:center;
   }
   .result.show { display:block; }
-  .result.ok  { background:rgba(76,154,106,0.08);  border:1px solid rgba(76,154,106,0.25);  color:var(--ok); }
-  .result.err { background:rgba(193,68,59,0.08);  border:1px solid rgba(193,68,59,0.25);  color:var(--err); }
+  .result.ok  { background:rgba(63,184,113,0.1); border:1px solid rgba(63,184,113,0.25); color:var(--ok); }
+  .result.err { background:rgba(229,83,75,0.1); border:1px solid rgba(229,83,75,0.25); color:var(--err); }
 
-  /* ---------- info card ---------- */
   .info-card {
-    background:var(--panel); border:1px solid var(--hairline); border-radius:var(--r2);
-    padding:20px 22px; animation:fadeUp .5s .3s ease both;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--r2); padding:18px 20px;
   }
-  .info-card h3 {
-    font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600; color:var(--text-dim);
-    margin-bottom:12px; display:flex; align-items:center; gap:8px;
-    text-transform:uppercase; letter-spacing:1.4px;
-  }
-  .info-card p { font-size:13px; color:var(--text-faint); line-height:1.75; margin-bottom:6px; }
+  .info-card h3 { font-size:12.5px; font-weight:600; color:var(--text-dim); margin-bottom:10px; }
+  .info-card p { font-size:12.5px; color:var(--text-faint); line-height:1.7; }
   .info-card strong { color:var(--text-dim); font-weight:600; }
-  .info-card .tg-btn {
-    display:flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; padding:12px;
-    background:rgba(184,152,91,0.06); border:1px solid var(--hairline-hi); border-radius:10px;
-    color:var(--gold-bright); font-family:'Inter',sans-serif; font-size:13.5px; font-weight:700;
-    letter-spacing:.3px; cursor:pointer; text-decoration:none; transition:all .2s;
-    -webkit-tap-highlight-color:transparent;
+  .info-card a {
+    display:inline-flex; align-items:center; gap:6px; margin-top:12px; padding:9px 12px;
+    background:var(--panel-hi); border:1px solid var(--line); border-radius:8px;
+    color:var(--text-dim); font-size:12.5px; font-weight:600; text-decoration:none; transition:all .15s;
   }
-  .info-card .tg-btn:hover { background:rgba(184,152,91,0.12); }
-  .info-card .tg-btn svg { width:16px; height:16px; fill:currentColor; }
+  .info-card a:hover { border-color:var(--line-hi); color:var(--text); }
+  .info-card a svg { width:14px; height:14px; }
 
-  .footprint {
-    text-align:center; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:2px;
-    color:var(--text-faint); text-transform:uppercase; padding-top:4px;
-    animation:fadeUp .5s .38s ease both;
-  }
-  .footprint span { color:var(--gold); }
-
-  .rel { position:relative; padding-top:6px; }
   .hidden { display:none; }
-  .field-rel { position:relative; }
-  .toggle-vis {
-    position:absolute; right:12px; top:50%; transform:translateY(-50%);
-    background:none; border:none; cursor:pointer; padding:6px; z-index:2;
-    display:flex; align-items:center; justify-content:center; opacity:.5; transition:opacity .2s;
-  }
-  .toggle-vis:hover { opacity:.9; }
-  .toggle-vis svg { width:17px; height:17px; stroke:var(--text-dim); stroke-width:2; fill:none; stroke-linecap:round; stroke-linejoin:round; transition:stroke .2s; }
-  .toggle-vis:hover svg { stroke:var(--gold-bright); }
 
-  @keyframes stampDown {
-    0% { opacity:0; transform:scale(1.5) rotate(-14deg); }
-    60% { opacity:1; transform:scale(.94) rotate(-5deg); }
-    100% { opacity:1; transform:scale(1) rotate(-6deg); }
-  }
-  @keyframes fadeUp { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
   @keyframes spin { to { transform:rotate(360deg); } }
-  @keyframes tickerScroll { from { transform:translateX(0); } to { transform:translateX(-50%); } }
-  @keyframes scanShift { from { background-position:0 0; } to { background-position:0 120px; } }
 
-  @media (prefers-reduced-motion: reduce) {
-    .ticker-track, .scan, .stamp, .hd *, .card, .info-card, .footprint { animation:none !important; }
-  }
-
-  @media (max-width:360px) {
-    .card { padding:22px 18px; }
-    .wordmark { font-size:42px; }
-    #code { font-size:20px; letter-spacing:7px; }
-  }
+  @media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
 </style>
 </head>
 <body>
 
-<div class="atmosphere"></div>
-<div class="grain"></div>
-<div class="scan"></div>
-
-<div class="ticker">
-  <div class="ticker-track">
-    <span class="ticker-item"><span class="dot"></span>SECURE CHANNEL ESTABLISHED</span>
-    <span class="ticker-item"><span class="dot"></span>IDENTITY VERIFICATION REQUIRED</span>
-    <span class="ticker-item"><span class="dot"></span>ACCESS LOGGED &amp; ENCRYPTED</span>
-    <span class="ticker-item"><span class="dot"></span>TIER-1 CLEARANCE ONLY</span>
-    <span class="ticker-item"><span class="dot"></span>SECURE CHANNEL ESTABLISHED</span>
-    <span class="ticker-item"><span class="dot"></span>IDENTITY VERIFICATION REQUIRED</span>
-    <span class="ticker-item"><span class="dot"></span>ACCESS LOGGED &amp; ENCRYPTED</span>
-    <span class="ticker-item"><span class="dot"></span>TIER-1 CLEARANCE ONLY</span>
-  </div>
-</div>
-
-<div class="stage">
-  <div class="wrap">
-    <div class="hd">
-      <div class="stamp">
-        <div class="stamp-ring"></div>
-        <div class="stamp-core">
-          <svg viewBox="0 0 24 24" fill="var(--gold-bright)">
-            <polygon points="12,2 15,9 22,9 16,14 18,21 12,17 6,21 8,14 2,9 9,9"/>
-          </svg>
-        </div>
-      </div>
-      <div class="eyebrow-row"><span class="ln"></span><span class="eyebrow">Global Security &amp; Media Division</span><span class="ln"></span></div>
-      <div class="wordmark">THE <span class="accent">BOYS</span></div>
-      <div class="rule-row"><span class="ln"></span><span class="diamond"></span><span class="ln r"></span></div>
-      <p>Confidential clearance &amp; verification portal</p>
+<div class="wrap">
+  <div class="hd">
+    <div class="mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
     </div>
+    <h1>Connect your Telegram account</h1>
+    <p>Sign in with your API credentials to activate the session.</p>
+  </div>
 
-    <div class="card">
-      <div id="step1">
-        <div class="step-label">
-          <span class="step-tag">01</span>
-          <span class="step-text">Credentials</span>
-        </div>
-        <div class="field field-rel">
-          <label>API ID</label>
-          <input id="api_id" type="password" placeholder="12345678" inputmode="numeric" autocomplete="off">
-          <button class="toggle-vis" onclick="toggleVisibility('api_id', this)" title="Show/Hide">
-            <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-            <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-          </button>
-        </div>
-        <div class="field field-rel">
-          <label>API Hash</label>
-          <input id="api_hash" type="password" placeholder="0123456789abcdef..." autocomplete="off">
-          <button class="toggle-vis" onclick="toggleVisibility('api_hash', this)" title="Show/Hide">
-            <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-            <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-          </button>
-        </div>
-        <div class="field field-rel">
-          <label>Phone Number</label>
-          <input id="phone" type="password" placeholder="+201234567890" inputmode="tel" autocomplete="off">
-          <button class="toggle-vis" onclick="toggleVisibility('phone', this)" title="Show/Hide">
-            <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-            <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-          </button>
-        </div>
-        <button class="btn btn-primary" id="sendBtn" onclick="sendCode()">
-          <span class="btn-label">Send Verification Code</span>
-          <div class="prog-bar" id="prog1"></div>
+  <div class="card">
+    <div id="step1">
+      <div class="step-head"><span class="step-text">Step 1 of 2</span></div>
+      <div class="field field-rel">
+        <label>API ID</label>
+        <input id="api_id" type="password" placeholder="12345678" inputmode="numeric" autocomplete="off">
+        <button class="toggle-vis" onclick="toggleVisibility('api_id', this)" title="Show/Hide">
+          <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
       </div>
+      <div class="field field-rel">
+        <label>API Hash</label>
+        <input id="api_hash" type="password" placeholder="0123456789abcdef..." autocomplete="off">
+        <button class="toggle-vis" onclick="toggleVisibility('api_hash', this)" title="Show/Hide">
+          <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+      <div class="field field-rel">
+        <label>Phone Number</label>
+        <input id="phone" type="password" placeholder="+201234567890" inputmode="tel" autocomplete="off">
+        <button class="toggle-vis" onclick="toggleVisibility('phone', this)" title="Show/Hide">
+          <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+      <button class="btn btn-primary" id="sendBtn" onclick="sendCode()">
+        <span class="btn-label">Send code</span>
+        <div class="prog-bar" id="prog1"></div>
+      </button>
+    </div>
 
-      <div id="step2" class="hidden rel">
+    <div id="step2" class="hidden">
+      <div class="step-head">
         <button class="back-btn" onclick="backToStep1()">
-          <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
           Back
         </button>
-        <div class="step-label" style="margin-top:38px">
-          <span class="step-tag">02</span>
-          <span class="step-text">Verification</span>
-        </div>
-        <div class="field field-rel">
-          <label>Login Code</label>
-          <input id="code" type="password" placeholder="12345" maxlength="5" inputmode="numeric" autocomplete="one-time-code">
-          <button class="toggle-vis" onclick="toggleVisibility('code', this)" title="Show/Hide">
-            <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-            <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-          </button>
-        </div>
-        <div class="field field-rel">
-          <label>2FA Password <span style="color:var(--text-faint);font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
-          <input id="password" type="password" placeholder="........" autocomplete="current-password">
-          <button class="toggle-vis" onclick="toggleVisibility('password', this)" title="Show/Hide">
-            <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-            <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-          </button>
-        </div>
-        <button class="btn btn-gold" id="verifyBtn" onclick="verify()">
-          <span class="btn-label">Verify &amp; Activate</span>
-          <div class="prog-bar" id="prog2"></div>
+        <span class="step-text">Step 2 of 2</span>
+      </div>
+      <div class="field field-rel">
+        <label>Login code</label>
+        <input id="code" type="password" placeholder="12345" maxlength="5" inputmode="numeric" autocomplete="one-time-code">
+        <button class="toggle-vis" onclick="toggleVisibility('code', this)" title="Show/Hide">
+          <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
       </div>
-
-      <div class="result" id="result"></div>
+      <div class="field field-rel">
+        <label>2FA password <span style="color:var(--text-faint);font-weight:400;">(optional)</span></label>
+        <input id="password" type="password" placeholder="........" autocomplete="current-password">
+        <button class="toggle-vis" onclick="toggleVisibility('password', this)" title="Show/Hide">
+          <svg class="eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          <svg class="eye-on" viewBox="0 0 24 24" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+      <button class="btn btn-primary" id="verifyBtn" onclick="verify()">
+        <span class="btn-label">Verify and activate</span>
+        <div class="prog-bar" id="prog2"></div>
+      </button>
     </div>
 
-    <div class="info-card">
-      <h3>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-        Where do I get these credentials?
-      </h3>
-      <p>1. Visit <strong>my.telegram.org</strong> and sign in</p>
-      <p>2. Open <strong>API development tools</strong></p>
-      <p>3. Create an app to get your <strong>api_id</strong> and <strong>api_hash</strong></p>
-      <a class="tg-btn" href="https://my.telegram.org/apps" target="_blank">
-        <svg viewBox="0 0 24 24"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z"/></svg>
-        Open my.telegram.org
-      </a>
-    </div>
+    <div class="result" id="result"></div>
+  </div>
 
-    <div class="footprint">Authorized personnel only · <span>Tier-1</span> access</div>
+  <div class="info-card">
+    <h3>Where do I get these credentials?</h3>
+    <p>Visit <strong>my.telegram.org</strong>, sign in, open <strong>API development tools</strong>, and create an app to get your <strong>api_id</strong> and <strong>api_hash</strong>.</p>
+    <a href="https://my.telegram.org/apps" target="_blank">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z"/></svg>
+      Open my.telegram.org
+    </a>
   </div>
 </div>
 
@@ -429,7 +249,6 @@ function toggleVisibility(fieldId, btn) {
   const input = $(fieldId);
   const eyeOff = btn.querySelector('.eye-off');
   const eyeOn = btn.querySelector('.eye-on');
-
   if (input.type === 'password') {
     input.type = 'text';
     if (eyeOff) eyeOff.style.display = 'none';
@@ -455,7 +274,7 @@ function runProgress(barId, duration, onDone) {
     clearInterval(iv);
     bar.style.transition = 'width .3s ease';
     bar.style.width = '100%';
-    setTimeout(() => { bar.style.width = '0%'; bar.style.transition = 'width .05s linear'; if(onDone) onDone(); }, 350);
+    setTimeout(() => { bar.style.width = '0%'; bar.style.transition = 'width .05s linear'; if(onDone) onDone(); }, 300);
   }};
 }
 
@@ -466,7 +285,7 @@ async function sendCode() {
   if (!api_id || !api_hash || !phone) { showResult('Please complete all fields.', false); return; }
   const btn = $('sendBtn');
   btn.classList.add('loading');
-  const prog = runProgress('prog1', 4000);
+  const prog = runProgress('prog1', 3000);
   try {
     const fd = new FormData();
     fd.append('api_id', api_id);
@@ -480,7 +299,7 @@ async function sendCode() {
       if (data.status === 'code_sent') {
         $('step1').classList.add('hidden');
         $('step2').classList.remove('hidden');
-        showResult('Code dispatched — check your Telegram app.', true);
+        showResult('Code sent — check your Telegram app.', true);
       } else {
         showResult('Session already active.', true);
       }
@@ -501,7 +320,7 @@ async function verify() {
   if (!code) { showResult('Enter the verification code.', false); return; }
   const btn = $('verifyBtn');
   btn.classList.add('loading');
-  const prog = runProgress('prog2', 5000);
+  const prog = runProgress('prog2', 3500);
   try {
     const fd = new FormData();
     fd.append('phone', currentPhone);
@@ -511,14 +330,14 @@ async function verify() {
     const data = await res.json();
     prog.finish();
     if (data.status === 'success') {
-      showResult('Clearance granted. Account activated.', true);
-      setTimeout(() => { location.reload(); }, 3000);
+      showResult('Account activated.', true);
+      setTimeout(() => { location.reload(); }, 2500);
     } else {
       showResult(data.message || 'Verification failed', false);
     }
   } catch(e) {
     prog.finish();
-    showResult('Connection error. Please stand by.', false);
+    showResult('Connection error. Please try again.', false);
   } finally {
     btn.classList.remove('loading');
   }
