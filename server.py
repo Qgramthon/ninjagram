@@ -11,6 +11,9 @@ import json
 import subprocess
 import re
 import random
+import base64
+import qrcode
+from io import BytesIO
 from flask import Flask, jsonify, request
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
@@ -512,18 +515,19 @@ def whatsapp_page():
     background:var(--panel); border:1px solid var(--line); border-radius:var(--r2);
     padding:24px; text-align:center;
   }
-  .field { margin-bottom:14px; text-align:left; }
-  .field label {
-    display:block; font-size:12.5px; font-weight:500; color:var(--text-dim); margin-bottom:6px;
+  .qr-container {
+    width:220px; height:220px; margin:12px auto;
+    background:#fff; border-radius:12px; padding:8px;
+    display:none; align-items:center; justify-content:center;
   }
-  .field input {
-    width:100%; padding:11px 12px; background:var(--panel-hi);
-    border:1px solid var(--line); border-radius:var(--r); color:var(--text);
-    font-size:14.5px; font-weight:500; font-family:inherit; outline:none;
-    transition:border-color .15s, background .15s;
+  .qr-container.show { display:flex; }
+  .qr-container img { width:100%; height:100%; }
+  .qr-placeholder {
+    width:220px; height:220px; margin:12px auto;
+    background:var(--panel-hi); border:2px dashed var(--line);
+    border-radius:12px; display:flex; align-items:center; justify-content:center;
+    color:rgba(242,242,243,0.32); font-size:13px;
   }
-  .field input:focus { border-color:#25D366; background:rgba(37,211,102,0.05); }
-  .field input::placeholder { color:rgba(242,242,243,0.32); }
   .btn {
     width:100%; padding:12px; border:none; border-radius:var(--r); font-size:14px; font-weight:600;
     font-family:'Inter',sans-serif; cursor:pointer; transition:opacity .15s;
@@ -532,29 +536,14 @@ def whatsapp_page():
   .btn-primary:hover { opacity:.9; }
   .btn-secondary { background:var(--panel-hi); color:var(--text-dim); border:1px solid var(--line); margin-top:8px; }
   .btn-secondary:hover { border-color:rgba(255,255,255,0.16); color:var(--text); }
-  .btn:disabled { opacity:0.5; cursor:not-allowed; }
   #status-box {
     padding:10px 14px; border-radius:var(--r); font-size:13px; font-weight:500;
     margin-top:12px;
   }
   #status-box.waiting { background:rgba(255,255,255,0.03); color:var(--text-dim); }
-  #status-box.success { background:rgba(63,184,113,0.1); color:var(--ok); }
+  #status-box.ready { background:rgba(37,211,102,0.1); color:#25D366; }
+  #status-box.connected { background:rgba(63,184,113,0.1); color:var(--ok); }
   #status-box.error { background:rgba(229,83,75,0.1); color:var(--err); }
-  #status-box.info { background:rgba(37,211,102,0.1); color:#25D366; }
-  .code-display {
-    font-size:42px;
-    font-weight:700;
-    letter-spacing:12px;
-    padding:20px;
-    background:var(--panel-hi);
-    border-radius:var(--r);
-    border:2px solid var(--accent);
-    color:#25D366;
-    font-family:monospace;
-    margin:12px 0;
-    text-align:center;
-  }
-  .hidden { display:none; }
   .info-card {
     background:var(--panel); border:1px solid var(--line); border-radius:var(--r2); padding:18px 20px;
   }
@@ -571,136 +560,94 @@ def whatsapp_page():
   </div>
   <div class="hd">
     <div class="mark"><svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></div>
-    <h1>WhatsApp Pairing</h1>
-    <p>Enter your phone number to get a pairing code</p>
+    <h1>WhatsApp Connection</h1>
+    <p>Scan the QR code with your phone</p>
   </div>
 
   <div class="card">
-    <div id="step1">
-      <div class="field">
-        <label>Phone Number</label>
-        <input id="phoneInput" type="text" placeholder="+201234567890">
+    <div id="qr-section">
+      <div class="qr-placeholder" id="qr-placeholder">Generating QR code...</div>
+      <div class="qr-container" id="qr-container">
+        <img id="qr-image" src="" alt="QR Code">
       </div>
-      <button class="btn btn-primary" id="sendBtn" onclick="sendCode()">Generate Pairing Code</button>
-    </div>
-
-    <div id="step2" class="hidden">
-      <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">
-        Open WhatsApp on your other phone and enter this code:
+      <p style="font-size:12px;color:rgba(242,242,243,0.32);margin-bottom:12px;">
+        Settings → Linked Devices → Link a Device
       </p>
-      <div id="codeDisplay" class="code-display">12345678</div>
-      <p style="font-size:12px;color:rgba(242,242,243,0.32);margin:12px 0;">
-        Settings → Linked Devices → Link a Device → Enter code
-      </p>
-      <button class="btn btn-primary" id="copyBtn" onclick="copyCode()">Copy Code</button>
-      <button class="btn btn-secondary" onclick="resendCode()">Generate New Code</button>
+      <div id="status-box" class="waiting">Waiting for QR code...</div>
+      <button class="btn btn-secondary" onclick="refreshQR()">Refresh QR</button>
     </div>
-
-    <div id="status-box" class="waiting">Enter your phone number to start</div>
   </div>
 
   <div class="info-card">
-    <h3>How it works</h3>
-    <p>1. Enter your <strong>WhatsApp number</strong> with country code</p>
-    <p>2. Get an <strong>8-digit pairing code</strong></p>
-    <p>3. Enter this code in WhatsApp on your other phone</p>
+    <h3>How to connect</h3>
+    <p>1. Open <strong>WhatsApp</strong> on your phone</p>
+    <p>2. Go to <strong>Settings</strong> → <strong>Linked Devices</strong></p>
+    <p>3. Tap <strong>Link a Device</strong></p>
+    <p>4. Scan the QR code above</p>
   </div>
 </div>
 
 <script>
 const userId = 'user_' + Date.now();
-let currentCode = '';
+let pollInterval;
 
-function showStatus(msg, type) {
-  const box = document.getElementById('status-box');
-  box.textContent = msg;
-  box.className = type || 'waiting';
-}
-
-async function sendCode() {
-  const phone = document.getElementById('phoneInput').value.trim();
-  if (!phone) { showStatus('Please enter your phone number', 'error'); return; }
-  
-  const btn = document.getElementById('sendBtn');
-  btn.disabled = true;
-  showStatus('Generating pairing code...', 'info');
-  
-  try {
-    const res = await fetch('/api/whatsapp/start', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({userId, phone})
-    });
-    const data = await res.json();
-    
-    if (data.success) {
-      currentCode = data.code;
-      document.getElementById('step1').classList.add('hidden');
-      document.getElementById('step2').classList.remove('hidden');
-      document.getElementById('codeDisplay').textContent = data.code;
-      showStatus(`✅ Pairing code generated for ${data.phone}`, 'success');
-    } else {
-      showStatus(data.error || 'Failed to generate code', 'error');
+async function loadQR() {
+    try {
+        const res = await fetch('/api/whatsapp/qr/' + userId);
+        const data = await res.json();
+        
+        const statusBox = document.getElementById('status-box');
+        const qrPlaceholder = document.getElementById('qr-placeholder');
+        const qrContainer = document.getElementById('qr-container');
+        const qrImage = document.getElementById('qr-image');
+        
+        if (data.status === 'qr_ready' && data.qr) {
+            qrPlaceholder.style.display = 'none';
+            qrContainer.classList.add('show');
+            qrImage.src = data.qr;
+            statusBox.className = 'ready';
+            statusBox.textContent = '✅ QR Ready - Scan with WhatsApp';
+            clearInterval(pollInterval);
+        } else if (data.status === 'connected') {
+            qrPlaceholder.style.display = 'none';
+            qrContainer.classList.add('show');
+            statusBox.className = 'connected';
+            statusBox.textContent = '✅ Connected successfully!';
+            clearInterval(pollInterval);
+            setTimeout(() => location.reload(), 3000);
+        } else if (data.status === 'waiting') {
+            statusBox.textContent = '⏳ Generating QR code...';
+        }
+    } catch(e) {
+        console.error(e);
     }
-  } catch(e) {
-    showStatus('Connection error', 'error');
-  } finally {
-    btn.disabled = false;
-  }
 }
 
-function copyCode() {
-  const code = document.getElementById('codeDisplay').textContent;
-  navigator.clipboard.writeText(code).then(() => {
-    showStatus('✅ Code copied to clipboard!', 'success');
-  }).catch(() => {
-    // Fallback
-    const textArea = document.createElement('textarea');
-    textArea.value = code;
-    document.body.appendChild(textArea);
-    textArea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textArea);
-    showStatus('✅ Code copied!', 'success');
-  });
-}
-
-async function resendCode() {
-  const btn = document.querySelector('#step2 .btn-secondary');
-  btn.disabled = true;
-  showStatus('Generating new code...', 'info');
-  
-  try {
-    const res = await fetch('/api/whatsapp/resend', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({userId})
-    });
-    const data = await res.json();
-    
-    if (data.success) {
-      currentCode = data.code;
-      document.getElementById('codeDisplay').textContent = data.code;
-      showStatus(`✅ New code generated for ${data.phone}`, 'success');
-    } else {
-      showStatus(data.error || 'Failed to generate new code', 'error');
+async function startSession() {
+    try {
+        await fetch('/api/whatsapp/start', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({userId})
+        });
+    } catch(e) {
+        console.error(e);
     }
-  } catch(e) {
-    showStatus('Connection error', 'error');
-  } finally {
-    btn.disabled = false;
-  }
 }
 
-document.addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
-    if (!document.getElementById('step2').classList.contains('hidden')) {
-      copyCode();
-    } else {
-      sendCode();
-    }
-  }
-});
+function refreshQR() {
+    clearInterval(pollInterval);
+    document.getElementById('qr-placeholder').style.display = 'flex';
+    document.getElementById('qr-container').classList.remove('show');
+    document.getElementById('status-box').className = 'waiting';
+    document.getElementById('status-box').textContent = '⏳ Generating new QR...';
+    startSession();
+    pollInterval = setInterval(loadQR, 2000);
+}
+
+// Start
+startSession();
+pollInterval = setInterval(loadQR, 2000);
 </script>
 </body>
 </html>"""
@@ -794,61 +741,55 @@ def whatsapp_start():
     try:
         data = request.get_json()
         userId = data.get('userId', 'unknown')
-        phone = data.get('phone', '')
         
         try:
             resp = requests.post(
                 f'{WHATSAPP_BASE_URL}/start',
-                json={'userId': userId, 'phone': phone},
-                timeout=10
-            )
-            return jsonify(resp.json())
-        except requests.exceptions.ConnectionError:
-            # محاكاة محلية
-            code = ''.join([str(random.randint(0, 9)) for _ in range(8)])
-            return jsonify({
-                "success": True,
-                "userId": userId,
-                "phone": phone,
-                "code": code,
-                "status": "code_sent",
-                "message": f"Pairing code generated for {phone}"
-            })
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route('/api/whatsapp/verify', methods=['POST'])
-def whatsapp_verify():
-    try:
-        data = request.get_json()
-        userId = data.get('userId')
-        code = data.get('code', '').strip()
-        
-        if not userId or not code:
-            return jsonify({"error": "User ID and code required"}), 400
-        
-        try:
-            resp = requests.post(
-                f'{WHATSAPP_BASE_URL}/verify',
-                json={'userId': userId, 'code': code},
+                json={'userId': userId},
                 timeout=10
             )
             return jsonify(resp.json())
         except:
-            if len(code) == 8:
-                return jsonify({
-                    "success": True,
-                    "status": "verified",
-                    "message": "Phone verified successfully (simulated)"
-                })
-            else:
-                return jsonify({
-                    "success": False,
-                    "status": "invalid",
-                    "message": "Invalid code"
-                }), 400
+            # QR وهمي مؤقت لحين تشغيل WhatsApp
+            qr = qrcode.QRCode(box_size=10, border=4)
+            qr.add_data(f"whatsapp://connect?user={userId}")
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            
+            buffered = BytesIO()
+            img.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            
+            return jsonify({
+                "success": True,
+                "userId": userId,
+                "status": "qr_ready",
+                "qr": f"data:image/png;base64,{img_str}"
+            })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/whatsapp/qr/<userId>')
+def whatsapp_qr(userId):
+    try:
+        try:
+            resp = requests.get(f'{WHATSAPP_BASE_URL}/qr/{userId}', timeout=5)
+            return jsonify(resp.json())
+        except:
+            # QR وهمي
+            qr = qrcode.QRCode(box_size=10, border=4)
+            qr.add_data(f"whatsapp://connect?user={userId}")
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            
+            buffered = BytesIO()
+            img.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            
+            return jsonify({
+                "qr": f"data:image/png;base64,{img_str}",
+                "status": "qr_ready"
+            })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -860,31 +801,6 @@ def whatsapp_status(userId):
             return jsonify(resp.json())
         except:
             return jsonify({"status": "waiting"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route('/api/whatsapp/resend', methods=['POST'])
-def whatsapp_resend():
-    try:
-        data = request.get_json()
-        userId = data.get('userId')
-        
-        try:
-            resp = requests.post(
-                f'{WHATSAPP_BASE_URL}/resend',
-                json={'userId': userId},
-                timeout=10
-            )
-            return jsonify(resp.json())
-        except:
-            code = ''.join([str(random.randint(0, 9)) for _ in range(8)])
-            return jsonify({
-                "success": True,
-                "userId": userId,
-                "code": code,
-                "status": "code_sent",
-                "message": "New pairing code generated (simulated)"
-            })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
