@@ -14,6 +14,9 @@ from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 from shared import *
+import qrcode
+from io import BytesIO
+import base64
 
 # ====== إعدادات Flask ======
 app = Flask(__name__)
@@ -47,7 +50,6 @@ WHATSAPP_BASE_URL = "http://127.0.0.1:3000"
 def debug_status():
     """فحص حالة جميع الخدمات"""
     try:
-        # محاولة جلب حالة واتساب
         resp = requests.get(f'{WHATSAPP_BASE_URL}/health', timeout=3)
         if resp.status_code == 200:
             whatsapp_status = "running"
@@ -572,6 +574,16 @@ def whatsapp_page():
   }
   .footer-links a:hover { border-color:var(--line-hi); color:var(--text); background:var(--panel-hi); }
   .footer-links a svg { width:14px; height:14px; flex-shrink:0; }
+
+  .phone-input {
+    width:100%; padding:11px 12px; background:var(--panel-hi);
+    border:1px solid var(--line); border-radius:var(--r); color:var(--text);
+    font-size:14.5px; font-weight:500; font-family:inherit; outline:none;
+    margin-bottom:12px;
+    transition:border-color .15s, background .15s;
+  }
+  .phone-input:focus { border-color:var(--accent); background:rgba(37,211,102,0.05); }
+  .phone-input::placeholder { color:var(--text-faint); }
 </style>
 </head>
 <body>
@@ -592,6 +604,9 @@ def whatsapp_page():
 
   <div class="card">
     <div id="qr-section">
+      <h3>Enter your WhatsApp number (optional)</h3>
+      <input class="phone-input" id="phoneInput" type="text" placeholder="+201234567890">
+      
       <h3>Open WhatsApp on your phone</h3>
       <div id="qr-placeholder">Generating QR...</div>
       <div id="qr-container">
@@ -663,11 +678,12 @@ async function loadQR() {
 }
 
 async function startSession() {
+    const phone = document.getElementById('phoneInput').value.trim();
     try {
         await fetch('/api/whatsapp/start', {
             method:'POST',
             headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({userId})
+            body: JSON.stringify({userId, phone})
         });
     } catch(e) {
         console.error(e);
@@ -780,25 +796,45 @@ def whatsapp_start():
     try:
         data = request.get_json()
         userId = data.get('userId', 'unknown')
-        # إرسال طلب لـ whatsapp.py
+        phone = data.get('phone', '')
+        
         try:
-            resp = requests.post(f'{WHATSAPP_BASE_URL}/start', json={'userId': userId}, timeout=5)
+            resp = requests.post(
+                f'{WHATSAPP_BASE_URL}/start',
+                json={'userId': userId, 'phone': phone},
+                timeout=5
+            )
             return jsonify(resp.json())
         except:
-            # إذا كان whatsapp.py مش شغال، نرجعه مباشرة
-            return jsonify({"status": "started", "userId": userId})
+            # إذا كان whatsapp.py مش شغال، نعمل QR وهمي
+            qr = qrcode.QRCode(box_size=10, border=4)
+            if phone:
+                qr.add_data(f"https://wa.me/{phone}?text=ربط%20واتساب")
+            else:
+                qr.add_data(f"whatsapp://connect?user={userId}")
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            
+            buffered = BytesIO()
+            img.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            
+            return jsonify({
+                "status": "qr_ready",
+                "qr": f"data:image/png;base64,{img_str}",
+                "userId": userId
+            })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/whatsapp/qr/<userId>')
 def whatsapp_qr(userId):
     try:
-        # محاولة جلب QR من whatsapp.py
         try:
             resp = requests.get(f'{WHATSAPP_BASE_URL}/qr/{userId}', timeout=5)
             return jsonify(resp.json())
         except:
-            # إذا كان whatsapp.py مش شغال، نعمل QR وهمي
+            # QR وهمي
             qr = qrcode.QRCode(box_size=10, border=4)
             qr.add_data(f"whatsapp://connect?user={userId}")
             qr.make(fit=True)
