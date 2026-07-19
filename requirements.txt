@@ -2,7 +2,6 @@ telethon
 flask
 cryptg
 requests
-pybaileys
-asyncio
 qrcode
 pillow
+asyncio
