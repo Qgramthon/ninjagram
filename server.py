@@ -6,15 +6,53 @@ import sys
 import os
 import signal
 import requests
+import subprocess
+import time
 from flask import Flask, jsonify, request
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 from shared import *
 
-app = Flask(__name__)
+# ====== تشغيل خادم WhatsApp كعملية فرعية ======
+def start_whatsapp_server():
+    """تشغيل خادم Node.js في الخلفية"""
+    try:
+        # تأكد من تثبيت الاعتماديات
+        print("[System] Installing npm dependencies...")
+        subprocess.run(['npm', 'install'], check=True, cwd='.', capture_output=True)
+        
+        # تشغيل خادم WhatsApp
+        print("[System] Starting WhatsApp server...")
+        process = subprocess.Popen(
+            ['node', 'whatsapp.js'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd='.',
+            env={**os.environ, 'PORT': '3000'}
+        )
+        print("[System] WhatsApp server started successfully (PID: {})".format(process.pid))
+        return process
+    except Exception as e:
+        print(f"[System] Failed to start WhatsApp: {e}")
+        return None
 
-# ------------------- الواجهة (Session Setup) -------------------
+# تشغيل واتساب في خلفية منفصلة
+whatsapp_process = None
+try:
+    whatsapp_process = start_whatsapp_server()
+    # انتظر حتى يبدأ الخادم
+    time.sleep(5)
+    print("[System] Waiting for WhatsApp server to initialize...")
+except Exception as e:
+    print(f"[System] Error starting WhatsApp: {e}")
+
+# ====== إعدادات Flask ======
+app = Flask(__name__)
+WHATSAPP_BASE_URL = "http://127.0.0.1:3000"
+
+# ====== Routes ======
+
 @app.route('/')
 def home():
     return """<!DOCTYPE html>
@@ -413,7 +451,6 @@ document.addEventListener('keydown', e => {
 </body>
 </html>"""
 
-# ------------------- WhatsApp Web Interface -------------------
 @app.route('/whatsapp')
 def whatsapp_page():
     return """<!DOCTYPE html>
@@ -642,12 +679,12 @@ pollInterval = setInterval(loadQR, 2000);
 </body>
 </html>"""
 
-# ------------------- Health Check -------------------
+# ====== Health Check ======
 @app.route('/health')
 def health():
     return jsonify({"status": "ok", "clients": len(active_clients)}), 200
 
-# ------------------- API: Send Code -------------------
+# ====== API: Send Code ======
 @app.route('/api/send_code', methods=['POST'])
 def api_send_code():
     try:
@@ -683,7 +720,7 @@ def api_send_code():
         logger.error(f"Error sending code: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# ------------------- API: Verify Code -------------------
+# ====== API: Verify Code ======
 @app.route('/api/verify', methods=['POST'])
 def api_verify():
     phone = request.form.get('phone', '').strip()
@@ -725,13 +762,13 @@ def api_verify():
     
     return run_in_main(_verify())
 
-# ------------------- WhatsApp API -------------------
+# ====== WhatsApp API (معدل) ======
 @app.route('/api/whatsapp/start', methods=['POST'])
 def whatsapp_start():
     try:
         data = request.get_json()
         userId = data.get('userId', 'unknown')
-        resp = requests.post(f'http://localhost:3000/start', json={'userId': userId}, timeout=10)
+        resp = requests.post(f'{WHATSAPP_BASE_URL}/start', json={'userId': userId}, timeout=10)
         return jsonify(resp.json())
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -739,7 +776,7 @@ def whatsapp_start():
 @app.route('/api/whatsapp/qr/<userId>')
 def whatsapp_qr(userId):
     try:
-        resp = requests.get(f'http://localhost:3000/qr/{userId}', timeout=10)
+        resp = requests.get(f'{WHATSAPP_BASE_URL}/qr/{userId}', timeout=10)
         return jsonify(resp.json())
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -747,18 +784,18 @@ def whatsapp_qr(userId):
 @app.route('/api/whatsapp/status/<userId>')
 def whatsapp_status(userId):
     try:
-        resp = requests.get(f'http://localhost:3000/status/{userId}', timeout=10)
+        resp = requests.get(f'{WHATSAPP_BASE_URL}/status/{userId}', timeout=10)
         return jsonify(resp.json())
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# ------------------- Helper -------------------
+# ====== Helper ======
 def run_in_main(coro):
     from shared import main_loop
     future = asyncio.run_coroutine_threadsafe(coro, main_loop)
     return future.result(timeout=60)
 
-# ------------------- Startup -------------------
+# ====== Startup ======
 def start_background_loop():
     """Start the asyncio event loop in a background thread"""
     asyncio.set_event_loop(main_loop)
