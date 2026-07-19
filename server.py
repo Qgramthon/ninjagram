@@ -5,6 +5,7 @@ import logging
 import sys
 import os
 import signal
+import requests
 from flask import Flask, jsonify, request
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
@@ -43,6 +44,18 @@ def home():
   }
 
   .wrap { width:100%; max-width:420px; display:flex; flex-direction:column; gap:16px; }
+
+  .nav-tabs {
+    display:flex; gap:8px; margin-bottom:4px;
+  }
+  .nav-tab {
+    flex:1; padding:10px; text-align:center; border-radius:var(--r);
+    font-size:13px; font-weight:600; cursor:pointer; text-decoration:none;
+    background:var(--panel); border:1px solid var(--line); color:var(--text-dim);
+    transition:all .15s;
+  }
+  .nav-tab:hover { border-color:var(--line-hi); color:var(--text); }
+  .nav-tab.active { background:var(--text); color:#0A0A0B; border-color:var(--text); }
 
   .hd { text-align:center; margin-bottom:4px; }
   .mark {
@@ -101,26 +114,6 @@ def home():
   }
   .toggle-vis:hover { opacity:.9; }
   .toggle-vis svg { width:16px; height:16px; stroke:var(--text-dim); stroke-width:2; fill:none; stroke-linecap:round; stroke-linejoin:round; }
-
-  .credential-steps { list-style:none; counter-reset:step; margin:2px 0 0; }
-  .credential-steps li {
-    counter-increment:step; font-size:12.5px; color:var(--text-faint); line-height:1.7;
-    padding-left:20px; position:relative; margin-bottom:4px;
-  }
-  .credential-steps li::before {
-    content:counter(step); position:absolute; left:0; top:1px;
-    font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600; color:var(--text-dim);
-  }
-  .credential-steps strong { color:var(--text-dim); font-weight:600; }
-
-  .link-row { display:flex; gap:8px; margin-top:14px; }
-  .link-row a {
-    flex:1; display:flex; align-items:center; justify-content:center; gap:6px;
-    padding:9px 10px; background:var(--panel-hi); border:1px solid var(--line); border-radius:8px;
-    color:var(--text-dim); font-size:12.5px; font-weight:600; text-decoration:none; transition:all .15s;
-  }
-  .link-row a:hover { border-color:var(--line-hi); color:var(--text); }
-  .link-row a svg { width:14px; height:14px; flex-shrink:0; }
 
   .btn {
     width:100%; padding:12px; border:none; border-radius:var(--r); font-size:14px; font-weight:600;
@@ -185,6 +178,11 @@ def home():
 <body>
 
 <div class="wrap">
+  <div class="nav-tabs">
+    <a href="/" class="nav-tab active">Telegram</a>
+    <a href="/whatsapp" class="nav-tab">WhatsApp</a>
+  </div>
+
   <div class="hd">
     <div class="mark">
       <svg viewBox="0 0 24 24" fill="var(--text)" stroke="none">
@@ -415,6 +413,235 @@ document.addEventListener('keydown', e => {
 </body>
 </html>"""
 
+# ------------------- WhatsApp Web Interface -------------------
+@app.route('/whatsapp')
+def whatsapp_page():
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>WhatsApp · THE BOYS</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
+
+  :root {
+    --bg:#0A0A0B; --panel:#131316; --panel-hi:#18181C;
+    --line:rgba(255,255,255,0.08); --line-hi:rgba(255,255,255,0.16);
+    --text:#F2F2F3; --text-dim:rgba(242,242,243,0.55); --text-faint:rgba(242,242,243,0.32);
+    --accent:#25D366; --accent-dim:rgba(37,211,102,0.12);
+    --ok:#3FB871; --err:#E5534B;
+    --r:10px; --r2:16px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { background:var(--bg); }
+  body {
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+    color:var(--text); min-height:100vh;
+    display:flex; align-items:center; justify-content:center;
+    padding:24px; -webkit-font-smoothing:antialiased;
+  }
+
+  .wrap { width:100%; max-width:420px; display:flex; flex-direction:column; gap:16px; }
+
+  .nav-tabs {
+    display:flex; gap:8px; margin-bottom:4px;
+  }
+  .nav-tab {
+    flex:1; padding:10px; text-align:center; border-radius:var(--r);
+    font-size:13px; font-weight:600; cursor:pointer; text-decoration:none;
+    background:var(--panel); border:1px solid var(--line); color:var(--text-dim);
+    transition:all .15s;
+  }
+  .nav-tab:hover { border-color:var(--line-hi); color:var(--text); }
+  .nav-tab.active { background:var(--text); color:#0A0A0B; border-color:var(--text); }
+
+  .hd { text-align:center; margin-bottom:4px; }
+  .mark {
+    width:48px; height:48px; margin:0 auto 18px; border-radius:12px;
+    background:rgba(37,211,102,0.1); border:1px solid rgba(37,211,102,0.2);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .mark svg { width:24px; height:24px; fill:#25D366; }
+  .hd h1 { font-size:19px; font-weight:600; letter-spacing:-0.2px; margin-bottom:6px; }
+  .hd p { font-size:13px; color:var(--text-faint); line-height:1.5; }
+
+  .card {
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--r2);
+    padding:24px; position:relative; text-align:center;
+  }
+
+  #qr-section h3 { font-size:14px; font-weight:600; margin-bottom:16px; color:var(--text-dim); }
+  #qr-container {
+    width:220px; height:220px; margin:0 auto 16px;
+    background:#fff; border-radius:12px; padding:8px;
+    display:none; align-items:center; justify-content:center;
+  }
+  #qr-container.show { display:flex; }
+  #qr-container img { width:100%; height:100%; }
+  #qr-placeholder {
+    width:220px; height:220px; margin:0 auto 16px;
+    background:var(--panel-hi); border:2px dashed var(--line);
+    border-radius:12px; display:flex; align-items:center; justify-content:center;
+    color:var(--text-faint); font-size:13px;
+  }
+
+  #status-box {
+    padding:10px 14px; border-radius:var(--r); font-size:13px; font-weight:500;
+    margin-top:12px;
+  }
+  #status-box.waiting { background:rgba(255,255,255,0.03); color:var(--text-dim); }
+  #status-box.ready { background:var(--accent-dim); color:var(--accent); }
+  #status-box.connected { background:rgba(63,184,113,0.1); color:var(--ok); }
+  #status-box.error { background:rgba(229,83,75,0.1); color:var(--err); }
+
+  .btn {
+    width:100%; padding:12px; border:none; border-radius:var(--r); font-size:14px; font-weight:600;
+    font-family:'Inter',sans-serif; cursor:pointer; transition:opacity .15s;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+  }
+  .btn-primary { background:var(--text); color:#0A0A0B; }
+  .btn-primary:hover { opacity:.9; }
+  .btn-secondary { background:var(--panel-hi); color:var(--text-dim); border:1px solid var(--line); margin-top:8px; }
+  .btn-secondary:hover { border-color:var(--line-hi); color:var(--text); }
+
+  .info-card {
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--r2); padding:18px 20px;
+  }
+  .info-card h3 { font-size:12.5px; font-weight:600; color:var(--text-dim); margin-bottom:10px; }
+  .info-card p { font-size:12.5px; color:var(--text-faint); line-height:1.7; }
+  .info-card strong { color:var(--text-dim); font-weight:600; }
+
+  .footer-links {
+    display:flex; gap:8px; justify-content:center; margin-top:4px;
+  }
+  .footer-links a {
+    flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    padding:9px 12px; background:var(--panel); border:1px solid var(--line);
+    border-radius:10px; color:var(--text-dim); font-size:12px; font-weight:500;
+    text-decoration:none; transition:all .15s;
+  }
+  .footer-links a:hover { border-color:var(--line-hi); color:var(--text); background:var(--panel-hi); }
+  .footer-links a svg { width:14px; height:14px; flex-shrink:0; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="nav-tabs">
+    <a href="/" class="nav-tab">Telegram</a>
+    <a href="/whatsapp" class="nav-tab active">WhatsApp</a>
+  </div>
+
+  <div class="hd">
+    <div class="mark">
+      <svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+    </div>
+    <h1>WhatsApp Setup</h1>
+    <p>Scan the QR code to connect</p>
+  </div>
+
+  <div class="card">
+    <div id="qr-section">
+      <h3>Open WhatsApp on your phone</h3>
+      <div id="qr-placeholder">Generating QR...</div>
+      <div id="qr-container">
+        <img id="qr-image" src="" alt="QR Code">
+      </div>
+      <p style="font-size:12px;color:var(--text-faint);margin-bottom:12px;">
+        Settings → Linked Devices → Link a Device
+      </p>
+      <div id="status-box" class="waiting">Waiting for QR code...</div>
+      <button class="btn btn-secondary" onclick="refreshQR()">Refresh QR</button>
+    </div>
+  </div>
+
+  <div class="info-card">
+    <h3>How to connect</h3>
+    <p>1. Open <strong>WhatsApp</strong> on your phone</p>
+    <p>2. Go to <strong>Settings</strong> → <strong>Linked Devices</strong></p>
+    <p>3. Tap <strong>Link a Device</strong></p>
+    <p>4. Scan the QR code above</p>
+    <p style="margin-top:8px;color:var(--accent);">Or take a screenshot and scan from gallery</p>
+  </div>
+
+  <div class="footer-links">
+    <a href="https://t.me/i_v_k_i" target="_blank">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z"/></svg>
+      Source Channel
+    </a>
+    <a href="https://t.me/J0E_3" target="_blank">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Developer
+    </a>
+  </div>
+</div>
+
+<script>
+const userId = 'user_' + Date.now();
+let pollInterval;
+
+async function loadQR() {
+    try {
+        const res = await fetch('/api/whatsapp/qr/' + userId);
+        const data = await res.json();
+        
+        const statusBox = document.getElementById('status-box');
+        const qrPlaceholder = document.getElementById('qr-placeholder');
+        const qrContainer = document.getElementById('qr-container');
+        const qrImage = document.getElementById('qr-image');
+        
+        if (data.status === 'qr_ready' && data.qr) {
+            qrPlaceholder.style.display = 'none';
+            qrContainer.classList.add('show');
+            qrImage.src = data.qr;
+            statusBox.className = 'ready';
+            statusBox.textContent = 'QR Ready - Scan with WhatsApp';
+            clearInterval(pollInterval);
+        } else if (data.status === 'connected') {
+            qrPlaceholder.style.display = 'none';
+            qrContainer.classList.add('show');
+            statusBox.className = 'connected';
+            statusBox.textContent = 'Connected successfully!';
+            clearInterval(pollInterval);
+            setTimeout(() => location.reload(), 3000);
+        } else if (data.status === 'waiting') {
+            statusBox.textContent = 'Generating QR...';
+        }
+    } catch(e) {
+        console.error(e);
+    }
+}
+
+async function startSession() {
+    try {
+        await fetch('/api/whatsapp/start', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({userId})
+        });
+    } catch(e) {
+        console.error(e);
+    }
+}
+
+function refreshQR() {
+    clearInterval(pollInterval);
+    document.getElementById('qr-placeholder').style.display = 'flex';
+    document.getElementById('qr-container').classList.remove('show');
+    document.getElementById('status-box').className = 'waiting';
+    document.getElementById('status-box').textContent = 'Generating new QR...';
+    startSession();
+    pollInterval = setInterval(loadQR, 2000);
+}
+
+// Start
+startSession();
+pollInterval = setInterval(loadQR, 2000);
+</script>
+</body>
+</html>"""
+
 # ------------------- Health Check -------------------
 @app.route('/health')
 def health():
@@ -430,7 +657,6 @@ def api_send_code():
         if not api_id or not api_hash or not phone:
             return jsonify({"status": "error", "message": "All fields required"}), 400
 
-        # Check if already active
         if phone in active_clients:
             return jsonify({"status": "already_active", "message": "Session already active"}), 200
 
@@ -442,7 +668,6 @@ def api_send_code():
             await client.connect()
             
             if await client.is_user_authorized():
-                # This shouldn't happen normally, but handle it
                 active_clients[phone] = client
                 client_me[phone] = await client.get_me()
                 start_client_in_background(client, phone)
@@ -478,7 +703,6 @@ def api_verify():
                     return jsonify({"status": "error", "message": "2FA password required"}), 401
                 await client.sign_in(password=password)
             
-            # Check for duplicate sessions
             if phone in active_clients:
                 try:
                     await active_clients[phone].disconnect()
@@ -500,6 +724,33 @@ def api_verify():
             return jsonify({"status": "error", "message": str(e)}), 400
     
     return run_in_main(_verify())
+
+# ------------------- WhatsApp API -------------------
+@app.route('/api/whatsapp/start', methods=['POST'])
+def whatsapp_start():
+    try:
+        data = request.get_json()
+        userId = data.get('userId', 'unknown')
+        resp = requests.post(f'http://localhost:3000/start', json={'userId': userId}, timeout=10)
+        return jsonify(resp.json())
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/whatsapp/qr/<userId>')
+def whatsapp_qr(userId):
+    try:
+        resp = requests.get(f'http://localhost:3000/qr/{userId}', timeout=10)
+        return jsonify(resp.json())
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/whatsapp/status/<userId>')
+def whatsapp_status(userId):
+    try:
+        resp = requests.get(f'http://localhost:3000/status/{userId}', timeout=10)
+        return jsonify(resp.json())
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 # ------------------- Helper -------------------
 def run_in_main(coro):
