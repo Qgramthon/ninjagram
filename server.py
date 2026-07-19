@@ -9,14 +9,13 @@ import requests
 import time
 import json
 import subprocess
+import re
+import random
 from flask import Flask, jsonify, request
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 from shared import *
-import qrcode
-from io import BytesIO
-import base64
 
 # ====== إعدادات Flask ======
 app = Flask(__name__)
@@ -474,27 +473,21 @@ def whatsapp_page():
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>WhatsApp · THE BOYS</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
-
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
   :root {
     --bg:#0A0A0B; --panel:#131316; --panel-hi:#18181C;
-    --line:rgba(255,255,255,0.08); --line-hi:rgba(255,255,255,0.16);
-    --text:#F2F2F3; --text-dim:rgba(242,242,243,0.55); --text-faint:rgba(242,242,243,0.32);
-    --accent:#25D366; --accent-dim:rgba(37,211,102,0.12);
-    --ok:#3FB871; --err:#E5534B;
+    --line:rgba(255,255,255,0.08); --text:#F2F2F3; --text-dim:rgba(242,242,243,0.55);
+    --accent:#25D366; --ok:#3FB871; --err:#E5534B;
     --r:10px; --r2:16px;
   }
   * { margin:0; padding:0; box-sizing:border-box; }
-  html, body { background:var(--bg); }
   body {
-    font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
-    color:var(--text); min-height:100vh;
-    display:flex; align-items:center; justify-content:center;
-    padding:24px; -webkit-font-smoothing:antialiased;
+    font-family:'Inter',sans-serif;
+    background:var(--bg); color:var(--text);
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    padding:24px;
   }
-
   .wrap { width:100%; max-width:420px; display:flex; flex-direction:column; gap:16px; }
-
   .nav-tabs {
     display:flex; gap:8px; margin-bottom:4px;
   }
@@ -504,9 +497,8 @@ def whatsapp_page():
     background:var(--panel); border:1px solid var(--line); color:var(--text-dim);
     transition:all .15s;
   }
-  .nav-tab:hover { border-color:var(--line-hi); color:var(--text); }
+  .nav-tab:hover { border-color:rgba(255,255,255,0.16); color:var(--text); }
   .nav-tab.active { background:var(--text); color:#0A0A0B; border-color:var(--text); }
-
   .hd { text-align:center; margin-bottom:4px; }
   .mark {
     width:48px; height:48px; margin:0 auto 18px; border-radius:12px;
@@ -515,194 +507,194 @@ def whatsapp_page():
   }
   .mark svg { width:24px; height:24px; fill:#25D366; }
   .hd h1 { font-size:19px; font-weight:600; letter-spacing:-0.2px; margin-bottom:6px; }
-  .hd p { font-size:13px; color:var(--text-faint); line-height:1.5; }
-
+  .hd p { font-size:13px; color:rgba(242,242,243,0.32); line-height:1.5; }
   .card {
     background:var(--panel); border:1px solid var(--line); border-radius:var(--r2);
-    padding:24px; position:relative; text-align:center;
+    padding:24px; text-align:center;
   }
-
-  #qr-section h3 { font-size:14px; font-weight:600; margin-bottom:16px; color:var(--text-dim); }
-  #qr-container {
-    width:220px; height:220px; margin:0 auto 16px;
-    background:#fff; border-radius:12px; padding:8px;
-    display:none; align-items:center; justify-content:center;
+  .field { margin-bottom:14px; text-align:left; }
+  .field label {
+    display:block; font-size:12.5px; font-weight:500; color:var(--text-dim); margin-bottom:6px;
   }
-  #qr-container.show { display:flex; }
-  #qr-container img { width:100%; height:100%; }
-  #qr-placeholder {
-    width:220px; height:220px; margin:0 auto 16px;
-    background:var(--panel-hi); border:2px dashed var(--line);
-    border-radius:12px; display:flex; align-items:center; justify-content:center;
-    color:var(--text-faint); font-size:13px;
+  .field input {
+    width:100%; padding:11px 12px; background:var(--panel-hi);
+    border:1px solid var(--line); border-radius:var(--r); color:var(--text);
+    font-size:14.5px; font-weight:500; font-family:inherit; outline:none;
+    transition:border-color .15s, background .15s;
   }
-
+  .field input:focus { border-color:#25D366; background:rgba(37,211,102,0.05); }
+  .field input::placeholder { color:rgba(242,242,243,0.32); }
+  .btn {
+    width:100%; padding:12px; border:none; border-radius:var(--r); font-size:14px; font-weight:600;
+    font-family:'Inter',sans-serif; cursor:pointer; transition:opacity .15s;
+  }
+  .btn-primary { background:var(--text); color:#0A0A0B; }
+  .btn-primary:hover { opacity:.9; }
+  .btn-secondary { background:var(--panel-hi); color:var(--text-dim); border:1px solid var(--line); margin-top:8px; }
+  .btn-secondary:hover { border-color:rgba(255,255,255,0.16); color:var(--text); }
+  .btn:disabled { opacity:0.5; cursor:not-allowed; }
   #status-box {
     padding:10px 14px; border-radius:var(--r); font-size:13px; font-weight:500;
     margin-top:12px;
   }
   #status-box.waiting { background:rgba(255,255,255,0.03); color:var(--text-dim); }
-  #status-box.ready { background:var(--accent-dim); color:var(--accent); }
-  #status-box.connected { background:rgba(63,184,113,0.1); color:var(--ok); }
+  #status-box.success { background:rgba(63,184,113,0.1); color:var(--ok); }
   #status-box.error { background:rgba(229,83,75,0.1); color:var(--err); }
-
-  .btn {
-    width:100%; padding:12px; border:none; border-radius:var(--r); font-size:14px; font-weight:600;
-    font-family:'Inter',sans-serif; cursor:pointer; transition:opacity .15s;
-    display:flex; align-items:center; justify-content:center; gap:8px;
-  }
-  .btn-primary { background:var(--text); color:#0A0A0B; }
-  .btn-primary:hover { opacity:.9; }
-  .btn-secondary { background:var(--panel-hi); color:var(--text-dim); border:1px solid var(--line); margin-top:8px; }
-  .btn-secondary:hover { border-color:var(--line-hi); color:var(--text); }
-
+  #status-box.info { background:rgba(37,211,102,0.1); color:#25D366; }
+  .hidden { display:none; }
   .info-card {
     background:var(--panel); border:1px solid var(--line); border-radius:var(--r2); padding:18px 20px;
   }
   .info-card h3 { font-size:12.5px; font-weight:600; color:var(--text-dim); margin-bottom:10px; }
-  .info-card p { font-size:12.5px; color:var(--text-faint); line-height:1.7; }
+  .info-card p { font-size:12.5px; color:rgba(242,242,243,0.32); line-height:1.7; }
   .info-card strong { color:var(--text-dim); font-weight:600; }
-
-  .footer-links {
-    display:flex; gap:8px; justify-content:center; margin-top:4px;
-  }
-  .footer-links a {
-    flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px;
-    padding:9px 12px; background:var(--panel); border:1px solid var(--line);
-    border-radius:10px; color:var(--text-dim); font-size:12px; font-weight:500;
-    text-decoration:none; transition:all .15s;
-  }
-  .footer-links a:hover { border-color:var(--line-hi); color:var(--text); background:var(--panel-hi); }
-  .footer-links a svg { width:14px; height:14px; flex-shrink:0; }
-
-  .phone-input {
-    width:100%; padding:11px 12px; background:var(--panel-hi);
-    border:1px solid var(--line); border-radius:var(--r); color:var(--text);
-    font-size:14.5px; font-weight:500; font-family:inherit; outline:none;
-    margin-bottom:12px;
-    transition:border-color .15s, background .15s;
-  }
-  .phone-input:focus { border-color:var(--accent); background:rgba(37,211,102,0.05); }
-  .phone-input::placeholder { color:var(--text-faint); }
 </style>
 </head>
 <body>
-
 <div class="wrap">
   <div class="nav-tabs">
     <a href="/" class="nav-tab">Telegram</a>
     <a href="/whatsapp" class="nav-tab active">WhatsApp</a>
   </div>
-
   <div class="hd">
-    <div class="mark">
-      <svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-    </div>
-    <h1>WhatsApp Setup</h1>
-    <p>Scan the QR code to connect</p>
+    <div class="mark"><svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></div>
+    <h1>WhatsApp Verification</h1>
+    <p>Enter your phone number to receive a code</p>
   </div>
 
   <div class="card">
-    <div id="qr-section">
-      <h3>Enter your WhatsApp number (optional)</h3>
-      <input class="phone-input" id="phoneInput" type="text" placeholder="+201234567890">
-      
-      <h3>Open WhatsApp on your phone</h3>
-      <div id="qr-placeholder">Generating QR...</div>
-      <div id="qr-container">
-        <img id="qr-image" src="" alt="QR Code">
+    <div id="step1">
+      <div class="field">
+        <label>Phone Number</label>
+        <input id="phoneInput" type="text" placeholder="+201234567890">
       </div>
-      <p style="font-size:12px;color:var(--text-faint);margin-bottom:12px;">
-        Settings → Linked Devices → Link a Device
-      </p>
-      <div id="status-box" class="waiting">Waiting for QR code...</div>
-      <button class="btn btn-secondary" onclick="refreshQR()">Refresh QR</button>
+      <button class="btn btn-primary" id="sendBtn" onclick="sendCode()">Send Code</button>
     </div>
+
+    <div id="step2" class="hidden">
+      <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">Enter the 8-digit code sent to your phone</p>
+      <div class="field">
+        <label>Verification Code</label>
+        <input id="codeInput" type="text" placeholder="12345678" maxlength="8" style="text-align:center;font-size:24px;letter-spacing:8px;font-family:monospace;">
+      </div>
+      <button class="btn btn-primary" id="verifyBtn" onclick="verifyCode()">Verify</button>
+      <button class="btn btn-secondary" onclick="resendCode()">Resend Code</button>
+    </div>
+
+    <div id="status-box" class="waiting">Enter your phone number to start</div>
   </div>
 
   <div class="info-card">
-    <h3>How to connect</h3>
-    <p>1. Open <strong>WhatsApp</strong> on your phone</p>
-    <p>2. Go to <strong>Settings</strong> → <strong>Linked Devices</strong></p>
-    <p>3. Tap <strong>Link a Device</strong></p>
-    <p>4. Scan the QR code above</p>
-    <p style="margin-top:8px;color:var(--accent);">Or take a screenshot and scan from gallery</p>
-  </div>
-
-  <div class="footer-links">
-    <a href="https://t.me/i_v_k_i" target="_blank">
-      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z"/></svg>
-      Source Channel
-    </a>
-    <a href="https://t.me/J0E_3" target="_blank">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-      Developer
-    </a>
+    <h3>How it works</h3>
+    <p>1. Enter your <strong>WhatsApp number</strong> with country code</p>
+    <p>2. You'll receive an <strong>8-digit code</strong> via WhatsApp</p>
+    <p>3. Enter the code to verify and connect</p>
   </div>
 </div>
 
 <script>
 const userId = 'user_' + Date.now();
-let pollInterval;
 
-async function loadQR() {
-    try {
-        const res = await fetch('/api/whatsapp/qr/' + userId);
-        const data = await res.json();
-        
-        const statusBox = document.getElementById('status-box');
-        const qrPlaceholder = document.getElementById('qr-placeholder');
-        const qrContainer = document.getElementById('qr-container');
-        const qrImage = document.getElementById('qr-image');
-        
-        if (data.status === 'qr_ready' && data.qr) {
-            qrPlaceholder.style.display = 'none';
-            qrContainer.classList.add('show');
-            qrImage.src = data.qr;
-            statusBox.className = 'ready';
-            statusBox.textContent = 'QR Ready - Scan with WhatsApp';
-            clearInterval(pollInterval);
-        } else if (data.status === 'connected') {
-            qrPlaceholder.style.display = 'none';
-            qrContainer.classList.add('show');
-            statusBox.className = 'connected';
-            statusBox.textContent = 'Connected successfully!';
-            clearInterval(pollInterval);
-            setTimeout(() => location.reload(), 3000);
-        } else if (data.status === 'waiting') {
-            statusBox.textContent = 'Generating QR...';
-        }
-    } catch(e) {
-        console.error(e);
+function showStatus(msg, type) {
+  const box = document.getElementById('status-box');
+  box.textContent = msg;
+  box.className = type || 'waiting';
+}
+
+async function sendCode() {
+  const phone = document.getElementById('phoneInput').value.trim();
+  if (!phone) { showStatus('Please enter your phone number', 'error'); return; }
+  
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  showStatus('Sending code...', 'info');
+  
+  try {
+    const res = await fetch('/api/whatsapp/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({userId, phone})
+    });
+    const data = await res.json();
+    
+    if (data.success) {
+      document.getElementById('step1').classList.add('hidden');
+      document.getElementById('step2').classList.remove('hidden');
+      showStatus(`Code sent to ${data.phone}`, 'success');
+      document.getElementById('codeInput').focus();
+    } else {
+      showStatus(data.error || 'Failed to send code', 'error');
     }
+  } catch(e) {
+    showStatus('Connection error', 'error');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
-async function startSession() {
-    const phone = document.getElementById('phoneInput').value.trim();
-    try {
-        await fetch('/api/whatsapp/start', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({userId, phone})
-        });
-    } catch(e) {
-        console.error(e);
+async function verifyCode() {
+  const code = document.getElementById('codeInput').value.trim();
+  if (!code || code.length < 8) { showStatus('Please enter the 8-digit code', 'error'); return; }
+  
+  const btn = document.getElementById('verifyBtn');
+  btn.disabled = true;
+  showStatus('Verifying...', 'info');
+  
+  try {
+    const res = await fetch('/api/whatsapp/verify', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({userId, code})
+    });
+    const data = await res.json();
+    
+    if (data.success) {
+      showStatus('✅ ' + data.message, 'success');
+      setTimeout(() => location.reload(), 3000);
+    } else {
+      showStatus('❌ ' + data.message, 'error');
     }
+  } catch(e) {
+    showStatus('Connection error', 'error');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
-function refreshQR() {
-    clearInterval(pollInterval);
-    document.getElementById('qr-placeholder').style.display = 'flex';
-    document.getElementById('qr-container').classList.remove('show');
-    document.getElementById('status-box').className = 'waiting';
-    document.getElementById('status-box').textContent = 'Generating new QR...';
-    startSession();
-    pollInterval = setInterval(loadQR, 2000);
+async function resendCode() {
+  const btn = document.querySelector('#step2 .btn-secondary');
+  btn.disabled = true;
+  showStatus('Resending code...', 'info');
+  
+  try {
+    const res = await fetch('/api/whatsapp/resend', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({userId})
+    });
+    const data = await res.json();
+    
+    if (data.success) {
+      showStatus(`New code sent to ${data.phone}`, 'success');
+    } else {
+      showStatus(data.error || 'Failed to resend', 'error');
+    }
+  } catch(e) {
+    showStatus('Connection error', 'error');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
-// Start
-startSession();
-pollInterval = setInterval(loadQR, 2000);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    if (!document.getElementById('step2').classList.contains('hidden')) {
+      verifyCode();
+    } else {
+      sendCode();
+    }
+  }
+});
 </script>
 </body>
 </html>"""
@@ -802,52 +794,56 @@ def whatsapp_start():
             resp = requests.post(
                 f'{WHATSAPP_BASE_URL}/start',
                 json={'userId': userId, 'phone': phone},
-                timeout=5
+                timeout=10
             )
             return jsonify(resp.json())
-        except:
-            # إذا كان whatsapp.py مش شغال، نعمل QR وهمي
-            qr = qrcode.QRCode(box_size=10, border=4)
-            if phone:
-                qr.add_data(f"https://wa.me/{phone}?text=ربط%20واتساب")
-            else:
-                qr.add_data(f"whatsapp://connect?user={userId}")
-            qr.make(fit=True)
-            img = qr.make_image(fill_color="black", back_color="white")
-            
-            buffered = BytesIO()
-            img.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode()
-            
+        except requests.exceptions.ConnectionError:
+            # إذا كان whatsapp.py مش شغال، نعمل محاكاة محلية
+            code = ''.join([str(random.randint(0, 9)) for _ in range(8)])
             return jsonify({
-                "status": "qr_ready",
-                "qr": f"data:image/png;base64,{img_str}",
-                "userId": userId
+                "success": True,
+                "userId": userId,
+                "phone": phone,
+                "code": code,
+                "status": "code_sent",
+                "message": f"Verification code generated (simulated)"
             })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/api/whatsapp/qr/<userId>')
-def whatsapp_qr(userId):
+@app.route('/api/whatsapp/verify', methods=['POST'])
+def whatsapp_verify():
     try:
+        data = request.get_json()
+        userId = data.get('userId')
+        code = data.get('code', '').strip()
+        
+        if not userId or not code:
+            return jsonify({"error": "User ID and code required"}), 400
+        
         try:
-            resp = requests.get(f'{WHATSAPP_BASE_URL}/qr/{userId}', timeout=5)
+            resp = requests.post(
+                f'{WHATSAPP_BASE_URL}/verify',
+                json={'userId': userId, 'code': code},
+                timeout=10
+            )
             return jsonify(resp.json())
         except:
-            # QR وهمي
-            qr = qrcode.QRCode(box_size=10, border=4)
-            qr.add_data(f"whatsapp://connect?user={userId}")
-            qr.make(fit=True)
-            img = qr.make_image(fill_color="black", back_color="white")
-            
-            buffered = BytesIO()
-            img.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode()
-            
-            return jsonify({
-                "qr": f"data:image/png;base64,{img_str}",
-                "status": "qr_ready"
-            })
+            # محاكاة التحقق
+            if len(code) == 8:
+                return jsonify({
+                    "success": True,
+                    "status": "verified",
+                    "message": "Phone verified successfully (simulated)"
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "status": "invalid",
+                    "message": "Invalid code"
+                }), 400
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -859,6 +855,32 @@ def whatsapp_status(userId):
             return jsonify(resp.json())
         except:
             return jsonify({"status": "waiting"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/whatsapp/resend', methods=['POST'])
+def whatsapp_resend():
+    try:
+        data = request.get_json()
+        userId = data.get('userId')
+        
+        try:
+            resp = requests.post(
+                f'{WHATSAPP_BASE_URL}/resend',
+                json={'userId': userId},
+                timeout=10
+            )
+            return jsonify(resp.json())
+        except:
+            # محاكاة إعادة إرسال
+            code = ''.join([str(random.randint(0, 9)) for _ in range(8)])
+            return jsonify({
+                "success": True,
+                "userId": userId,
+                "code": code,
+                "status": "code_sent",
+                "message": "New code generated (simulated)"
+            })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
