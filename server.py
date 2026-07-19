@@ -14,15 +14,13 @@ from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 from shared import *
 
-# ====== تشغيل خادم WhatsApp كعملية فرعية ======
+# ====== تشغيل خادم WhatsApp ======
 def start_whatsapp_server():
     """تشغيل خادم Node.js في الخلفية"""
     try:
-        # تأكد من تثبيت الاعتماديات
         print("[System] Installing npm dependencies...")
         subprocess.run(['npm', 'install'], check=True, cwd='.', capture_output=True)
         
-        # تشغيل خادم WhatsApp
         print("[System] Starting WhatsApp server...")
         process = subprocess.Popen(
             ['node', 'whatsapp.js'],
@@ -31,25 +29,38 @@ def start_whatsapp_server():
             cwd='.',
             env={**os.environ, 'PORT': '3000'}
         )
-        print("[System] WhatsApp server started successfully (PID: {})".format(process.pid))
+        print(f"[System] WhatsApp server started (PID: {process.pid})")
         return process
     except Exception as e:
         print(f"[System] Failed to start WhatsApp: {e}")
         return None
 
-# تشغيل واتساب في خلفية منفصلة
-whatsapp_process = None
-try:
-    whatsapp_process = start_whatsapp_server()
-    # انتظر حتى يبدأ الخادم
-    time.sleep(5)
-    print("[System] Waiting for WhatsApp server to initialize...")
-except Exception as e:
-    print(f"[System] Error starting WhatsApp: {e}")
+# تشغيل واتساب
+whatsapp_process = start_whatsapp_server()
+time.sleep(5)
+print("[System] Waiting for WhatsApp to initialize...")
 
 # ====== إعدادات Flask ======
 app = Flask(__name__)
 WHATSAPP_BASE_URL = "http://127.0.0.1:3000"
+
+# ====== نقطة فحص WhatsApp ======
+@app.route('/debug/status')
+def debug_status():
+    """فحص حالة جميع الخدمات"""
+    whatsapp_status = "unknown"
+    try:
+        resp = requests.get(f'{WHATSAPP_BASE_URL}/health', timeout=3)
+        whatsapp_status = "running" if resp.status_code == 200 else "error"
+    except:
+        whatsapp_status = "not_running"
+    
+    return jsonify({
+        "flask_port": os.environ.get('PORT', '8080'),
+        "whatsapp_port": 3000,
+        "whatsapp_status": whatsapp_status,
+        "whatsapp_url": WHATSAPP_BASE_URL
+    })
 
 # ====== Routes ======
 
@@ -762,7 +773,7 @@ def api_verify():
     
     return run_in_main(_verify())
 
-# ====== WhatsApp API (معدل) ======
+# ====== WhatsApp API ======
 @app.route('/api/whatsapp/start', methods=['POST'])
 def whatsapp_start():
     try:
