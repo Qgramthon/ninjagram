@@ -8,17 +8,39 @@ import signal
 import requests
 import time
 import json
+import subprocess
 from flask import Flask, jsonify, request
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 from shared import *
 
-# ====== إعدادات WhatsApp ======
-WHATSAPP_BASE_URL = "http://127.0.0.1:8080"  # نفس منفذ Flask
-
 # ====== إعدادات Flask ======
 app = Flask(__name__)
+
+# ====== تشغيل WhatsApp ======
+def start_whatsapp():
+    try:
+        print("[System] Starting WhatsApp (PyBaileys)...")
+        process = subprocess.Popen(
+            ['python3', 'whatsapp.py'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd='.'
+        )
+        print(f"[System] WhatsApp started (PID: {process.pid})")
+        return process
+    except Exception as e:
+        print(f"[System] Failed to start WhatsApp: {e}")
+        return None
+
+# تشغيل واتساب في خلفية منفصلة
+whatsapp_process = start_whatsapp()
+time.sleep(3)
+print("[System] Waiting for WhatsApp to initialize...")
+
+# ====== إعدادات WhatsApp ======
+WHATSAPP_BASE_URL = "http://127.0.0.1:8080"
 
 # ====== نقطة فحص WhatsApp ======
 @app.route('/debug/status')
@@ -26,9 +48,12 @@ def debug_status():
     """فحص حالة جميع الخدمات"""
     try:
         # محاولة جلب حالة واتساب من ملف
-        with open('./wa_users.json', 'r') as f:
-            users = json.load(f)
-        whatsapp_status = "running" if users else "waiting"
+        if os.path.exists('./wa_users.json'):
+            with open('./wa_users.json', 'r') as f:
+                users = json.load(f)
+            whatsapp_status = "running" if users else "waiting"
+        else:
+            whatsapp_status = "not_running"
     except:
         whatsapp_status = "not_running"
     
@@ -756,7 +781,9 @@ def whatsapp_start():
     try:
         data = request.get_json()
         userId = data.get('userId', 'unknown')
-        # استخدام Flask مباشرة بدلاً من subprocess
+        # تشغيل جلسة واتساب
+        if os.path.exists('./whatsapp.py'):
+            subprocess.Popen(['python3', 'whatsapp.py', userId])
         return jsonify({"status": "started", "userId": userId})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -765,8 +792,9 @@ def whatsapp_start():
 def whatsapp_qr(userId):
     try:
         # محاولة قراءة QR من ملف
-        if os.path.exists('./wa_qr.json'):
-            with open('./wa_qr.json', 'r') as f:
+        qr_file = f'./wa_qr_{userId}.json'
+        if os.path.exists(qr_file):
+            with open(qr_file, 'r') as f:
                 data = json.load(f)
                 if data.get('qr'):
                     return jsonify({"qr": data['qr'], "status": "qr_ready"})
