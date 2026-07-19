@@ -40,7 +40,7 @@ time.sleep(3)
 print("[System] Waiting for WhatsApp to initialize...")
 
 # ====== إعدادات WhatsApp ======
-WHATSAPP_BASE_URL = "http://127.0.0.1:8080"
+WHATSAPP_BASE_URL = "http://127.0.0.1:3000"  # من 8080 إلى 3000
 
 # ====== نقطة فحص WhatsApp ======
 @app.route('/debug/status')
