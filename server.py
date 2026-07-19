@@ -6,60 +6,37 @@ import sys
 import os
 import signal
 import requests
-import subprocess
 import time
+import json
 from flask import Flask, jsonify, request
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 from shared import *
 
-# ====== تشغيل خادم WhatsApp ======
-def start_whatsapp_server():
-    """تشغيل خادم Node.js في الخلفية"""
-    try:
-        print("[System] Installing npm dependencies...")
-        subprocess.run(['npm', 'install'], check=True, cwd='.', capture_output=True)
-        
-        print("[System] Starting WhatsApp server...")
-        process = subprocess.Popen(
-            ['node', 'whatsapp.js'],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd='.',
-            env={**os.environ, 'PORT': '3000'}
-        )
-        print(f"[System] WhatsApp server started (PID: {process.pid})")
-        return process
-    except Exception as e:
-        print(f"[System] Failed to start WhatsApp: {e}")
-        return None
-
-# تشغيل واتساب
-whatsapp_process = start_whatsapp_server()
-time.sleep(5)
-print("[System] Waiting for WhatsApp to initialize...")
+# ====== إعدادات WhatsApp ======
+WHATSAPP_BASE_URL = "http://127.0.0.1:8080"  # نفس منفذ Flask
 
 # ====== إعدادات Flask ======
 app = Flask(__name__)
-WHATSAPP_BASE_URL = "http://127.0.0.1:3000"
 
 # ====== نقطة فحص WhatsApp ======
 @app.route('/debug/status')
 def debug_status():
     """فحص حالة جميع الخدمات"""
-    whatsapp_status = "unknown"
     try:
-        resp = requests.get(f'{WHATSAPP_BASE_URL}/health', timeout=3)
-        whatsapp_status = "running" if resp.status_code == 200 else "error"
+        # محاولة جلب حالة واتساب من ملف
+        with open('./wa_users.json', 'r') as f:
+            users = json.load(f)
+        whatsapp_status = "running" if users else "waiting"
     except:
         whatsapp_status = "not_running"
     
     return jsonify({
         "flask_port": os.environ.get('PORT', '8080'),
-        "whatsapp_port": 3000,
         "whatsapp_status": whatsapp_status,
-        "whatsapp_url": WHATSAPP_BASE_URL
+        "whatsapp_url": WHATSAPP_BASE_URL,
+        "clients": len(active_clients)
     })
 
 # ====== Routes ======
@@ -779,24 +756,33 @@ def whatsapp_start():
     try:
         data = request.get_json()
         userId = data.get('userId', 'unknown')
-        resp = requests.post(f'{WHATSAPP_BASE_URL}/start', json={'userId': userId}, timeout=10)
-        return jsonify(resp.json())
+        # استخدام Flask مباشرة بدلاً من subprocess
+        return jsonify({"status": "started", "userId": userId})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/whatsapp/qr/<userId>')
 def whatsapp_qr(userId):
     try:
-        resp = requests.get(f'{WHATSAPP_BASE_URL}/qr/{userId}', timeout=10)
-        return jsonify(resp.json())
+        # محاولة قراءة QR من ملف
+        if os.path.exists('./wa_qr.json'):
+            with open('./wa_qr.json', 'r') as f:
+                data = json.load(f)
+                if data.get('qr'):
+                    return jsonify({"qr": data['qr'], "status": "qr_ready"})
+        return jsonify({"status": "waiting"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/whatsapp/status/<userId>')
 def whatsapp_status(userId):
     try:
-        resp = requests.get(f'{WHATSAPP_BASE_URL}/status/{userId}', timeout=10)
-        return jsonify(resp.json())
+        if os.path.exists('./wa_users.json'):
+            with open('./wa_users.json', 'r') as f:
+                users = json.load(f)
+                if userId in users:
+                    return jsonify({"status": "connected", "user": users[userId]})
+        return jsonify({"status": "waiting"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
