@@ -1,8 +1,18 @@
 [phases.setup]
-nixPkgs = ["nodejs", "python311"]
+nixPkgs = ["nodejs_18", "python311"]
 
 [phases.install]
-cmds = ["npm install", "pip install -r requirements.txt"]
+cmds = [
+    "npm install --production --no-audit --no-fund",
+    "pip install --no-cache-dir -r requirements.txt"
+]
 
 [phases.start]
 cmd = "python server.py"
+
+[build]
+builder = "NIXPACKS"
+
+[environment]
+NODE_ENV = "production"
+PYTHONUNBUFFERED = "1"
