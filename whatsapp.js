@@ -13,7 +13,7 @@ const pino = require('pino');
 const QRCode = require('qrcode');
 
 // ====== إعدادات ======
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const SESSIONS_DIR = './wa_sessions';
 const USERS_FILE = './wa_users.json';
 
@@ -289,7 +289,7 @@ app.get('/health', (req, res) => {
 });
 
 // ====== تشغيل السيرفر ======
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
     console.log(`[WhatsApp Server] Running on port ${PORT}`);
 });
 
