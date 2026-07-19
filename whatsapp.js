@@ -13,7 +13,7 @@ const pino = require('pino');
 const QRCode = require('qrcode');
 
 // ====== إعدادات ======
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 const SESSIONS_DIR = './wa_sessions';
 const USERS_FILE = './wa_users.json';
 
