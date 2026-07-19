@@ -4,7 +4,8 @@
   "description": "WhatsApp Self-Bot for NinjaGram",
   "main": "whatsapp.js",
   "scripts": {
-    "start": "node whatsapp.js"
+    "start": "node whatsapp.js",
+    "postinstall": "npm install"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.6.0",
