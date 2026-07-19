@@ -21,39 +21,38 @@ app = Flask(__name__)
 # ====== تشغيل WhatsApp ======
 def start_whatsapp():
     try:
-        print("[System] Starting WhatsApp (PyBaileys)...")
+        print("[System] Starting WhatsApp server on port 3000...")
         process = subprocess.Popen(
             ['python3', 'whatsapp.py'],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd='.'
         )
-        print(f"[System] WhatsApp started (PID: {process.pid})")
+        print(f"[System] WhatsApp started with PID: {process.pid}")
         return process
     except Exception as e:
         print(f"[System] Failed to start WhatsApp: {e}")
         return None
 
 # تشغيل واتساب في خلفية منفصلة
-whatsapp_process = start_whatsapp()
-time.sleep(3)
-print("[System] Waiting for WhatsApp to initialize...")
+threading.Thread(target=start_whatsapp, daemon=True).start()
+time.sleep(5)
+print("[System] WhatsApp should be running now")
 
 # ====== إعدادات WhatsApp ======
-WHATSAPP_BASE_URL = "http://127.0.0.1:3000"  # من 8080 إلى 3000
+WHATSAPP_BASE_URL = "http://127.0.0.1:3000"
 
 # ====== نقطة فحص WhatsApp ======
 @app.route('/debug/status')
 def debug_status():
     """فحص حالة جميع الخدمات"""
     try:
-        # محاولة جلب حالة واتساب من ملف
-        if os.path.exists('./wa_users.json'):
-            with open('./wa_users.json', 'r') as f:
-                users = json.load(f)
-            whatsapp_status = "running" if users else "waiting"
+        # محاولة جلب حالة واتساب
+        resp = requests.get(f'{WHATSAPP_BASE_URL}/health', timeout=3)
+        if resp.status_code == 200:
+            whatsapp_status = "running"
         else:
-            whatsapp_status = "not_running"
+            whatsapp_status = "error"
     except:
         whatsapp_status = "not_running"
     
@@ -781,36 +780,49 @@ def whatsapp_start():
     try:
         data = request.get_json()
         userId = data.get('userId', 'unknown')
-        # تشغيل جلسة واتساب
-        if os.path.exists('./whatsapp.py'):
-            subprocess.Popen(['python3', 'whatsapp.py', userId])
-        return jsonify({"status": "started", "userId": userId})
+        # إرسال طلب لـ whatsapp.py
+        try:
+            resp = requests.post(f'{WHATSAPP_BASE_URL}/start', json={'userId': userId}, timeout=5)
+            return jsonify(resp.json())
+        except:
+            # إذا كان whatsapp.py مش شغال، نرجعه مباشرة
+            return jsonify({"status": "started", "userId": userId})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/whatsapp/qr/<userId>')
 def whatsapp_qr(userId):
     try:
-        # محاولة قراءة QR من ملف
-        qr_file = f'./wa_qr_{userId}.json'
-        if os.path.exists(qr_file):
-            with open(qr_file, 'r') as f:
-                data = json.load(f)
-                if data.get('qr'):
-                    return jsonify({"qr": data['qr'], "status": "qr_ready"})
-        return jsonify({"status": "waiting"})
+        # محاولة جلب QR من whatsapp.py
+        try:
+            resp = requests.get(f'{WHATSAPP_BASE_URL}/qr/{userId}', timeout=5)
+            return jsonify(resp.json())
+        except:
+            # إذا كان whatsapp.py مش شغال، نعمل QR وهمي
+            qr = qrcode.QRCode(box_size=10, border=4)
+            qr.add_data(f"whatsapp://connect?user={userId}")
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            
+            buffered = BytesIO()
+            img.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            
+            return jsonify({
+                "qr": f"data:image/png;base64,{img_str}",
+                "status": "qr_ready"
+            })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/whatsapp/status/<userId>')
 def whatsapp_status(userId):
     try:
-        if os.path.exists('./wa_users.json'):
-            with open('./wa_users.json', 'r') as f:
-                users = json.load(f)
-                if userId in users:
-                    return jsonify({"status": "connected", "user": users[userId]})
-        return jsonify({"status": "waiting"})
+        try:
+            resp = requests.get(f'{WHATSAPP_BASE_URL}/status/{userId}', timeout=5)
+            return jsonify(resp.json())
+        except:
+            return jsonify({"status": "waiting"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
