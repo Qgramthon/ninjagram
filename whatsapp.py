@@ -1,90 +1,83 @@
 import os
 import json
 import time
-import random
-import re
+import base64
+import asyncio
+import qrcode
+from io import BytesIO
 from flask import Flask, jsonify, request
+from pybaileys import WhatsApp, QRCodeHandler
 
 app = Flask(__name__)
-
-# ====== إعدادات ======
 PORT = 3000
-USERS_FILE = "./wa_users.json"
-VERIFICATION_FILE = "./wa_verification.json"
 
-os.makedirs("./wa_sessions", exist_ok=True)
-if not os.path.exists(USERS_FILE):
-    with open(USERS_FILE, "w") as f:
-        json.dump({}, f)
-if not os.path.exists(VERIFICATION_FILE):
-    with open(VERIFICATION_FILE, "w") as f:
-        json.dump({}, f)
+# ====== تخزين ======
+qr_data = {}
+status_data = {}
+clients = {}
 
-# ====== تخزين مؤقت ======
-verification_codes = {}  # {user_id: {"phone": "number", "code": "12345678", "timestamp": time}}
-
-# ====== دوال مساعدة ======
-def generate_code():
-    """توليد كود ربط من 8 أرقام"""
-    return ''.join([str(random.randint(0, 9)) for _ in range(8)])
-
-def save_verification(user_id, phone, code):
-    """حفظ كود الربط في الملف"""
-    data = {
-        "phone": phone,
-        "code": code,
-        "timestamp": time.time()
-    }
-    verification_codes[user_id] = data
-    
-    with open(VERIFICATION_FILE, "w") as f:
-        json.dump(verification_codes, f, indent=2)
-    
-    return data
-
-def get_verification(user_id):
-    """جلب كود الربط من الذاكرة أو الملف"""
-    if user_id in verification_codes:
-        return verification_codes[user_id]
-    
-    if os.path.exists(VERIFICATION_FILE):
-        with open(VERIFICATION_FILE, "r") as f:
-            data = json.load(f)
-            if user_id in data:
-                verification_codes[user_id] = data[user_id]
-                return data[user_id]
-    
-    return None
-
-def verify_code(user_id, code):
-    """التحقق من صحة كود الربط"""
-    data = get_verification(user_id)
-    if not data:
-        return {"valid": False, "message": "No verification request found"}
-    
-    # التحقق من صلاحية الكود (5 دقائق)
-    if time.time() - data["timestamp"] > 300:
-        return {"valid": False, "message": "Code expired, request a new one"}
-    
-    if data["code"] == code:
-        # تسجيل المستخدم
-        users = {}
-        if os.path.exists(USERS_FILE):
-            with open(USERS_FILE, "r") as f:
-                users = json.load(f)
+# ====== تشغيل واتساب ======
+def start_whatsapp_client(user_id):
+    """تشغيل عميل واتساب حقيقي"""
+    try:
+        # مجلد الجلسة
+        session_dir = f"./wa_sessions/{user_id}"
+        os.makedirs(session_dir, exist_ok=True)
         
-        users[user_id] = {
-            "phone": data["phone"],
-            "connected_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "verified": True
-        }
+        # إنشاء عميل واتساب
+        client = WhatsApp(
+            session_path=session_dir,
+            auto_reconnect=True,
+            print_qr=False
+        )
         
-        with open(USERS_FILE, "w") as f:
-            json.dump(users, f, indent=2)
+        clients[user_id] = client
+        status_data[user_id] = "connecting"
         
-        return {"valid": True, "message": "Phone verified successfully"}
-    
-    return {"valid": False, "message": "Invalid code"}
+        # ====== حدث عند ظهور QR ======
+        @client.on("qr")
+        async def on_qr(qr_string):
+            """استقبال QR حقيقي من واتساب"""
+            print(f"[WhatsApp] QR received for {user_id}")
+            
+            # تحويل QR إلى صورة
+            qr = qrcode.QRCode(box_size=10, border=4)
+            qr.add_data(qr_string)  # البيانات الحقيقية من واتساب
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            
+            buffered = BytesIO()
+            img.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            
+            qr_data[user_id] = f"data:image/png;base64,{img_str}"
+            status_data[user_id] = "qr_ready"
+            
+            # حفظ في ملف
+            with open(f"./wa_qr_{user_id}.json", "w") as f:
+                json.dump({"qr": qr_data[user_id], "status": "qr_ready"}, f)
+        
+        # ====== حدث عند الاتصال ======
+        @client.on("connected")
+        async def on_connected():
+            print(f"[WhatsApp] {user_id} connected successfully!")
+            status_data[user_id] = "connected"
+            qr_data.pop(user_id, None)
+        
+        # ====== حدث عند قطع الاتصال ======
+        @client.on("disconnected")
+        async def on_disconnected():
+            print(f"[WhatsApp] {user_id} disconnected")
+            status_data[user_id] = "disconnected"
+        
+        # تشغيل العميل
+        asyncio.create_task(client.start())
+        
+        return True
+    except Exception as e:
+        print(f"[WhatsApp] Error: {e}")
+        status_data[user_id] = "error"
+        return False
 
 # ====== Routes ======
 
@@ -93,126 +86,62 @@ def start_session():
     try:
         data = request.get_json()
         user_id = data.get('userId', f"user_{int(time.time())}")
-        phone = data.get('phone', '').strip()
         
-        if not phone:
-            return jsonify({"error": "Phone number is required"}), 400
+        if user_id in clients:
+            return jsonify({"success": True, "userId": user_id, "status": status_data.get(user_id, "running")})
         
-        # تنظيف رقم الهاتف
-        clean_phone = re.sub(r'[^0-9+]', '', phone)
-        
-        # توليد كود ربط
-        code = generate_code()
-        save_verification(user_id, clean_phone, code)
+        # تشغيل العميل
+        start_whatsapp_client(user_id)
         
         return jsonify({
             "success": True,
             "userId": user_id,
-            "phone": clean_phone,
-            "code": code,  # إرجاع الكود للتطبيق (سيظهر للمستخدم)
-            "status": "code_sent",
-            "message": f"Pairing code generated for {clean_phone}"
+            "status": "connecting",
+            "message": "WhatsApp client starting..."
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/verify', methods=['POST'])
-def verify():
+@app.route('/qr/<user_id>')
+def get_qr(user_id):
     try:
-        data = request.get_json()
-        user_id = data.get('userId')
-        code = data.get('code', '').strip()
-        
-        if not user_id or not code:
-            return jsonify({"error": "User ID and code are required"}), 400
-        
-        result = verify_code(user_id, code)
-        
-        if result["valid"]:
+        # جلب QR من الذاكرة
+        if user_id in qr_data:
             return jsonify({
-                "success": True,
-                "status": "verified",
-                "message": result["message"]
+                "qr": qr_data[user_id],
+                "status": "qr_ready"
             })
-        else:
-            return jsonify({
-                "success": False,
-                "status": "invalid",
-                "message": result["message"]
-            }), 400
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/status/<user_id>')
-def get_status(user_id):
-    try:
-        if os.path.exists(USERS_FILE):
-            with open(USERS_FILE, "r") as f:
-                users = json.load(f)
-                if user_id in users:
+        
+        # جلب من الملف
+        qr_file = f"./wa_qr_{user_id}.json"
+        if os.path.exists(qr_file):
+            with open(qr_file, "r") as f:
+                data = json.load(f)
+                if data.get("qr"):
+                    qr_data[user_id] = data["qr"]
                     return jsonify({
-                        "status": "verified",
-                        "user": users[user_id]
+                        "qr": data["qr"],
+                        "status": "qr_ready"
                     })
-        
-        data = get_verification(user_id)
-        if data:
-            return jsonify({
-                "status": "code_sent",
-                "phone": data["phone"]
-            })
         
         return jsonify({"status": "waiting"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/resend', methods=['POST'])
-def resend_code():
+@app.route('/status/<user_id>')
+def get_status(user_id):
     try:
-        data = request.get_json()
-        user_id = data.get('userId')
-        phone = data.get('phone', '').strip()
-        
-        if not user_id:
-            return jsonify({"error": "User ID required"}), 400
-        
-        if phone:
-            clean_phone = re.sub(r'[^0-9+]', '', phone)
-        else:
-            existing = get_verification(user_id)
-            if existing:
-                clean_phone = existing["phone"]
-            else:
-                return jsonify({"error": "Phone number required"}), 400
-        
-        code = generate_code()
-        save_verification(user_id, clean_phone, code)
-        
-        return jsonify({
-            "success": True,
-            "userId": user_id,
-            "phone": clean_phone,
-            "code": code,
-            "status": "code_sent",
-            "message": f"New pairing code generated for {clean_phone}"
-        })
+        status = status_data.get(user_id, "waiting")
+        return jsonify({"status": status})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/health')
 def health():
     return jsonify({
         "status": "ok",
-        "platform": "whatsapp",
-        "verifications": len(verification_codes)
-    })
-
-@app.route('/')
-def home():
-    return jsonify({
-        "service": "WhatsApp Pairing Server",
-        "status": "running",
-        "port": PORT
+        "clients": len(clients),
+        "platform": "pybaileys"
     })
 
 if __name__ == "__main__":
