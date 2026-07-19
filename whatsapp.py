@@ -8,6 +8,7 @@ import qrcode
 from io import BytesIO
 import base64
 import random
+import re
 
 app = Flask(__name__)
 
@@ -25,6 +26,27 @@ if not os.path.exists(USERS_FILE):
 # ====== تخزين مؤقت ======
 qr_data = {}
 status_data = {}
+phone_data = {}
+
+# ====== دوال مساعدة ======
+def generate_qr_for_phone(phone_number):
+    """إنشاء QR Code لربط رقم الهاتف"""
+    # تنظيف رقم الهاتف
+    clean_phone = re.sub(r'[^0-9+]', '', phone_number)
+    
+    # إنشاء QR يحتوي على رابط واتساب + الرقم
+    qr = qrcode.QRCode(box_size=10, border=4)
+    # رابط واتساب الصحيح للربط
+    qr_data_str = f"https://wa.me/{clean_phone}?text=ربط%20واتساب%20بوت"
+    qr.add_data(qr_data_str)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    
+    buffered = BytesIO()
+    img.save(buffered, format="PNG")
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    
+    return f"data:image/png;base64,{img_str}"
 
 # ====== Routes ======
 
@@ -33,29 +55,45 @@ def start_session():
     try:
         data = request.get_json()
         user_id = data.get('userId', f"user_{int(time.time())}")
+        phone_number = data.get('phone', '')
         
-        # إنشاء QR للاختبار
-        qr = qrcode.QRCode(box_size=10, border=4)
-        qr.add_data(f"whatsapp://connect?user={user_id}")
-        qr.make(fit=True)
-        img = qr.make_image(fill_color="black", back_color="white")
-        
-        buffered = BytesIO()
-        img.save(buffered, format="PNG")
-        img_str = base64.b64encode(buffered.getvalue()).decode()
-        
-        qr_data[user_id] = f"data:image/png;base64,{img_str}"
-        status_data[user_id] = "qr_ready"
-        
-        # حفظ في ملف
-        with open(QR_FILE, "w") as f:
-            json.dump({"qr": qr_data[user_id], "userId": user_id}, f)
-        
-        return jsonify({
-            "success": True,
-            "userId": user_id,
-            "status": "qr_ready"
-        })
+        # إنشاء QR مع الرقم لو موجود
+        if phone_number:
+            qr_image = generate_qr_for_phone(phone_number)
+            qr_data[user_id] = qr_image
+            phone_data[user_id] = phone_number
+            status_data[user_id] = "qr_ready"
+            
+            # حفظ في ملف
+            with open(QR_FILE, "w") as f:
+                json.dump({"qr": qr_image, "userId": user_id, "phone": phone_number}, f)
+            
+            return jsonify({
+                "success": True,
+                "userId": user_id,
+                "phone": phone_number,
+                "status": "qr_ready",
+                "message": f"QR Code for {phone_number} ready"
+            })
+        else:
+            # QR عادي لو مفيش رقم
+            qr = qrcode.QRCode(box_size=10, border=4)
+            qr.add_data(f"whatsapp://connect?user={user_id}")
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            
+            buffered = BytesIO()
+            img.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            
+            qr_data[user_id] = f"data:image/png;base64,{img_str}"
+            status_data[user_id] = "qr_ready"
+            
+            return jsonify({
+                "success": True,
+                "userId": user_id,
+                "status": "qr_ready"
+            })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -66,23 +104,26 @@ def get_qr(user_id):
         if user_id in qr_data:
             return jsonify({
                 "qr": qr_data[user_id],
-                "status": "qr_ready"
+                "status": "qr_ready",
+                "phone": phone_data.get(user_id, "")
             })
         
         # جلب QR من الملف
         if os.path.exists(QR_FILE):
             with open(QR_FILE, "r") as f:
                 data = json.load(f)
-                if data.get("qr"):
+                if data.get("qr") and data.get("userId") == user_id:
                     qr_data[user_id] = data["qr"]
+                    phone_data[user_id] = data.get("phone", "")
                     return jsonify({
                         "qr": data["qr"],
-                        "status": "qr_ready"
+                        "status": "qr_ready",
+                        "phone": data.get("phone", "")
                     })
         
-        # محاكاة QR جديد
+        # QR جديد مع رابط واتساب
         qr = qrcode.QRCode(box_size=10, border=4)
-        qr.add_data(f"whatsapp://connect?user={user_id}")
+        qr.add_data(f"https://wa.me/?text=ربط%20واتساب")
         qr.make(fit=True)
         img = qr.make_image(fill_color="black", back_color="white")
         
@@ -102,11 +143,9 @@ def get_qr(user_id):
 @app.route('/status/<user_id>')
 def get_status(user_id):
     try:
-        # جلب الحالة من الذاكرة
         if user_id in status_data:
             return jsonify({"status": status_data[user_id]})
         
-        # جلب الحالة من الملف
         if os.path.exists(USERS_FILE):
             with open(USERS_FILE, "r") as f:
                 users = json.load(f)
@@ -116,7 +155,6 @@ def get_status(user_id):
                         "user": users[user_id]
                     })
         
-        # حالة افتراضية
         return jsonify({"status": "waiting"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
