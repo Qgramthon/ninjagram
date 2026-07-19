@@ -1,17 +1,9 @@
-FROM node:20-slim
-
-RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
-    python3-venv \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+FROM python:3.10-slim
 
 WORKDIR /app
 COPY . .
 
-RUN npm install --omit=dev --no-audit --no-fund
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 EXPOSE 8080
-CMD ["python3", "server.py"]
+CMD ["python", "server.py"]
