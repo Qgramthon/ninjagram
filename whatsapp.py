@@ -25,11 +25,11 @@ verification_codes = {}  # {user_id: {"phone": "number", "code": "12345678", "ti
 
 # ====== دوال مساعدة ======
 def generate_code():
-    """توليد كود تحقق من 8 أرقام"""
+    """توليد كود ربط من 8 أرقام"""
     return ''.join([str(random.randint(0, 9)) for _ in range(8)])
 
 def save_verification(user_id, phone, code):
-    """حفظ كود التحقق في الملف"""
+    """حفظ كود الربط في الملف"""
     data = {
         "phone": phone,
         "code": code,
@@ -43,7 +43,7 @@ def save_verification(user_id, phone, code):
     return data
 
 def get_verification(user_id):
-    """جلب كود التحقق من الذاكرة أو الملف"""
+    """جلب كود الربط من الذاكرة أو الملف"""
     if user_id in verification_codes:
         return verification_codes[user_id]
     
@@ -57,7 +57,7 @@ def get_verification(user_id):
     return None
 
 def verify_code(user_id, code):
-    """التحقق من صحة الكود"""
+    """التحقق من صحة كود الربط"""
     data = get_verification(user_id)
     if not data:
         return {"valid": False, "message": "No verification request found"}
@@ -101,7 +101,7 @@ def start_session():
         # تنظيف رقم الهاتف
         clean_phone = re.sub(r'[^0-9+]', '', phone)
         
-        # توليد كود تحقق
+        # توليد كود ربط
         code = generate_code()
         save_verification(user_id, clean_phone, code)
         
@@ -111,7 +111,7 @@ def start_session():
             "phone": clean_phone,
             "code": code,  # إرجاع الكود للتطبيق (سيظهر للمستخدم)
             "status": "code_sent",
-            "message": f"Verification code sent to {clean_phone}"
+            "message": f"Pairing code generated for {clean_phone}"
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -146,7 +146,6 @@ def verify():
 @app.route('/status/<user_id>')
 def get_status(user_id):
     try:
-        # جلب حالة المستخدم
         if os.path.exists(USERS_FILE):
             with open(USERS_FILE, "r") as f:
                 users = json.load(f)
@@ -156,7 +155,6 @@ def get_status(user_id):
                         "user": users[user_id]
                     })
         
-        # التحقق من وجود كود مرسل
         data = get_verification(user_id)
         if data:
             return jsonify({
@@ -181,14 +179,12 @@ def resend_code():
         if phone:
             clean_phone = re.sub(r'[^0-9+]', '', phone)
         else:
-            # جلب الرقم المخزن
             existing = get_verification(user_id)
             if existing:
                 clean_phone = existing["phone"]
             else:
                 return jsonify({"error": "Phone number required"}), 400
         
-        # توليد كود جديد
         code = generate_code()
         save_verification(user_id, clean_phone, code)
         
@@ -198,7 +194,7 @@ def resend_code():
             "phone": clean_phone,
             "code": code,
             "status": "code_sent",
-            "message": f"New code sent to {clean_phone}"
+            "message": f"New pairing code generated for {clean_phone}"
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -214,12 +210,11 @@ def health():
 @app.route('/')
 def home():
     return jsonify({
-        "service": "WhatsApp Verification Server",
+        "service": "WhatsApp Pairing Server",
         "status": "running",
         "port": PORT
     })
 
-# ====== تشغيل السيرفر ======
 if __name__ == "__main__":
     print(f"[WhatsApp] Server starting on port {PORT}")
     app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
