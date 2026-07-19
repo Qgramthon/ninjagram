@@ -34,7 +34,7 @@ def start_session():
         data = request.get_json()
         user_id = data.get('userId', f"user_{int(time.time())}")
         
-        # إنشاء QR وهمي للاختبار
+        # إنشاء QR للاختبار
         qr = qrcode.QRCode(box_size=10, border=4)
         qr.add_data(f"whatsapp://connect?user={user_id}")
         qr.make(fit=True)
